@@ -27,6 +27,32 @@ I collected a lot of data with several solar stations in Nha Be and Phu My Hung 
 - Analyse and structure the data, clean up, label - maybe sqlite
 - Visualize the data on a website, make it searchable
 
+## Data sources
+
+Most data was forwared with the service [IFTTT.com](https://ifttt.com/explore) that was free in 2020 and could easily have 5 different services available over webhooks. In time it was reduced to three, and then even this service was put behind a Pro subscription. But the data is in the Google Sheets - now lets extract it. We have
+
+- IFTTT_test 0-18 2020-07-08 - 2020-09-26
+- Voltage_phumy 0-2 2020-07-10 - 20220-07-13
+- IFTTT_AISVN_Solar 0-6 2020-06-13
+- IFTTT_phumy2 0-39 2020-06-18 - 2020-12-21
+- IFTTT_phumy2 40-75 2021-02-15 - 2021-11-14
+- IFTTT_phumy2 76-101, 0-12 2022-03-06 - 2022-12-18
+- IFTTT_phumy2 13-97 2023-01-02 - 2023-11-24
+- IFTTT_phymy2 0-2, 98-99 2024-01-14 - 2024-02-02
+- IFTTT_aisvn 0-38 2020-06-18 - 2022-02-23
+- IFTTT_aisvn2 0-78 2020-06-23 - 2021-11-01
+
+From IFTTT:
+
+- **aisvn** run 94437 times from 2020-09-06 to 2022-02-23
+- **solar_reading** un 428698 times from 2020-09-06 to 2024-02-02
+
+Archived older Applets:
+
+- phumy
+- test
+- aisvn2
+
 ## Convert, analyse and structure - the backend
 
 This should be done in python. It might involve some workers triggered with GitHub Action.
