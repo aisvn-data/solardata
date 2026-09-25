@@ -1,10 +1,19 @@
 # solardata
 
-![GitHub License](https://img.shields.io/github/license/aisvn-data/solardata)
-![GitHub Release](https://img.shields.io/github/v/release/aisvn-data/solardata)
-![GitHub package.json version (branch)](https://img.shields.io/github/package-json/v/aisvn-data/solardata/main)
+Analyze, clean and display collected solar data.
 
-Analyze, clean and display collected solar data
+## Website
+
+The repository now includes the initial **v0.1.0** Vite + React website outline. It provides a lightweight landing page for the project, station overview cards, and a small roadmap for future data work.
+
+### Run locally
+
+```bash
+npm install
+npm run dev
+```
+
+Build a production bundle with `npm run build`. The Vite base path is configured for GitHub Pages at `/solardata/`.
 
 ## Purpose
 
@@ -26,5 +35,5 @@ The data will run with react as frontend, create by vite
 
 - [aisvn-data/solarpower](https://github.com/aisvn-data/solarpower) Some tinkering and documenting of early steps in May 2020
 - [kreier/solarmeter](https://github.com/kreier/solarmeter) Software repository for the 4 collectors of data 2020-2021
-- [hviovn/solarmeter](https://github.com/hviovn/solarmeter) New updated solarmeter without the IFTTT service, but using a Cloudflare worker collect the data and store values every two minutes, and finally commit the data to the repository as a pull request to have historic data.
+- [hviovn/solarmeter](https://github.com/hviovn/solarmeter) New updated solarmeter without the IFTTT service, but using a Cloudflare worker collect the data and store values every two minutes, and find historical data
 - [kreier/solar](https://github.com/kreier/solar) Endpoint for different measuring stations and point to visualize historic solar data back to 2020, and temperature data back to 2015 in Hofkoh
