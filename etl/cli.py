@@ -10,16 +10,50 @@ from pathlib import Path
 from etl import __version__
 from etl.config import Settings, settings_from_env
 
-STAGES = ("db", "regimes", "parquet", "export", "report")
+STAGES = ("db", "regimes", "parquet", "export", "report", "verify")
+
+
+#: Optional flags and their defaults.  The shared parent parser is built with
+#: ``argument_default=SUPPRESS`` so that an unspecified flag sets *no*
+#: attribute at all.  Without that, argparse's subparser re-applies its own
+#: defaults to the namespace and silently clobbers anything given before the
+#: subcommand -- which is exactly the bug this table exists to prevent.
+_FLAG_DEFAULTS: dict[str, object] = {
+    "raw_dir": None,
+    "out_dir": None,
+    "export_dir": None,
+    "baseline": None,
+    "only": None,
+    "quiet": False,
+    "hourly": False,
+    "all_stations": False,
+    "update_baseline": False,
+    "reason": "",
+}
+
+
+def _apply_flag_defaults(args) -> None:
+    for name, default in _FLAG_DEFAULTS.items():
+        if not hasattr(args, name):
+            setattr(args, name, default)
 
 
 def _settings(args) -> Settings:
     base = settings_from_env()
     overrides: dict = {}
-    if args.raw_dir:
-        overrides["raw_dir"] = Path(args.raw_dir)
-    if args.out_dir:
-        out = Path(args.out_dir)
+    raw_dir = getattr(args, "raw_dir", None)
+    out_dir = getattr(args, "out_dir", None)
+    export_dir = getattr(args, "export_dir", None)
+    only = getattr(args, "only", None)
+    baseline = getattr(args, "baseline", None)
+
+    if raw_dir:
+        overrides["raw_dir"] = Path(raw_dir)
+    if out_dir:
+        # Redirecting the output directory has to move every artefact that
+        # lives under it, otherwise the database lands in one place and the
+        # report in another.
+        out = Path(out_dir)
         overrides.update(
             out_dir=out,
             db_path=out / "solardata.db",
@@ -27,12 +61,14 @@ def _settings(args) -> Settings:
             report_json=out / "quality_report.json",
             report_md=out / "quality_report.md",
         )
-    if args.export_dir:
-        overrides["export_dir"] = Path(args.export_dir)
-    if getattr(args, "only", None):
-        overrides["only"] = tuple(s.strip() for s in args.only.split(",") if s.strip())
+    if export_dir:
+        overrides["export_dir"] = Path(export_dir)
+    if only:
+        overrides["only"] = tuple(s.strip() for s in only.split(",") if s.strip())
     if getattr(args, "hourly", False):
         overrides["export_granularity"] = "hour"
+    if baseline:
+        overrides["baseline_path"] = Path(baseline)
     return Settings(**{**base.__dict__, **overrides})
 
 
@@ -51,7 +87,7 @@ def cmd_ingest(args) -> int:
     print(f"raw  : {settings.raw_dir}")
     print(f"out  : {settings.out_dir}")
     started = time.time()
-    summary = ingest(settings, verbose=not args.quiet)
+    summary = ingest(settings, verbose=not getattr(args, "quiet", False))
     elapsed = time.time() - started
 
     print()
@@ -98,7 +134,7 @@ def cmd_parquet(args) -> int:
     conn = connect(settings.db_path)
     try:
         print("writing Parquet ...")
-        rows = build(conn, settings.parquet_dir, verbose=not args.quiet)
+        rows = build(conn, settings.parquet_dir, verbose=not getattr(args, "quiet", False))
         log_build(conn, None, "parquet", str(settings.parquet_dir), rows, 0)
     finally:
         conn.close()
@@ -121,7 +157,7 @@ def cmd_export(args) -> int:
             settings.export_dir,
             include_hourly=args.hourly,
             include_non_production=args.all_stations,
-            verbose=not args.quiet,
+            verbose=not getattr(args, "quiet", False),
         )
         log_build(
             conn,
@@ -181,6 +217,14 @@ def cmd_all(args) -> int:
         code = STAGE_FUNCS[stage](args)
         if code != 0:
             return code
+    # Verify last: it is the check on everything the other stages produced.
+    # Skipped by default in `all` so a local rebuild is not gated on a stale
+    # baseline file; CI runs `verify` explicitly.
+    if _selected(args, "verify") and not getattr(args, "update_baseline", False):
+        print()
+        code = cmd_verify(args)
+        if code != 0:
+            return code
     return 0
 
 
@@ -208,10 +252,56 @@ def cmd_query(args) -> int:
     return 0
 
 
+def cmd_verify(args) -> int:
+    """Fail if the built database does not match data/baseline.json."""
+    from etl.db import connect
+    from etl.verify import check, render, write
+
+    settings = _settings(args)
+    if not settings.db_path.exists():
+        print(f"no database at {settings.db_path}; run `ingest` first", file=sys.stderr)
+        return 1
+    conn = connect(settings.db_path, read_only=not args.update_baseline)
+    try:
+        if args.update_baseline:
+            payload = write(conn, settings.baseline_path, reason=args.reason or "")
+            print(f"baseline updated -> {settings.baseline_path}")
+            for name, value in payload["counts"].items():
+                print(f"  {name:<28} {value:>9}")
+            print("\nReview this diff in the pull request: it is the record of what")
+            print("changed in the data, not just in the code.")
+            return 0
+
+        if not settings.baseline_path.exists():
+            print(
+                f"no baseline at {settings.baseline_path};"
+                " create one with `python -m etl verify --update-baseline`",
+                file=sys.stderr,
+            )
+            return 1
+
+        result = check(conn, settings.baseline_path)
+    finally:
+        conn.close()
+
+    print(render(result))
+    if result.ok:
+        print("\nbaseline matches: the reading count did not move.")
+        return 0
+
+    print("\nBASELINE DRIFT -- the build no longer produces the recorded data.")
+    print("If this change is intended, re-record it with:")
+    print('  python -m etl verify --update-baseline --reason "<why>"')
+    for name, (expected, actual) in result.drift.items():
+        print(f"  {name}: {expected} -> {actual} ({actual - expected:+d})")
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     # Shared flags live on a parent parser so they work on either side of the
     # subcommand: `python -m etl -q ingest` and `python -m etl ingest -q`.
-    common = argparse.ArgumentParser(add_help=False)
+    # SUPPRESS is essential here -- see _FLAG_DEFAULTS.
+    common = argparse.ArgumentParser(add_help=False, argument_default=argparse.SUPPRESS)
     common.add_argument("--raw-dir", help="override data/raw")
     common.add_argument("--out-dir", help="override data/processed")
     common.add_argument("--export-dir", help="override data/exports")
@@ -225,6 +315,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="include bench/non-production stations (test, voltage-phumy)",
     )
+    common.add_argument("--baseline", help="override data/baseline.json")
 
     parser = argparse.ArgumentParser(
         prog="python -m etl",
@@ -265,12 +356,26 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("sql", help='e.g. "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"')
     query.set_defaults(func=cmd_query)
 
+    verify = sub.add_parser(
+        "verify",
+        parents=[common],
+        help="fail if the build does not match data/baseline.json",
+    )
+    verify.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help="record the current build as the new baseline",
+    )
+    verify.add_argument("--reason", default="", help="why the baseline is moving")
+    verify.set_defaults(func=cmd_verify)
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _apply_flag_defaults(args)
     if not hasattr(args, "func"):
         parser.print_help()
         return 2

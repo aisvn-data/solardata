@@ -1,0 +1,84 @@
+name: Release the database
+
+# data/processed/solardata.db is 158 MiB, over GitHub's 100 MiB per-file limit
+# for a git blob, so it cannot be committed.  It ships here as a Release asset
+# instead, which is what git-annex/LFS/fat LFS objects would otherwise be for.
+#
+# Parquet (7.4 MiB) IS committed, so the processed data is available to anyone
+# who clones without running anything.  This workflow exists for the case where
+# you want the queryable SQLite file rather than a columnar export.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to attach the assets to
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-attach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build the database
+        run: python -m etl ingest --quiet
+
+      # Never publish a database that does not match the recorded baseline: an
+      # asset named solardata.db that silently lost 90% of its measurements
+      # would be worse than no asset at all.
+      - name: Verify against the baseline
+        run: python -m etl verify
+
+      - name: Package
+        run: |
+          # VACUUM shrinks the file and rewrites it without the free pages left
+          # by the build, which typically saves 10-20 MiB on a Release upload.
+          python -c "
+          import sqlite3
+          c = sqlite3.connect('data/processed/solardata.db')
+          c.execute('VACUUM')
+          c.close()
+          print('vacuumed')
+          "
+          cd data/processed
+          gzip -9 -k -f solardata.db
+          ls -lh solardata.db solardata.db.gz
+
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: |
+            data/processed/solardata.db.gz
+            data/processed/quality_report.md
+          body: |
+            `solardata.db.gz` is the canonical SQLite store for this tag:
+            735,004 readings across 8 stations.
+
+            ```
+            gunzip solardata.db.gz
+            python -m etl --out-dir <dir containing solardata.db> query \
+              "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"
+            ```
+
+            The Parquet interchange format (~7 MiB) is committed in
+            `data/processed/parquet/` and does not need downloading.

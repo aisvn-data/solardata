@@ -1,0 +1,3412 @@
+{
+  "tool_version": "0.3.0",
+  "stations": [
+    {
+      "station_id": "aisvn",
+      "display_name": "AISVN #1",
+      "location": "Nha Be, Ho Chi Minh City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "applet": "IFTTT_aisvn",
+      "source_dirs": "[\"aisvn\"]",
+      "is_production": 1,
+      "first_ts_utc": "2020-06-15T06:10:00Z",
+      "last_ts_utc": "2022-02-22T21:42:00Z",
+      "n_readings": 77622,
+      "notes": "11-channel logger. Column meaning and sensor scaling both change during the record -- see etl.normalize.units for the regime table."
+    },
+    {
+      "station_id": "aisvn-solar",
+      "display_name": "AISVN Solar (archived applet)",
+      "location": "Nha Be, Ho Chi Minh City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "applet": "IFTTT_AISVN_Solar",
+      "source_dirs": "[\"AISVN_Solar\"]",
+      "is_production": 1,
+      "first_ts_utc": "2020-05-21T02:52:00Z",
+      "last_ts_utc": "2020-06-12T05:04:00Z",
+      "n_readings": 13788,
+      "notes": "Superseded by aisvn. May 2020 only. Carries a second column block."
+    },
+    {
+      "station_id": "aisvn2",
+      "display_name": "AISVN #2",
+      "location": "Nha Be, Ho Chi Minh City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "applet": "IFTTT_aisvn2",
+      "source_dirs": "[\"aisvn2\"]",
+      "is_production": 1,
+      "first_ts_utc": "2020-06-18T09:45:00Z",
+      "last_ts_utc": "2021-11-01T02:49:00Z",
+      "n_readings": 164098,
+      "notes": "8-channel logger, values in millivolts/milliamps until normalised."
+    },
+    {
+      "station_id": "maker-webhooks",
+      "display_name": "Maker Webhooks (archived applet)",
+      "location": "Ho Chi Minh City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "applet": "IFTTT_Maker_Webhooks_Events",
+      "source_dirs": "[\"Maker_Webhooks_Events\"]",
+      "is_production": 1,
+      "first_ts_utc": "2020-05-30T06:03:00Z",
+      "last_ts_utc": "2020-06-12T15:21:00Z",
+      "n_readings": 8535,
+      "notes": "Superseded by aisvn. June 2020 only. Heavy -992 sentinel usage."
+    },
+    {
+      "station_id": "phumy2",
+      "display_name": "Phu My Hung #2",
+      "location": "Phu My Hung, Ho Chi Minh City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "applet": "IFTTT_phumy2",
+      "source_dirs": "[\"phumy2\", \"phumy2a\", \"phumy2b\"]",
+      "is_production": 1,
+      "first_ts_utc": "2020-06-15T02:29:00Z",
+      "last_ts_utc": "2024-02-01T20:18:00Z",
+      "n_readings": 415117,
+      "notes": "Split across three archive folders because Google Sheets split the sheet at 2000 rows. Continuous June 2020 - February 2024."
+    },
+    {
+      "station_id": "solar-2020-05",
+      "display_name": "Solar bench (2020-05-16 sheet)",
+      "location": "Ho Chi Minh City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "applet": "IFTTT_Solar_2020-05-16",
+      "source_dirs": "[\"Solar_2020-05-16\"]",
+      "is_production": 1,
+      "first_ts_utc": "2020-05-16T15:52:00Z",
+      "last_ts_utc": "2020-06-15T02:51:00Z",
+      "n_readings": 12920,
+      "notes": "Bench test sheet, May-June 2020. Has an 'event' column (solar_reading)."
+    },
+    {
+      "station_id": "test",
+      "display_name": "Test bench",
+      "location": "unknown",
+      "tz": "Asia/Ho_Chi_Minh",
+      "applet": "IFTTT_test",
+      "source_dirs": "[\"test\"]",
+      "is_production": 0,
+      "first_ts_utc": "2020-06-12T15:22:00Z",
+      "last_ts_utc": "2020-08-21T06:36:00Z",
+      "n_readings": 37371,
+      "notes": "NOT a solar station. Mixes at least three unrelated schemas (solar channels, a nix/temp/wifi probe, and a millis counter). Treat with suspicion; excluded from published exports by default."
+    },
+    {
+      "station_id": "voltage-phumy",
+      "display_name": "Phu My Hung voltage calibration",
+      "location": "Phu My Hung, Ho Chi Minh City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "applet": "Voltage_phumy",
+      "source_dirs": "[\"Voltage_phumy\"]",
+      "is_production": 0,
+      "first_ts_utc": "2020-07-04T21:08:00Z",
+      "last_ts_utc": "2020-07-12T18:03:00Z",
+      "n_readings": 5553,
+      "notes": "Bench calibration of the ADC->voltage conversion, not a station. Contains free-text discharge-test notes. Unit mapping unconfirmed."
+    }
+  ],
+  "totals": {
+    "readings": 735004,
+    "stations": 8,
+    "days": 850,
+    "first_ts": "2020-05-16T15:52:00Z",
+    "last_ts": "2024-02-01T20:18:00Z"
+  },
+  "source_files": {
+    "total": 364,
+    "with_header": 59,
+    "without_header": 305,
+    "with_side_blocks": 23,
+    "with_repeated_headers": 3,
+    "per_folder": [
+      {
+        "source_dir": "AISVN_Solar",
+        "station_id": "aisvn-solar",
+        "files": 7,
+        "with_header": 7,
+        "rows_ingested": 13788,
+        "duplicate_ts": 6,
+        "rejected": 6,
+        "first_ts": "2020-05-21T02:52:00Z",
+        "last_ts": "2020-06-12T05:04:00Z"
+      },
+      {
+        "source_dir": "Maker_Webhooks_Events",
+        "station_id": "maker-webhooks",
+        "files": 5,
+        "with_header": 5,
+        "rows_ingested": 8535,
+        "duplicate_ts": 47,
+        "rejected": 49,
+        "first_ts": "2020-05-30T06:03:00Z",
+        "last_ts": "2020-06-12T15:21:00Z"
+      },
+      {
+        "source_dir": "Solar_2020-05-16",
+        "station_id": "solar-2020-05",
+        "files": 7,
+        "with_header": 7,
+        "rows_ingested": 12920,
+        "duplicate_ts": 39,
+        "rejected": 39,
+        "first_ts": "2020-05-16T15:52:00Z",
+        "last_ts": "2020-06-15T02:51:00Z"
+      },
+      {
+        "source_dir": "Voltage_phumy",
+        "station_id": "voltage-phumy",
+        "files": 3,
+        "with_header": 1,
+        "rows_ingested": 5553,
+        "duplicate_ts": 2013,
+        "rejected": 2013,
+        "first_ts": "2020-07-04T21:08:00Z",
+        "last_ts": "2020-07-12T18:03:00Z"
+      },
+      {
+        "source_dir": "aisvn",
+        "station_id": "aisvn",
+        "files": 39,
+        "with_header": 5,
+        "rows_ingested": 77622,
+        "duplicate_ts": 26,
+        "rejected": 27,
+        "first_ts": "2020-06-15T06:10:00Z",
+        "last_ts": "2022-02-22T21:42:00Z"
+      },
+      {
+        "source_dir": "aisvn2",
+        "station_id": "aisvn2",
+        "files": 79,
+        "with_header": 7,
+        "rows_ingested": 164098,
+        "duplicate_ts": 48,
+        "rejected": 48,
+        "first_ts": "2020-06-18T09:45:00Z",
+        "last_ts": "2021-11-01T02:49:00Z"
+      },
+      {
+        "source_dir": "phumy2",
+        "station_id": "phumy2",
+        "files": 102,
+        "with_header": 21,
+        "rows_ingested": 209652,
+        "duplicate_ts": 58,
+        "rejected": 58,
+        "first_ts": "2020-06-15T02:29:00Z",
+        "last_ts": "2022-11-21T21:45:00Z"
+      },
+      {
+        "source_dir": "phumy2a",
+        "station_id": "phumy2",
+        "files": 100,
+        "with_header": 2,
+        "rows_ingested": 199514,
+        "duplicate_ts": 4,
+        "rejected": 4,
+        "first_ts": "2022-11-21T21:49:00Z",
+        "last_ts": "2024-01-16T05:34:00Z"
+      },
+      {
+        "source_dir": "phumy2b",
+        "station_id": "phumy2",
+        "files": 3,
+        "with_header": 1,
+        "rows_ingested": 5951,
+        "duplicate_ts": 0,
+        "rejected": 0,
+        "first_ts": "2024-01-16T05:36:00Z",
+        "last_ts": "2024-02-01T20:18:00Z"
+      },
+      {
+        "source_dir": "test",
+        "station_id": "test",
+        "files": 19,
+        "with_header": 3,
+        "rows_ingested": 37371,
+        "duplicate_ts": 2162,
+        "rejected": 2165,
+        "first_ts": "2020-06-12T15:22:00Z",
+        "last_ts": "2020-08-21T06:36:00Z"
+      }
+    ]
+  },
+  "quality_flags": {
+    "out_of_range": 653694,
+    "out_of_range,sentinel": 13431,
+    "sentinel,out_of_range": 2932
+  },
+  "flag_totals": {
+    "out_of_range": 670057,
+    "sentinel": 16363
+  },
+  "rejects": {
+    "total": 4409,
+    "by_reason": [
+      {
+        "reason": "duplicate_ts",
+        "n": 4403
+      },
+      {
+        "reason": "repeated header row",
+        "n": 6
+      }
+    ],
+    "samples": [
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (11).xlsx",
+        "sheet_row": 1841,
+        "column_name": "time",
+        "raw_value": "July 20, 2020 at 09:10AM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (15).xlsx",
+        "sheet_row": 1878,
+        "column_name": "time",
+        "raw_value": "July 31, 2020 at 06:22PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (2).xlsx",
+        "sheet_row": 1222,
+        "column_name": "time",
+        "raw_value": "June 23, 2020 at 09:16AM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (2).xlsx",
+        "sheet_row": 1275,
+        "column_name": "time",
+        "raw_value": "June 23, 2020 at 11:01AM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (22).xlsx",
+        "sheet_row": 1137,
+        "column_name": "time",
+        "raw_value": "August 20, 2020 at 11:54AM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (22).xlsx",
+        "sheet_row": 1143,
+        "column_name": "time",
+        "raw_value": "August 20, 2020 at 12:07PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (22).xlsx",
+        "sheet_row": 1153,
+        "column_name": "time",
+        "raw_value": "August 20, 2020 at 12:27PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (22).xlsx",
+        "sheet_row": 1156,
+        "column_name": "time",
+        "raw_value": "August 20, 2020 at 12:31PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (22).xlsx",
+        "sheet_row": 1161,
+        "column_name": "time",
+        "raw_value": "August 20, 2020 at 12:39PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (22).xlsx",
+        "sheet_row": 1229,
+        "column_name": "time",
+        "raw_value": "August 20, 2020 at 02:58PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (22).xlsx",
+        "sheet_row": 1252,
+        "column_name": "time",
+        "raw_value": "August 20, 2020 at 03:43PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (22).xlsx",
+        "sheet_row": 1279,
+        "column_name": "time",
+        "raw_value": "August 20, 2020 at 04:36PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (23).xlsx",
+        "sheet_row": 175,
+        "column_name": "time",
+        "raw_value": "August 22, 2020 at 12:21AM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (24).xlsx",
+        "sheet_row": 648,
+        "column_name": "time",
+        "raw_value": "October 24, 2020 at 03:51AM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (24).xlsx",
+        "sheet_row": 1141,
+        "column_name": "time",
+        "raw_value": "October 24, 2020 at 08:40PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (24).xlsx",
+        "sheet_row": 1639,
+        "column_name": "time",
+        "raw_value": "October 25, 2020 at 01:43PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (24).xlsx",
+        "sheet_row": 1694,
+        "column_name": "time",
+        "raw_value": "October 25, 2020 at 03:36PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+        "sheet_row": 27,
+        "column_name": "time",
+        "raw_value": "October 29, 2020 at 05:29PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+        "sheet_row": 34,
+        "column_name": "time",
+        "raw_value": "October 29, 2020 at 05:37PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+        "sheet_row": 46,
+        "column_name": "time",
+        "raw_value": "October 30, 2020 at 04:19PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+        "sheet_row": 100,
+        "column_name": "time",
+        "raw_value": "October 30, 2020 at 06:05PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+        "sheet_row": 127,
+        "column_name": "time",
+        "raw_value": "October 30, 2020 at 06:58PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+        "sheet_row": 235,
+        "column_name": "time",
+        "raw_value": "October 30, 2020 at 10:35PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (27).xlsx",
+        "sheet_row": 1774,
+        "column_name": "time",
+        "raw_value": "November 27, 2020 at 11:37PM",
+        "reason": "duplicate_ts"
+      },
+      {
+        "rel_path": "aisvn/IFTTT_aisvn (8).xlsx",
+        "sheet_row": 911,
+        "column_name": "time",
+        "raw_value": "July 10, 2020 at 01:15AM",
+        "reason": "duplicate_ts"
+      }
+    ]
+  },
+  "notes": [
+    {
+      "rel_path": "Voltage_phumy/Voltage_phumy (2).xlsx",
+      "note": "discharge 7.5 Ah with 0.3A - 25 hours, starting at 18:00 on July 11th"
+    },
+    {
+      "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+      "note": "this all is just garbage"
+    },
+    {
+      "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+      "note": "STROMAUSFALL!!"
+    },
+    {
+      "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+      "note": "Note8 provides Internet"
+    },
+    {
+      "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+      "note": "normal Internet wieder da"
+    },
+    {
+      "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+      "note": "at Library ..."
+    },
+    {
+      "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+      "note": "Pin 4 is temperature - calibrated ..."
+    },
+    {
+      "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+      "note": "leave home"
+    },
+    {
+      "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+      "note": "arrive at school"
+    },
+    {
+      "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+      "note": "Installed in the dark, let's start again!"
+    }
+  ],
+  "metric_defs": [
+    {
+      "station_id": "aisvn",
+      "source_dir": "aisvn",
+      "col_index": 1,
+      "raw_name": "solar",
+      "canonical_col": "solar_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 39
+    },
+    {
+      "station_id": "aisvn",
+      "source_dir": "aisvn",
+      "col_index": 2,
+      "raw_name": "battery",
+      "canonical_col": "battery_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 39
+    },
+    {
+      "station_id": "aisvn",
+      "source_dir": "aisvn",
+      "col_index": 3,
+      "raw_name": "current",
+      "canonical_col": "current_a",
+      "unit": "A",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 39
+    },
+    {
+      "station_id": "aisvn",
+      "source_dir": "aisvn",
+      "col_index": 4,
+      "raw_name": "load",
+      "canonical_col": "load_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 39
+    },
+    {
+      "station_id": "aisvn",
+      "source_dir": "aisvn",
+      "col_index": 5,
+      "raw_name": "wind",
+      "canonical_col": "wind_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 39
+    },
+    {
+      "station_id": "aisvn",
+      "source_dir": "aisvn",
+      "col_index": 6,
+      "raw_name": "temp",
+      "canonical_col": "temp_c",
+      "unit": "degC",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 39
+    },
+    {
+      "station_id": "aisvn",
+      "source_dir": "aisvn",
+      "col_index": 7,
+      "raw_name": "solar2",
+      "canonical_col": "solar2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 39
+    },
+    {
+      "station_id": "aisvn",
+      "source_dir": "aisvn",
+      "col_index": 8,
+      "raw_name": "LiPo",
+      "canonical_col": "lipo_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 39
+    },
+    {
+      "station_id": "aisvn",
+      "source_dir": "aisvn",
+      "col_index": 9,
+      "raw_name": "boot",
+      "canonical_col": "boot_count",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 39
+    },
+    {
+      "station_id": "aisvn",
+      "source_dir": "aisvn",
+      "col_index": 10,
+      "raw_name": "boot",
+      "canonical_col": "boot_count",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 15
+    },
+    {
+      "station_id": "aisvn-solar",
+      "source_dir": "AISVN_Solar",
+      "col_index": 1,
+      "raw_name": "solar",
+      "canonical_col": "solar_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "aisvn-solar",
+      "source_dir": "AISVN_Solar",
+      "col_index": 2,
+      "raw_name": "battery",
+      "canonical_col": "battery_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "aisvn-solar",
+      "source_dir": "AISVN_Solar",
+      "col_index": 3,
+      "raw_name": "load_1",
+      "canonical_col": "load1_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "aisvn-solar",
+      "source_dir": "AISVN_Solar",
+      "col_index": 4,
+      "raw_name": "load_2",
+      "canonical_col": "load2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "aisvn-solar",
+      "source_dir": "AISVN_Solar",
+      "col_index": 5,
+      "raw_name": "LiPo",
+      "canonical_col": "lipo_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "aisvn-solar",
+      "source_dir": "AISVN_Solar",
+      "col_index": 6,
+      "raw_name": "wind",
+      "canonical_col": "wind_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "aisvn-solar",
+      "source_dir": "AISVN_Solar",
+      "col_index": 7,
+      "raw_name": "dump",
+      "canonical_col": "dump_adc",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "aisvn-solar",
+      "source_dir": "AISVN_Solar",
+      "col_index": 8,
+      "raw_name": "boot",
+      "canonical_col": "boot_count",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "aisvn2",
+      "source_dir": "aisvn2",
+      "col_index": 1,
+      "raw_name": "solar3",
+      "canonical_col": "solar3_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 79
+    },
+    {
+      "station_id": "aisvn2",
+      "source_dir": "aisvn2",
+      "col_index": 2,
+      "raw_name": "battery2",
+      "canonical_col": "battery2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 79
+    },
+    {
+      "station_id": "aisvn2",
+      "source_dir": "aisvn2",
+      "col_index": 3,
+      "raw_name": "currentA",
+      "canonical_col": "current_a_chA",
+      "unit": "A",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 79
+    },
+    {
+      "station_id": "aisvn2",
+      "source_dir": "aisvn2",
+      "col_index": 4,
+      "raw_name": "currentB",
+      "canonical_col": "current_a_chB",
+      "unit": "A",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 79
+    },
+    {
+      "station_id": "aisvn2",
+      "source_dir": "aisvn2",
+      "col_index": 5,
+      "raw_name": "LiPo2",
+      "canonical_col": "lipo2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 79
+    },
+    {
+      "station_id": "aisvn2",
+      "source_dir": "aisvn2",
+      "col_index": 6,
+      "raw_name": "load",
+      "canonical_col": "load_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 79
+    },
+    {
+      "station_id": "aisvn2",
+      "source_dir": "aisvn2",
+      "col_index": 7,
+      "raw_name": "boot",
+      "canonical_col": "boot_count",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 79
+    },
+    {
+      "station_id": "maker-webhooks",
+      "source_dir": "Maker_Webhooks_Events",
+      "col_index": 1,
+      "raw_name": "solar",
+      "canonical_col": "solar_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 5
+    },
+    {
+      "station_id": "maker-webhooks",
+      "source_dir": "Maker_Webhooks_Events",
+      "col_index": 2,
+      "raw_name": "battery",
+      "canonical_col": "battery_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 5
+    },
+    {
+      "station_id": "maker-webhooks",
+      "source_dir": "Maker_Webhooks_Events",
+      "col_index": 3,
+      "raw_name": "curA",
+      "canonical_col": "current_a_chA",
+      "unit": "A",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 5
+    },
+    {
+      "station_id": "maker-webhooks",
+      "source_dir": "Maker_Webhooks_Events",
+      "col_index": 4,
+      "raw_name": "curB",
+      "canonical_col": "current_a_chB",
+      "unit": "A",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 5
+    },
+    {
+      "station_id": "maker-webhooks",
+      "source_dir": "Maker_Webhooks_Events",
+      "col_index": 5,
+      "raw_name": "load",
+      "canonical_col": "load_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 5
+    },
+    {
+      "station_id": "maker-webhooks",
+      "source_dir": "Maker_Webhooks_Events",
+      "col_index": 6,
+      "raw_name": "wind",
+      "canonical_col": "wind_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 5
+    },
+    {
+      "station_id": "maker-webhooks",
+      "source_dir": "Maker_Webhooks_Events",
+      "col_index": 7,
+      "raw_name": "dump",
+      "canonical_col": "dump_adc",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 5
+    },
+    {
+      "station_id": "maker-webhooks",
+      "source_dir": "Maker_Webhooks_Events",
+      "col_index": 8,
+      "raw_name": "LiPo",
+      "canonical_col": "lipo_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 5
+    },
+    {
+      "station_id": "maker-webhooks",
+      "source_dir": "Maker_Webhooks_Events",
+      "col_index": 9,
+      "raw_name": "boot",
+      "canonical_col": "boot_count",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 5
+    },
+    {
+      "station_id": "maker-webhooks",
+      "source_dir": "Maker_Webhooks_Events",
+      "col_index": 10,
+      "raw_name": "boot",
+      "canonical_col": "boot_count",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 2
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2",
+      "col_index": 1,
+      "raw_name": "solar2",
+      "canonical_col": "solar2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 102
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2",
+      "col_index": 2,
+      "raw_name": "current2",
+      "canonical_col": "current2_a",
+      "unit": "A",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 102
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2",
+      "col_index": 3,
+      "raw_name": "power",
+      "canonical_col": "power_w",
+      "unit": "W",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 102
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2",
+      "col_index": 4,
+      "raw_name": "temp",
+      "canonical_col": "temp_c",
+      "unit": "degC",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 102
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2",
+      "col_index": 5,
+      "raw_name": "LiPo2",
+      "canonical_col": "lipo2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 102
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2",
+      "col_index": 6,
+      "raw_name": "boot",
+      "canonical_col": "boot_count",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 102
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2a",
+      "col_index": 1,
+      "raw_name": "solar2",
+      "canonical_col": "solar2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 100
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2a",
+      "col_index": 2,
+      "raw_name": "current2",
+      "canonical_col": "current2_a",
+      "unit": "A",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 100
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2a",
+      "col_index": 3,
+      "raw_name": "power",
+      "canonical_col": "power_w",
+      "unit": "W",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 100
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2a",
+      "col_index": 4,
+      "raw_name": "temp",
+      "canonical_col": "temp_c",
+      "unit": "degC",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 100
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2a",
+      "col_index": 5,
+      "raw_name": "LiPo2",
+      "canonical_col": "lipo2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 100
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2a",
+      "col_index": 6,
+      "raw_name": "boot",
+      "canonical_col": "boot_count",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 100
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2b",
+      "col_index": 1,
+      "raw_name": "solar2",
+      "canonical_col": "solar2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 3
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2b",
+      "col_index": 2,
+      "raw_name": "current2",
+      "canonical_col": "current2_a",
+      "unit": "A",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 3
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2b",
+      "col_index": 3,
+      "raw_name": "power",
+      "canonical_col": "power_w",
+      "unit": "W",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 3
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2b",
+      "col_index": 4,
+      "raw_name": "temp",
+      "canonical_col": "temp_c",
+      "unit": "degC",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 3
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2b",
+      "col_index": 5,
+      "raw_name": "LiPo2",
+      "canonical_col": "lipo2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 3
+    },
+    {
+      "station_id": "phumy2",
+      "source_dir": "phumy2b",
+      "col_index": 6,
+      "raw_name": "boot",
+      "canonical_col": "boot_count",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 3
+    },
+    {
+      "station_id": "solar-2020-05",
+      "source_dir": "Solar_2020-05-16",
+      "col_index": 1,
+      "raw_name": "event",
+      "canonical_col": "event",
+      "unit": "",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "solar-2020-05",
+      "source_dir": "Solar_2020-05-16",
+      "col_index": 2,
+      "raw_name": "digital",
+      "canonical_col": "digital_adc",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "solar-2020-05",
+      "source_dir": "Solar_2020-05-16",
+      "col_index": 3,
+      "raw_name": "voltage",
+      "canonical_col": "voltage_adc",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "solar-2020-05",
+      "source_dir": "Solar_2020-05-16",
+      "col_index": 4,
+      "raw_name": "LiPo",
+      "canonical_col": "lipo_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 7
+    },
+    {
+      "station_id": "test",
+      "source_dir": "test",
+      "col_index": 1,
+      "raw_name": "solar",
+      "canonical_col": "solar_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 19
+    },
+    {
+      "station_id": "test",
+      "source_dir": "test",
+      "col_index": 2,
+      "raw_name": "battery",
+      "canonical_col": "battery_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 19
+    },
+    {
+      "station_id": "test",
+      "source_dir": "test",
+      "col_index": 3,
+      "raw_name": "curA",
+      "canonical_col": "current_a_chA",
+      "unit": "A",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 19
+    },
+    {
+      "station_id": "test",
+      "source_dir": "test",
+      "col_index": 4,
+      "raw_name": "curB",
+      "canonical_col": "current_a_chB",
+      "unit": "A",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 2
+    },
+    {
+      "station_id": "test",
+      "source_dir": "test",
+      "col_index": 5,
+      "raw_name": "load",
+      "canonical_col": "load_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 2
+    },
+    {
+      "station_id": "test",
+      "source_dir": "test",
+      "col_index": 6,
+      "raw_name": "wind",
+      "canonical_col": "wind_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 2
+    },
+    {
+      "station_id": "test",
+      "source_dir": "test",
+      "col_index": 7,
+      "raw_name": "dump",
+      "canonical_col": "dump_adc",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 2
+    },
+    {
+      "station_id": "test",
+      "source_dir": "test",
+      "col_index": 8,
+      "raw_name": "solar2",
+      "canonical_col": "solar2_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 2
+    },
+    {
+      "station_id": "test",
+      "source_dir": "test",
+      "col_index": 9,
+      "raw_name": "LiPo",
+      "canonical_col": "lipo_v",
+      "unit": "V",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 2
+    },
+    {
+      "station_id": "test",
+      "source_dir": "test",
+      "col_index": 10,
+      "raw_name": "boot",
+      "canonical_col": "boot_count",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 0,
+      "reason": "exact header match",
+      "n_files": 2
+    },
+    {
+      "station_id": "voltage-phumy",
+      "source_dir": "Voltage_phumy",
+      "col_index": 1,
+      "raw_name": "raw",
+      "canonical_col": "adc_raw",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 3
+    },
+    {
+      "station_id": "voltage-phumy",
+      "source_dir": "Voltage_phumy",
+      "col_index": 2,
+      "raw_name": "voltage",
+      "canonical_col": "voltage_adc",
+      "unit": "count",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 3
+    },
+    {
+      "station_id": "voltage-phumy",
+      "source_dir": "Voltage_phumy",
+      "col_index": 3,
+      "raw_name": "millis()",
+      "canonical_col": "millis_ms",
+      "unit": "ms",
+      "confidence": "high",
+      "inferred": 1,
+      "reason": "exact header match",
+      "n_files": 3
+    }
+  ],
+  "unmapped_columns": [],
+  "regimes": [
+    {
+      "station_id": "aisvn",
+      "column": "battery_v",
+      "unit": "V",
+      "valid_from": "2020-06-15T06:10:00Z",
+      "valid_to": "2020-06-18T01:48:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "low",
+      "notes": "median 12573.0 outside plausible [9.0, 16.0] V; scale 0.001 brings it to 12.573 (74% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "lipo_v",
+      "unit": "V",
+      "valid_from": "2020-06-15T06:10:00Z",
+      "valid_to": "2020-06-18T01:48:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "low",
+      "notes": "median 4020.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.02 (74% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "lipo_v",
+      "unit": "V",
+      "valid_from": "2020-08-24T08:27:00Z",
+      "valid_to": "2020-10-25T19:17:00Z",
+      "scale": 10.0,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "low",
+      "notes": "median 0.34 outside plausible [2.5, 4.35] V; scale 10.0 brings it to 3.4 (75% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "load_v",
+      "unit": "V",
+      "valid_from": "2020-06-15T06:10:00Z",
+      "valid_to": "2020-06-18T01:48:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "load_v",
+      "unit": "V",
+      "valid_from": "2020-06-20T22:11:00Z",
+      "valid_to": "2020-06-24T05:03:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 0.175 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0002 (100% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "load_v",
+      "unit": "V",
+      "valid_from": "2020-07-02T18:14:00Z",
+      "valid_to": "2020-07-05T15:05:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 0.72 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0007 (100% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "load_v",
+      "unit": "V",
+      "valid_from": "2020-07-14T03:10:00Z",
+      "valid_to": "2020-07-17T11:45:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 1.57 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0016 (100% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "load_v",
+      "unit": "V",
+      "valid_from": "2020-07-25T23:28:00Z",
+      "valid_to": "2020-08-15T06:09:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 1.14 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0011 (100% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "load_v",
+      "unit": "V",
+      "valid_from": "2020-08-18T04:09:00Z",
+      "valid_to": "2020-08-21T11:28:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 1.325 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0013 (100% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "solar_v",
+      "unit": "V",
+      "valid_from": "2020-06-15T06:10:00Z",
+      "valid_to": "2020-06-18T01:48:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 9.66 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0097 (100% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "solar_v",
+      "unit": "V",
+      "valid_from": "2020-08-24T08:27:00Z",
+      "valid_to": "2020-10-25T19:17:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 29.03 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.029 (100% in range)"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "temp_c",
+      "unit": "degC",
+      "valid_from": "2020-06-15T06:10:00Z",
+      "valid_to": "2020-06-18T01:48:00Z",
+      "scale": 0.1,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "low",
+      "notes": "median 200.0 outside plausible [5.0, 45.0] degC; scale 0.1 brings it to 20.0 (74% in range)"
+    },
+    {
+      "station_id": "aisvn-solar",
+      "column": "lipo_v",
+      "unit": "V",
+      "valid_from": "2020-05-21T02:52:00Z",
+      "valid_to": "2020-06-12T05:04:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 3532.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 3.532 (100% in range)"
+    },
+    {
+      "station_id": "aisvn-solar",
+      "column": "solar_v",
+      "unit": "V",
+      "valid_from": "2020-05-21T02:52:00Z",
+      "valid_to": "2020-06-12T05:04:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 3135.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 3.135 (100% in range)"
+    },
+    {
+      "station_id": "maker-webhooks",
+      "column": "battery_v",
+      "unit": "V",
+      "valid_from": "2020-05-30T06:03:00Z",
+      "valid_to": "2020-06-12T15:21:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 11768.0 outside plausible [9.0, 16.0] V; scale 0.001 brings it to 11.768 (96% in range)"
+    },
+    {
+      "station_id": "maker-webhooks",
+      "column": "lipo_v",
+      "unit": "V",
+      "valid_from": "2020-05-30T06:03:00Z",
+      "valid_to": "2020-06-08T06:34:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 4094.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.094 (100% in range)"
+    },
+    {
+      "station_id": "maker-webhooks",
+      "column": "lipo_v",
+      "unit": "V",
+      "valid_from": "2020-06-10T18:25:00Z",
+      "valid_to": "2020-06-12T15:21:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 4015.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.015 (100% in range)"
+    },
+    {
+      "station_id": "maker-webhooks",
+      "column": "load_v",
+      "unit": "V",
+      "valid_from": "2020-05-30T06:03:00Z",
+      "valid_to": "2020-06-12T05:13:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 3300.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 3.3 (100% in range)"
+    },
+    {
+      "station_id": "maker-webhooks",
+      "column": "solar_v",
+      "unit": "V",
+      "valid_from": "2020-05-30T06:03:00Z",
+      "valid_to": "2020-06-12T15:21:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+    },
+    {
+      "station_id": "solar-2020-05",
+      "column": "lipo_v",
+      "unit": "V",
+      "valid_from": "2020-05-16T15:52:00Z",
+      "valid_to": "2020-06-15T02:51:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 2904.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 2.904 (100% in range)"
+    },
+    {
+      "station_id": "test",
+      "column": "battery_v",
+      "unit": "V",
+      "valid_from": "2020-06-12T15:22:00Z",
+      "valid_to": "2020-06-14T01:57:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 12272.0 outside plausible [9.0, 16.0] V; scale 0.001 brings it to 12.272 (100% in range)"
+    },
+    {
+      "station_id": "test",
+      "column": "lipo_v",
+      "unit": "V",
+      "valid_from": "2020-06-12T15:22:00Z",
+      "valid_to": "2020-06-14T01:57:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 4012.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.012 (100% in range)"
+    },
+    {
+      "station_id": "test",
+      "column": "solar_v",
+      "unit": "V",
+      "valid_from": "2020-06-12T15:22:00Z",
+      "valid_to": "2020-07-08T05:12:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 12912.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 12.912 (99% in range)"
+    }
+  ],
+  "sampling_interval_seconds": [
+    {
+      "station_id": "aisvn",
+      "interval_s": 119,
+      "n": 60463
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 120,
+      "n": 13131
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 179,
+      "n": 1783
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 180,
+      "n": 597
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 239,
+      "n": 528
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 240,
+      "n": 281
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 299,
+      "n": 174
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 300,
+      "n": 155
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 420,
+      "n": 71
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 419,
+      "n": 61
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 360,
+      "n": 61
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 540,
+      "n": 52
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 359,
+      "n": 49
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 660,
+      "n": 20
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 480,
+      "n": 15
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 539,
+      "n": 13
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 59,
+      "n": 13
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 779,
+      "n": 12
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 479,
+      "n": 7
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 600,
+      "n": 5
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 839,
+      "n": 4
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1079,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 840,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 2700,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 2580,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 2159,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1379,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1260,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1080,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 959,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 599,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 3539,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 3479,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 2640,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 2400,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1980,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1800,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1680,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1679,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1499,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1440,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 1140,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 119,
+      "n": 10662
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 120,
+      "n": 2318
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 179,
+      "n": 363
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 180,
+      "n": 113
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 239,
+      "n": 112
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 240,
+      "n": 72
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 300,
+      "n": 31
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 299,
+      "n": 31
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 359,
+      "n": 12
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 540,
+      "n": 11
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 420,
+      "n": 10
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 419,
+      "n": 10
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 360,
+      "n": 8
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 660,
+      "n": 6
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 539,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 1200,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 1080,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 959,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 839,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 779,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 479,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 59,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 1439,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 1140,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 899,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 840,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 720,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 659,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn-solar",
+      "interval_s": 480,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 119,
+      "n": 131850
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 120,
+      "n": 28545
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 239,
+      "n": 930
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 179,
+      "n": 798
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 240,
+      "n": 516
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 59,
+      "n": 270
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 180,
+      "n": 262
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 299,
+      "n": 206
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 300,
+      "n": 150
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 360,
+      "n": 73
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 420,
+      "n": 57
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 359,
+      "n": 56
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 540,
+      "n": 52
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 419,
+      "n": 39
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 660,
+      "n": 38
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 60,
+      "n": 24
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 480,
+      "n": 22
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 779,
+      "n": 21
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 479,
+      "n": 15
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 899,
+      "n": 13
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 539,
+      "n": 11
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1320,
+      "n": 10
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 600,
+      "n": 9
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 960,
+      "n": 7
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1439,
+      "n": 6
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1080,
+      "n": 6
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 780,
+      "n": 6
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1079,
+      "n": 4
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1980,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1860,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1619,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1199,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1019,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 959,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 900,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 719,
+      "n": 3
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 2279,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1859,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1560,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1379,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1200,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1020,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 839,
+      "n": 2
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 3479,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 3059,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 2879,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 2820,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 2759,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 2640,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 2520,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 2399,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 2219,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 2160,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 2159,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1800,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1680,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1620,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1500,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1499,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1380,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1140,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 1139,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 840,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn2",
+      "interval_s": 720,
+      "n": 1
+    },
+    {
+      "station_id": "maker-webhooks",
+      "interval_s": 59,
+      "n": 7406
+    },
+    {
+      "station_id": "maker-webhooks",
+      "interval_s": 60,
+      "n": 732
+    },
+    {
+      "station_id": "maker-webhooks",
+      "interval_s": 119,
+      "n": 315
+    },
+    {
+      "station_id": "maker-webhooks",
+      "interval_s": 120,
+      "n": 62
+    },
+    {
+      "station_id": "maker-webhooks",
+      "interval_s": 179,
+      "n": 10
+    },
+    {
+      "station_id": "maker-webhooks",
+      "interval_s": 660,
+      "n": 1
+    },
+    {
+      "station_id": "maker-webhooks",
+      "interval_s": 359,
+      "n": 1
+    },
+    {
+      "station_id": "maker-webhooks",
+      "interval_s": 299,
+      "n": 1
+    },
+    {
+      "station_id": "maker-webhooks",
+      "interval_s": 180,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 119,
+      "n": 317893
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 120,
+      "n": 68657
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 179,
+      "n": 17521
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 180,
+      "n": 6436
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 239,
+      "n": 1611
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 240,
+      "n": 873
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 299,
+      "n": 472
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 300,
+      "n": 426
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 420,
+      "n": 156
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 360,
+      "n": 133
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 359,
+      "n": 124
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 540,
+      "n": 101
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 419,
+      "n": 91
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 480,
+      "n": 59
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 660,
+      "n": 54
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 600,
+      "n": 29
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 779,
+      "n": 24
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 59,
+      "n": 21
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 719,
+      "n": 20
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 479,
+      "n": 20
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 539,
+      "n": 19
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1080,
+      "n": 14
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1079,
+      "n": 14
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2039,
+      "n": 13
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 959,
+      "n": 13
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 839,
+      "n": 13
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1619,
+      "n": 12
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 960,
+      "n": 12
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1200,
+      "n": 10
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1740,
+      "n": 9
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1499,
+      "n": 9
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1379,
+      "n": 9
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1199,
+      "n": 9
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1620,
+      "n": 8
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1920,
+      "n": 6
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1739,
+      "n": 6
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1260,
+      "n": 6
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1140,
+      "n": 6
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 780,
+      "n": 6
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2819,
+      "n": 5
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2580,
+      "n": 5
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1860,
+      "n": 5
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1439,
+      "n": 5
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 899,
+      "n": 5
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2759,
+      "n": 4
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2700,
+      "n": 4
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2279,
+      "n": 4
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1320,
+      "n": 4
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1139,
+      "n": 4
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 900,
+      "n": 4
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 840,
+      "n": 4
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 3539,
+      "n": 3
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2939,
+      "n": 3
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2400,
+      "n": 3
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2159,
+      "n": 3
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1019,
+      "n": 3
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 3599,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 3360,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 3120,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 3059,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2999,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2879,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2160,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1980,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1859,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1800,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1020,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 599,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 60,
+      "n": 2
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 3540,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 3419,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 3180,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 3000,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2940,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2639,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2399,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2339,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2280,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2220,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 2099,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1680,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1500,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1440,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1380,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 1319,
+      "n": 1
+    },
+    {
+      "station_id": "phumy2",
+      "interval_s": 720,
+      "n": 1
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 119,
+      "n": 10017
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 120,
+      "n": 2174
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 179,
+      "n": 378
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 180,
+      "n": 129
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 239,
+      "n": 77
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 240,
+      "n": 46
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 59,
+      "n": 30
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 299,
+      "n": 21
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 300,
+      "n": 13
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 359,
+      "n": 5
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 480,
+      "n": 4
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 600,
+      "n": 3
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 540,
+      "n": 3
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 719,
+      "n": 2
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 360,
+      "n": 2
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 60,
+      "n": 2
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 3000,
+      "n": 1
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 2580,
+      "n": 1
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 2399,
+      "n": 1
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 1739,
+      "n": 1
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 1080,
+      "n": 1
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 779,
+      "n": 1
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 539,
+      "n": 1
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 420,
+      "n": 1
+    },
+    {
+      "station_id": "solar-2020-05",
+      "interval_s": 419,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 119,
+      "n": 28254
+    },
+    {
+      "station_id": "test",
+      "interval_s": 120,
+      "n": 6110
+    },
+    {
+      "station_id": "test",
+      "interval_s": 59,
+      "n": 2012
+    },
+    {
+      "station_id": "test",
+      "interval_s": 179,
+      "n": 381
+    },
+    {
+      "station_id": "test",
+      "interval_s": 60,
+      "n": 193
+    },
+    {
+      "station_id": "test",
+      "interval_s": 180,
+      "n": 139
+    },
+    {
+      "station_id": "test",
+      "interval_s": 239,
+      "n": 110
+    },
+    {
+      "station_id": "test",
+      "interval_s": 240,
+      "n": 63
+    },
+    {
+      "station_id": "test",
+      "interval_s": 299,
+      "n": 28
+    },
+    {
+      "station_id": "test",
+      "interval_s": 300,
+      "n": 17
+    },
+    {
+      "station_id": "test",
+      "interval_s": 480,
+      "n": 12
+    },
+    {
+      "station_id": "test",
+      "interval_s": 359,
+      "n": 11
+    },
+    {
+      "station_id": "test",
+      "interval_s": 360,
+      "n": 8
+    },
+    {
+      "station_id": "test",
+      "interval_s": 419,
+      "n": 3
+    },
+    {
+      "station_id": "test",
+      "interval_s": 2940,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 2759,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 2219,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 2160,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 2039,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 1680,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 1620,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 1080,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 1020,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 960,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 779,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 600,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 540,
+      "n": 1
+    },
+    {
+      "station_id": "test",
+      "interval_s": 420,
+      "n": 1
+    },
+    {
+      "station_id": "voltage-phumy",
+      "interval_s": 119,
+      "n": 4390
+    },
+    {
+      "station_id": "voltage-phumy",
+      "interval_s": 120,
+      "n": 953
+    },
+    {
+      "station_id": "voltage-phumy",
+      "interval_s": 179,
+      "n": 136
+    },
+    {
+      "station_id": "voltage-phumy",
+      "interval_s": 180,
+      "n": 43
+    },
+    {
+      "station_id": "voltage-phumy",
+      "interval_s": 239,
+      "n": 15
+    },
+    {
+      "station_id": "voltage-phumy",
+      "interval_s": 240,
+      "n": 7
+    },
+    {
+      "station_id": "voltage-phumy",
+      "interval_s": 59,
+      "n": 4
+    },
+    {
+      "station_id": "voltage-phumy",
+      "interval_s": 60,
+      "n": 2
+    },
+    {
+      "station_id": "voltage-phumy",
+      "interval_s": 779,
+      "n": 1
+    },
+    {
+      "station_id": "voltage-phumy",
+      "interval_s": 300,
+      "n": 1
+    }
+  ],
+  "coverage_gaps": [
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-11-27T16:37:00Z",
+      "to_ts": "2021-11-01T04:14:00Z",
+      "gap_hours": 8123.6
+    },
+    {
+      "station_id": "aisvn2",
+      "from_ts": "2021-04-04T15:51:00Z",
+      "to_ts": "2021-10-30T09:50:00Z",
+      "gap_hours": 5010.0
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2022-03-26T06:05:00Z",
+      "to_ts": "2022-08-28T22:31:00Z",
+      "gap_hours": 3736.4
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2021-11-20T07:05:00Z",
+      "to_ts": "2022-03-05T03:23:00Z",
+      "gap_hours": 2516.3
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2021-05-04T17:44:00Z",
+      "to_ts": "2021-07-13T09:04:00Z",
+      "gap_hours": 1671.3
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2021-07-31T18:29:00Z",
+      "to_ts": "2021-09-22T00:43:00Z",
+      "gap_hours": 1254.2
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2020-07-16T13:30:00Z",
+      "to_ts": "2020-09-04T06:28:00Z",
+      "gap_hours": 1193.0
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2020-12-23T00:40:00Z",
+      "to_ts": "2021-02-09T15:18:00Z",
+      "gap_hours": 1166.6
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2023-11-25T06:09:00Z",
+      "to_ts": "2024-01-12T07:00:00Z",
+      "gap_hours": 1152.8
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2023-02-27T22:03:00Z",
+      "to_ts": "2023-04-11T00:20:00Z",
+      "gap_hours": 1010.3
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2021-03-08T05:05:00Z",
+      "to_ts": "2021-04-07T21:19:00Z",
+      "gap_hours": 736.2
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2023-01-02T09:06:00Z",
+      "to_ts": "2023-01-30T14:39:00Z",
+      "gap_hours": 677.5
+    },
+    {
+      "station_id": "aisvn2",
+      "from_ts": "2020-10-01T10:00:00Z",
+      "to_ts": "2020-10-27T13:10:00Z",
+      "gap_hours": 627.2
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2022-09-20T14:42:00Z",
+      "to_ts": "2022-10-16T00:32:00Z",
+      "gap_hours": 609.8
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-10-02T09:27:00Z",
+      "to_ts": "2020-10-21T07:25:00Z",
+      "gap_hours": 454.0
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-11-09T18:15:00Z",
+      "to_ts": "2020-11-27T16:36:00Z",
+      "gap_hours": 430.4
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2021-10-10T12:23:00Z",
+      "to_ts": "2021-10-27T10:06:00Z",
+      "gap_hours": 405.7
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2022-02-08T22:02:00Z",
+      "to_ts": "2022-02-20T04:01:00Z",
+      "gap_hours": 270.0
+    },
+    {
+      "station_id": "solar-2020-05",
+      "from_ts": "2020-06-04T04:08:00Z",
+      "to_ts": "2020-06-14T02:53:00Z",
+      "gap_hours": 238.7
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-09-11T14:17:00Z",
+      "to_ts": "2020-09-21T09:49:00Z",
+      "gap_hours": 235.5
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2022-01-30T21:00:00Z",
+      "to_ts": "2022-02-08T21:50:00Z",
+      "gap_hours": 216.8
+    },
+    {
+      "station_id": "aisvn2",
+      "from_ts": "2020-11-11T21:21:00Z",
+      "to_ts": "2020-11-20T16:09:00Z",
+      "gap_hours": 210.8
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2020-11-11T21:21:00Z",
+      "to_ts": "2020-11-20T15:33:00Z",
+      "gap_hours": 210.2
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2024-01-20T18:29:00Z",
+      "to_ts": "2024-01-28T13:28:00Z",
+      "gap_hours": 187.0
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2022-01-10T20:38:00Z",
+      "to_ts": "2022-01-17T20:47:00Z",
+      "gap_hours": 168.2
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2023-07-23T23:40:00Z",
+      "to_ts": "2023-07-30T02:19:00Z",
+      "gap_hours": 146.6
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-09-24T08:32:00Z",
+      "to_ts": "2020-09-30T10:36:00Z",
+      "gap_hours": 146.1
+    },
+    {
+      "station_id": "test",
+      "from_ts": "2020-06-23T14:57:00Z",
+      "to_ts": "2020-06-29T12:05:00Z",
+      "gap_hours": 141.1
+    },
+    {
+      "station_id": "maker-webhooks",
+      "from_ts": "2020-05-30T06:03:00Z",
+      "to_ts": "2020-06-05T00:02:00Z",
+      "gap_hours": 138.0
+    },
+    {
+      "station_id": "aisvn2",
+      "from_ts": "2021-01-07T00:32:00Z",
+      "to_ts": "2021-01-12T01:20:00Z",
+      "gap_hours": 120.8
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2021-11-15T08:05:00Z",
+      "to_ts": "2021-11-20T07:05:00Z",
+      "gap_hours": 119.0
+    },
+    {
+      "station_id": "test",
+      "from_ts": "2020-06-17T07:26:00Z",
+      "to_ts": "2020-06-20T14:31:00Z",
+      "gap_hours": 79.1
+    },
+    {
+      "station_id": "aisvn2",
+      "from_ts": "2021-02-13T18:53:00Z",
+      "to_ts": "2021-02-16T22:23:00Z",
+      "gap_hours": 75.5
+    },
+    {
+      "station_id": "aisvn2",
+      "from_ts": "2021-03-19T10:55:00Z",
+      "to_ts": "2021-03-22T12:50:00Z",
+      "gap_hours": 73.9
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-08-26T10:42:00Z",
+      "to_ts": "2020-08-29T10:48:00Z",
+      "gap_hours": 72.1
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2022-01-20T20:02:00Z",
+      "to_ts": "2022-01-23T20:08:00Z",
+      "gap_hours": 72.1
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-09-02T10:50:00Z",
+      "to_ts": "2020-09-05T10:21:00Z",
+      "gap_hours": 71.5
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-09-21T09:49:00Z",
+      "to_ts": "2020-09-24T08:32:00Z",
+      "gap_hours": 70.7
+    },
+    {
+      "station_id": "phumy2",
+      "from_ts": "2022-11-11T02:04:00Z",
+      "to_ts": "2022-11-14T00:36:00Z",
+      "gap_hours": 70.5
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-08-29T10:48:00Z",
+      "to_ts": "2020-09-01T07:58:00Z",
+      "gap_hours": 69.2
+    }
+  ],
+  "channel_plausibility": [
+    {
+      "station_id": "aisvn",
+      "n_solar": 77622,
+      "solar_min": 0.0,
+      "solar_max": 20890.0,
+      "n_batt": 77622,
+      "batt_min": -0.99,
+      "batt_max": 15310.0,
+      "n_temp": 77621,
+      "temp_min": 0.0,
+      "temp_max": 342.1,
+      "n_power": 29637
+    },
+    {
+      "station_id": "aisvn-solar",
+      "n_solar": 13788,
+      "solar_min": 0.0,
+      "solar_max": 3532.0,
+      "n_batt": 13788,
+      "batt_min": 0.0,
+      "batt_max": 2574.0,
+      "n_temp": 0,
+      "temp_min": null,
+      "temp_max": null,
+      "n_power": 0
+    },
+    {
+      "station_id": "aisvn2",
+      "n_solar": 0,
+      "solar_min": null,
+      "solar_max": null,
+      "n_batt": 0,
+      "batt_min": null,
+      "batt_max": null,
+      "n_temp": 0,
+      "temp_min": null,
+      "temp_max": null,
+      "n_power": 0
+    },
+    {
+      "station_id": "maker-webhooks",
+      "n_solar": 6649,
+      "solar_min": -984.0,
+      "solar_max": 34034.0,
+      "n_batt": 8529,
+      "batt_min": 757.0,
+      "batt_max": 14353.0,
+      "n_temp": 0,
+      "temp_min": null,
+      "temp_max": null,
+      "n_power": 0
+    },
+    {
+      "station_id": "phumy2",
+      "n_solar": 0,
+      "solar_min": null,
+      "solar_max": null,
+      "n_batt": 0,
+      "batt_min": null,
+      "batt_max": null,
+      "n_temp": 415112,
+      "temp_min": 15.5,
+      "temp_max": 80.6,
+      "n_power": 415117
+    },
+    {
+      "station_id": "solar-2020-05",
+      "n_solar": 0,
+      "solar_min": null,
+      "solar_max": null,
+      "n_batt": 0,
+      "batt_min": null,
+      "batt_max": null,
+      "n_temp": 0,
+      "temp_min": null,
+      "temp_max": null,
+      "n_power": 0
+    },
+    {
+      "station_id": "test",
+      "n_solar": 5098,
+      "solar_min": -984.0,
+      "solar_max": 28816.0,
+      "n_batt": 6143,
+      "batt_min": 0.0,
+      "batt_max": 28538.0,
+      "n_temp": 31228,
+      "temp_min": 21.49,
+      "temp_max": 31.31,
+      "n_power": 0
+    },
+    {
+      "station_id": "voltage-phumy",
+      "n_solar": 0,
+      "solar_min": null,
+      "solar_max": null,
+      "n_batt": 0,
+      "batt_min": null,
+      "batt_max": null,
+      "n_temp": 0,
+      "temp_min": null,
+      "temp_max": null,
+      "n_power": 0
+    }
+  ]
+}

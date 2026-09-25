@@ -1,6 +1,6 @@
 [project]
 name = "solardata-etl"
-version = "0.2.0"
+version = "0.4.0"
 description = "Convert the raw IFTTT/Google-Sheets solar archive into a queryable store"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -42,7 +42,7 @@ filterwarnings = ["error::DeprecationWarning"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["etl", "tests"]
+src = ["etl", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = [

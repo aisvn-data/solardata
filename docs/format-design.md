@@ -72,15 +72,71 @@ SQLite or Parquet, and a GitHub Pages site cannot run a query server.
 ```
 data/raw/**.xlsx                  364 files, 30.4 MiB   immutable, committed
   |
-  +-- data/processed/solardata.db          158 MiB   canonical, query in place
-  +-- data/processed/parquet/             6.8 MiB     interchange, for analysis
-  +-- data/processed/quality_report.md                 the review artefact
-  +-- data/exports/                      0.1 MiB     for the browser
+  +-- data/processed/parquet/       7.4 MiB  committed: interchange
+  +-- data/processed/quality_report.*         committed: the review artefact
+  +-- data/baseline.json                      committed: the guard CI enforces
+  +-- data/processed/solardata.db   158 MiB   not committable (>100 MiB)
+  +-- data/exports/                  0.1 MiB  for the browser
 ```
 
-Everything after `data/raw` is gitignored and rebuilt by `make build`. The
-archive is the only thing in the repository that cannot be regenerated, so it is
-the only thing that is committed.
+The Parquet output, the report and the baseline are committed, so the processed
+data and the record of what the build should produce are both available from a
+clone without running anything. `solardata.db` is not, because at 158 MiB it
+exceeds GitHub's 100 MiB per-file limit for a git blob; it ships as a Release
+asset instead. `data/exports/` stays out of git until the frontend reads it.
+
+The archive is the only thing in the repository that cannot be regenerated, so
+it is the only thing that must be committed at full size.
+
+## Why the SQLite file is larger than the raw archive
+
+`data/raw` is 30.4 MiB and `solardata.db` is 158.2 MiB, which looks alarming
+until you account for the format. XLSX is a ZIP of XML:
+
+| | |
+|---|---|
+| raw archive on disk (ZIP) | 30.4 MiB |
+| the same files uncompressed | **251.4 MiB** (deflate ratio 12.1%) |
+| `solardata.db` | 158.2 MiB |
+| DB ÷ uncompressed XML | **0.63×** |
+
+The database is **37% smaller than the raw XML text it came from**. The 5.2×
+against the on-disk figure is entirely deflate.
+
+Measured attribution of the 183 bytes per reading:
+
+| Part | Size | Note |
+|---|---|---|
+| `readings` table | 128.5 MiB | includes the `WITHOUT ROWID` key tree |
+| indexes and rollups | 29.7 MiB | `ix_readings_ts`, `ix_readings_file`, hourly, daily |
+| `ts_local` | 15.9 MiB | derivable: `ts_utc + 7h` |
+| `tz` | 14.0 MiB | constant per station, already on `stations` |
+| key only | 25.8 MiB | `station_id` + `ts_utc` |
+
+**The values are already 8-byte float64.** 23 of the 33 columns are `REAL`, and
+`typeof()` on a stored reading confirms `real`. Four are `INTEGER`
+(`boot_count`, `millis_ms`, and two provenance ids) and six are `TEXT`. So
+there is no float-versus-int decision left to make on the measurements
+themselves.
+
+What is genuinely wasteful is the six `TEXT` columns, and 30 MiB of that is
+`ts_local` and `tz` — derivable data stored 735,004 times.
+
+### Why it is left alone for now
+
+- Dropping both would take the file to ~128 MiB, which is **still over
+  GitHub's 100 MiB limit**, so it would not make the database committable. The
+  Release-asset arrangement stands either way.
+- It is a breaking schema change for anyone who has started querying, and it
+  would require re-recording the baseline.
+- `ts_local` is used by `readings_daily` to define the local calendar day,
+  which is not the same as a UTC day. Making it a computed column means
+  encoding the UTC+07:00 assumption into the schema, which is worse than
+  storing it.
+
+If it is done later, the order of value is: `tz` first (pure redundancy, −14 MiB),
+then `ts_utc` as an integer epoch if lexicographic sortability is not needed
+(−10 MiB, and it costs readability), and `ts_local` last or never.
 
 ## The principle
 
@@ -91,3 +147,9 @@ when it can hold *uncertainty* as first-class data: which file a value came
 from, which header described it, how confident that mapping is, and what a human
 still has to check. That is the property SQLite-with-metadata-tables buys, and
 it is not something a spreadsheet-shaped format can express.
+
+The baseline guard extends the same idea to the *build*: if a change to the
+pipeline alters what gets ingested, the recorded counts stop matching and CI
+fails. Without it, a refactor that quietly drops a channel would be invisible —
+the unit tests would still pass, because they exercise fixtures rather than the
+archive.

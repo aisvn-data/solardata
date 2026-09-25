@@ -1,18 +1,22 @@
 """Export rollups for the website.
 
 The frontend cannot read SQLite or Parquet, and shipping 740k rows to a browser
-is not an option.  This writes one small CSV per station per year from the
-pre-aggregated tables, which is what ``src/`` should fetch.
+is not an option.  This writes small CSV files under ``public/data/``, which Vite
+serves as static assets, so the site works from a plain clone with no server.
 
 Layout::
 
-    data/exports/{station}/daily/{year}.csv     # ~4 rows/month, tiny
-    data/exports/{station}/hourly/{year}.csv    # only on request
-    data/exports/stations.json                  # station metadata + coverage
+    public/data/stations.json                  station metadata + coverage
+    public/data/{station}/daily/{year}.csv     ~4 rows/month, tiny
+    public/data/quality.json                   the quality report, for the inspector
 
-Non-production stations (``test``, ``voltage-phumy``) are excluded by default:
-they are bench data and a WiFi probe, not solar production, and mixing them into
-a public chart would be wrong.
+Non-production stations (``test``, ``voltage-phumy``) are excluded from the
+rollups by default: they are bench data and a WiFi probe, not solar production,
+and mixing them into a public chart would be wrong.  They still appear in
+``quality.json``, which is the internal view.
+
+``quality.json`` is written from the same ``etl.report.collect`` call the
+Markdown report uses, so the browser and the committed report cannot drift.
 """
 
 from __future__ import annotations
@@ -97,7 +101,7 @@ def build(
     ]
     target.mkdir(parents=True, exist_ok=True)
 
-    written = {"daily": 0, "hourly": 0, "manifest": 0}
+    written = {"daily": 0, "hourly": 0, "manifest": 0, "quality": 0}
 
     for station in published:
         for granularity, table, columns in (
@@ -131,19 +135,42 @@ def build(
                         f"  {len(rows):>6} rows"
                     )
 
+    # The station manifest the UI renders its picker from.  `source_dirs` is a
+    # JSON array in the database because three folders make up one station;
+    # unpack it here so the browser gets a real array.
     manifest = []
     for row in conn.execute("SELECT * FROM stations ORDER BY is_production DESC, station_id"):
         record = dict(row)
         record["source_dirs"] = json.loads(record["source_dirs"])
         record["published"] = record["station_id"] in {s.station_id for s in published}
+        # Years with published rollups, so the UI can build its year selector
+        # without probing for 404s.
+        record["years"] = [
+            r["y"]
+            for r in conn.execute(
+                "SELECT DISTINCT substr(day, 1, 4) AS y FROM readings_daily"
+                " WHERE station_id = ? ORDER BY y",
+                (record["station_id"],),
+            )
+            if record["published"]
+        ]
         manifest.append(record)
     path = target / "stations.json"
     path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     written["manifest"] = len(manifest)
 
+    # The quality report, for the inspector view.  Reusing report.collect() is
+    # the point: the JSON the browser reads and the Markdown committed to the
+    # repository come from one code path and cannot disagree.
+    from etl.report import collect
+
+    quality = target / "quality.json"
+    quality.write_text(json.dumps(collect(conn), indent=2, default=str), encoding="utf-8")
+    written["quality"] = 1
+
     if verbose:
         print(
             f"  wrote {written['daily']} daily rows, {written['hourly']} hourly rows, "
-            f"{written['manifest']} station records"
+            f"{written['manifest']} station records, quality.json"
         )
     return written

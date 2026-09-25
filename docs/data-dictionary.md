@@ -138,12 +138,36 @@ Pre-aggregated so the website never scans the raw table.
 
 ## Artefacts
 
-| Path | Format | Size | Purpose |
-|---|---|---|---|
-| `data/processed/solardata.db` | SQLite | 158 MiB | Canonical store, query in place |
-| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 6.8 MiB | Interchange; pandas/duckdb/dask |
-| `data/exports/{station}/daily/{year}.csv` | CSV | 0.1 MiB | What the frontend fetches |
-| `data/exports/stations.json` | JSON | — | Station metadata and coverage |
-| `data/processed/quality_report.md` | Markdown | — | The review artefact |
+| Path | Format | Size | In git? | Purpose |
+|---|---|---|---|---|
+| `data/processed/solardata.db` | SQLite | 158 MiB | no | Canonical store, query in place |
+| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 7.4 MiB | **yes** | Interchange; pandas/duckdb/dask |
+| `data/exports/{station}/daily/{year}.csv` | CSV | 0.1 MiB | no | What the frontend fetches |
+| `data/exports/stations.json` | JSON | — | no | Station metadata and coverage |
+| `data/processed/quality_report.md` | Markdown | ~10 KB | **yes** | The review artefact |
+| `data/processed/quality_report.json` | JSON | ~80 KB | **yes** | Machine-readable form of the same |
+| `data/baseline.json` | JSON | ~1 KB | **yes** | Expected counts, enforced by CI |
 
-All are gitignored and rebuilt with `make build`.
+`solardata.db` and `data/exports/` are gitignored: the database is over GitHub's
+100 MiB per-file limit, and the exports change on every build while nothing reads
+them yet. Everything is rebuilt with `make build`; the database is also
+distributed as a Release asset.
+
+## `data/baseline.json`
+
+The expected output of a build, enforced by `python -m etl verify` and by CI.
+
+| Field | Guards against |
+|---|---|
+| `readings` | The headline number. Any drift means a change in what was ingested. |
+| `files` | A raw file disappeared or was skipped. |
+| `stations` | The station registry changed. |
+| `duplicate_ts` | `INSERT OR IGNORE` dedupe changed behaviour. |
+| `malformed_rejects` | The timestamp parser got stricter or looser. |
+| `notes` | Note recovery changed; these are human context, not noise. |
+| `unconfirmed_regimes` | The scale detector moved, which may mean a new finding. |
+| `headerless_without_donor` | **Pinned to 0.** Non-zero means a headerless file's measurements were discarded. |
+| `hourly_buckets`, `daily_buckets` | The aggregate rollups changed shape. |
+
+`recorded.reason` is required and travels with the file, so a future diff
+explains itself without re-running anything.

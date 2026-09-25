@@ -4,6 +4,145 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-09-26
+
+### Added
+
+- **A working website.** Two tabs over the cleaned data:
+  - **Explore** — pick a station, year and date range; chart any combination of
+    solar voltage, battery, power, temperature and energy from the daily
+    rollups, with a hover readout and summary tiles that include coverage
+    (days reported, readings, hours covered) alongside the statistics.
+  - **Data quality** — the database inspector: overview counts, per-folder
+    breakdown, quality flags with their meaning, the unconfirmed scale regimes,
+    the full channel-mapping table with confidence, the collector's own margin
+    notes, and the rejected cells with samples.
+- `src/data.js` — data access. Two properties of the dataset drive it:
+  - An empty CSV cell stays `null` and breaks the chart line. It is never
+    coerced to 0, because `0 W` at midnight and "the sensor was disconnected"
+    are different facts and conflating them makes outages look like
+    measurements.
+  - Which metrics exist is discovered from the rows, not hardcoded, because
+    `phumy2` has no `solar_v` or `battery_v` at all across 415k rows.
+- `src/components/TimeSeriesChart.jsx` — a hand-rolled SVG line chart. No chart
+  library: daily rollups need a line chart, and a package would be ~100 kB of
+  JavaScript to draw two paths. Gaps break the path into separate subpaths, the
+  hover target is the nearest row by date (so a day with no data still reports
+  "no data"), and all series share one y-axis so an empty band reads honestly.
+- `src/components/TimeControls.jsx`, `StatTiles.jsx`, `StationExplorer.jsx`,
+  `QualityInspector.jsx`.
+- `scripts/check_frontend.mjs` — 12 checks over the chart helpers and the real
+  exported CSVs, run in CI. The two things most likely to be quietly wrong —
+  coercing an empty cell to 0, and drawing a line across a gap — both produce a
+  chart that looks fine and reads as data that does not exist, and a screenshot
+  would not catch either.
+- The export stage now writes to `public/data/` (Vite's static directory) and
+  emits `quality.json` from the same `etl.report.collect` call the committed
+  Markdown report uses, so the browser and the repository cannot disagree.
+  167 KB across 15 files: `stations.json`, `quality.json`, 13 daily CSVs.
+- A `frontend` CI job: the checks above, `npm run build`, and an assertion that
+  the data files reached `dist/` — the deploy can otherwise succeed while every
+  page shows an error.
+
+### Changed
+
+- `etl/config.py`: the default export directory moved from `data/exports/` to
+  `public/data/`, so the site works from a plain clone with no server and
+  `public/data` is committed rather than generated at deploy time.
+- CI: the `build` job now also depends on `frontend`, and warns when the
+  rebuilt `public/data/` differs from the committed copy — the same treatment
+  the quality report gets, for the same reason.
+
+### Findings
+
+- **The SQLite file is not bloated.** `data/raw` is 30.4 MiB only because XLSX
+  is deflate-compressed; uncompressed it is 251.4 MiB, so the database at
+  158.2 MiB is **0.63× the raw XML**. The measurements are already 8-byte
+  float64 (23 `REAL` columns, confirmed with `typeof()`). What is wasteful is
+  30 MiB of `TEXT` — `ts_local` and `tz`, both derivable — but removing them
+  yields ~128 MiB, still over GitHub's 100 MiB limit, so it would not make the
+  database committable. Recorded in `docs/format-design.md` with the
+  attribution, and deliberately deferred.
+
+Build baseline unchanged: 735,004 readings, 4,403 duplicates, 10 notes,
+23 regimes, 89 Python tests.
+
+---
+
+## [0.3.0] — 2026-09-25
+
+### Added
+
+- **Continuous integration.** `.github/workflows/ci.yml` runs on every push and
+  pull request:
+  1. `ruff check`, `ruff format --check`, `pytest` — fast, no data.
+  2. A full `python -m etl all` against the real 364-file archive, then
+     `python -m etl verify`. **Any baseline drift fails the job.**
+  3. A Parquet freshness check. The committed `data/processed/parquet/` layout
+     is snapshotted before the build and compared after, because the build
+     overwrites it — otherwise a stale published artefact goes unnoticed.
+  4. The build summary is written to `$GITHUB_STEP_SUMMARY` and the report is
+     uploaded as an artefact.
+- `.github/workflows/release.yml` attaches a `VACUUM`ed, gzipped
+  `solardata.db` to a tag's GitHub Release, baseline-verified first.
+- **`etl/verify.py` and the baseline guard.** `data/baseline.json` records the
+  expected output of a build; `python -m etl verify` compares against it and
+  exits non-zero on any drift. This is the only check that sees the real
+  735,004-row archive, so it is the only thing that catches a pipeline change
+  that silently alters the data while every unit test still passes. The two
+  modes it targets:
+  - **Loss** — a schema-inheritance regression leaves a headerless file mapped
+    to no columns. Every timestamp still ingests; the measurements become NULL.
+    The `headerless_without_donor` field is pinned to 0 for exactly this.
+  - **Duplication** — `INSERT OR IGNORE` stops absorbing an overlap, so the same
+    instant lands twice and the count rises by thousands.
+
+  Re-record deliberately, with a reason, so the diff appears in the pull
+  request as an explicit number rather than a silent rewrite.
+- `scripts/parquet_manifest.py` — snapshot and compare the committed Parquet
+  layout, so the same check runs locally.
+- Committed artefacts: `data/processed/parquet/` (7.4 MiB),
+  `data/processed/quality_report.md` and `.json`, and `data/baseline.json`. The
+  processed data is now available from a clone without running anything.
+- 27 new tests (89 total): the baseline guard against a real in-memory
+  database, the CLI flag-parsing regression below, and the Parquet staleness
+  logic.
+
+### Fixed
+
+- **Every CLI flag placed before the subcommand was silently ignored.**
+  `python -m etl --out-dir /tmp ingest` used the default output directory and
+  reported success. argparse's subparser re-applies its own defaults to the
+  namespace, clobbering anything the parent parser had already set. The shared
+  parent now uses `argument_default=SUPPRESS` with defaults applied explicitly,
+  and `tests/test_cli.py::TestFlagParsing` locks it down. This also meant the
+  documented claim that "common flags work on either side of the subcommand" was
+  false for the four flags that existed before this release.
+
+### Changed
+
+- `data/exports/` is still gitignored: the rollups are only ~0.1 MiB but change
+  on every build and nothing in `src/` reads them yet. Un-ignore when the
+  frontend is wired up.
+
+### Build baseline
+
+Unchanged by this release — the numbers below are the same as 0.2.0, which is
+the point: adding CI and committing artefacts did not move the data.
+
+| | |
+|---|---|
+| Raw files | 364 in 10 folders |
+| Readings | **735,004** across 8 stations |
+| Range | 2020-05-16T15:52Z → 2024-02-01T20:18Z |
+| Duplicate timestamps absorbed | 4,403 (each also recorded in `rejects`) |
+| Malformed cells rejected | 6 |
+| Notes recovered | 10 |
+| Unconfirmed scale regimes | 23 |
+| Artefact sizes | SQLite 158 MiB · Parquet 7.4 MiB · frontend CSV 0.1 MiB |
+
+---
+
 ## [0.2.0] — 2026-09-25
 
 First working pipeline over the whole archive, plus a full audit of the raw
@@ -28,8 +167,7 @@ are the reason the schema looks the way it does.**
 - `data/processed/quality_report.md` and `.json` — the human-facing half of the
   pipeline.
 - 61 tests, including real XLSX fixtures and regression tests for the two
-  failures described below.
-- `AGENTS.md`, `docs/data-dictionary.md`, `docs/data-sources.md`,
+  failures described below.- `AGENTS.md`, `docs/data-dictionary.md`, `docs/data-sources.md`,
   `docs/format-design.md`, `pyproject.toml`, `Makefile`, `requirements.txt`.
 
 ### Build baseline

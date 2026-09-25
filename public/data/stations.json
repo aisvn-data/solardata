@@ -1,0 +1,159 @@
+[
+  {
+    "station_id": "aisvn",
+    "display_name": "AISVN #1",
+    "location": "Nha Be, Ho Chi Minh City, Vietnam",
+    "tz": "Asia/Ho_Chi_Minh",
+    "applet": "IFTTT_aisvn",
+    "source_dirs": [
+      "aisvn"
+    ],
+    "notes": "11-channel logger. Column meaning and sensor scaling both change during the record -- see etl.normalize.units for the regime table.",
+    "is_production": 1,
+    "first_ts_utc": "2020-06-15T06:10:00Z",
+    "last_ts_utc": "2022-02-22T21:42:00Z",
+    "n_readings": 77622,
+    "published": true,
+    "years": [
+      "2020",
+      "2021",
+      "2022"
+    ]
+  },
+  {
+    "station_id": "aisvn-solar",
+    "display_name": "AISVN Solar (archived applet)",
+    "location": "Nha Be, Ho Chi Minh City, Vietnam",
+    "tz": "Asia/Ho_Chi_Minh",
+    "applet": "IFTTT_AISVN_Solar",
+    "source_dirs": [
+      "AISVN_Solar"
+    ],
+    "notes": "Superseded by aisvn. May 2020 only. Carries a second column block.",
+    "is_production": 1,
+    "first_ts_utc": "2020-05-21T02:52:00Z",
+    "last_ts_utc": "2020-06-12T05:04:00Z",
+    "n_readings": 13788,
+    "published": true,
+    "years": [
+      "2020"
+    ]
+  },
+  {
+    "station_id": "aisvn2",
+    "display_name": "AISVN #2",
+    "location": "Nha Be, Ho Chi Minh City, Vietnam",
+    "tz": "Asia/Ho_Chi_Minh",
+    "applet": "IFTTT_aisvn2",
+    "source_dirs": [
+      "aisvn2"
+    ],
+    "notes": "8-channel logger, values in millivolts/milliamps until normalised.",
+    "is_production": 1,
+    "first_ts_utc": "2020-06-18T09:45:00Z",
+    "last_ts_utc": "2021-11-01T02:49:00Z",
+    "n_readings": 164098,
+    "published": true,
+    "years": [
+      "2020",
+      "2021"
+    ]
+  },
+  {
+    "station_id": "maker-webhooks",
+    "display_name": "Maker Webhooks (archived applet)",
+    "location": "Ho Chi Minh City, Vietnam",
+    "tz": "Asia/Ho_Chi_Minh",
+    "applet": "IFTTT_Maker_Webhooks_Events",
+    "source_dirs": [
+      "Maker_Webhooks_Events"
+    ],
+    "notes": "Superseded by aisvn. June 2020 only. Heavy -992 sentinel usage.",
+    "is_production": 1,
+    "first_ts_utc": "2020-05-30T06:03:00Z",
+    "last_ts_utc": "2020-06-12T15:21:00Z",
+    "n_readings": 8535,
+    "published": true,
+    "years": [
+      "2020"
+    ]
+  },
+  {
+    "station_id": "phumy2",
+    "display_name": "Phu My Hung #2",
+    "location": "Phu My Hung, Ho Chi Minh City, Vietnam",
+    "tz": "Asia/Ho_Chi_Minh",
+    "applet": "IFTTT_phumy2",
+    "source_dirs": [
+      "phumy2",
+      "phumy2a",
+      "phumy2b"
+    ],
+    "notes": "Split across three archive folders because Google Sheets split the sheet at 2000 rows. Continuous June 2020 - February 2024.",
+    "is_production": 1,
+    "first_ts_utc": "2020-06-15T02:29:00Z",
+    "last_ts_utc": "2024-02-01T20:18:00Z",
+    "n_readings": 415117,
+    "published": true,
+    "years": [
+      "2020",
+      "2021",
+      "2022",
+      "2023",
+      "2024"
+    ]
+  },
+  {
+    "station_id": "solar-2020-05",
+    "display_name": "Solar bench (2020-05-16 sheet)",
+    "location": "Ho Chi Minh City, Vietnam",
+    "tz": "Asia/Ho_Chi_Minh",
+    "applet": "IFTTT_Solar_2020-05-16",
+    "source_dirs": [
+      "Solar_2020-05-16"
+    ],
+    "notes": "Bench test sheet, May-June 2020. Has an 'event' column (solar_reading).",
+    "is_production": 1,
+    "first_ts_utc": "2020-05-16T15:52:00Z",
+    "last_ts_utc": "2020-06-15T02:51:00Z",
+    "n_readings": 12920,
+    "published": true,
+    "years": [
+      "2020"
+    ]
+  },
+  {
+    "station_id": "test",
+    "display_name": "Test bench",
+    "location": "unknown",
+    "tz": "Asia/Ho_Chi_Minh",
+    "applet": "IFTTT_test",
+    "source_dirs": [
+      "test"
+    ],
+    "notes": "NOT a solar station. Mixes at least three unrelated schemas (solar channels, a nix/temp/wifi probe, and a millis counter). Treat with suspicion; excluded from published exports by default.",
+    "is_production": 0,
+    "first_ts_utc": "2020-06-12T15:22:00Z",
+    "last_ts_utc": "2020-08-21T06:36:00Z",
+    "n_readings": 37371,
+    "published": false,
+    "years": []
+  },
+  {
+    "station_id": "voltage-phumy",
+    "display_name": "Phu My Hung voltage calibration",
+    "location": "Phu My Hung, Ho Chi Minh City, Vietnam",
+    "tz": "Asia/Ho_Chi_Minh",
+    "applet": "Voltage_phumy",
+    "source_dirs": [
+      "Voltage_phumy"
+    ],
+    "notes": "Bench calibration of the ADC->voltage conversion, not a station. Contains free-text discharge-test notes. Unit mapping unconfirmed.",
+    "is_production": 0,
+    "first_ts_utc": "2020-07-04T21:08:00Z",
+    "last_ts_utc": "2020-07-12T18:03:00Z",
+    "n_readings": 5553,
+    "published": false,
+    "years": []
+  }
+]

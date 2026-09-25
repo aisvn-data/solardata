@@ -43,9 +43,14 @@ class Settings:
     out_dir: Path = REPO_ROOT / "data" / "processed"
     db_path: Path = REPO_ROOT / "data" / "processed" / "solardata.db"
     parquet_dir: Path = REPO_ROOT / "data" / "processed" / "parquet"
-    export_dir: Path = REPO_ROOT / "data" / "exports"
+    #: Served by Vite from ``public/`` and fetched by the browser, so it lives
+    #: under ``public/`` rather than in the gitignored ``data/exports``.
+    export_dir: Path = REPO_ROOT / "public" / "data"
     report_json: Path = REPO_ROOT / "data" / "processed" / "quality_report.json"
     report_md: Path = REPO_ROOT / "data" / "processed" / "quality_report.md"
+    #: Expected output of a build.  Committed, and enforced by CI, so that a
+    #: pipeline change which silently alters the data fails loudly.
+    baseline_path: Path = REPO_ROOT / "data" / "baseline.json"
 
     # Chunking
     parquet_rows_per_group: int = 50_000

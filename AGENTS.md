@@ -15,9 +15,10 @@ Two independent halves live here:
 |---|---|---|
 | `etl/` | Python | Convert the raw archive into a queryable store |
 | `src/` | React + Vite | The website that displays it |
+| `public/data/` | CSV + JSON | What the website fetches, written by `etl/build_exports.py` |
 
-They share only `data/exports/`. The Python package never imports from `src/`,
-and the frontend never imports from `etl/`.
+They meet only at `public/data/`, a committed build artefact. `etl/` never
+imports from `src/`, and `src/` never imports from `etl/`.
 
 ## Commands
 
@@ -30,6 +31,7 @@ python -m etl regimes             # detect unit-scale changes
 python -m etl parquet             # SQLite -> partitioned Parquet
 python -m etl export              # SQLite -> CSV rollups for the website
 python -m etl report              # write the data-quality report
+python -m etl verify              # fail if the build != data/baseline.json
 python -m etl query "SELECT ..."  # ad-hoc read-only SQL
 
 make test                         # pytest
@@ -123,6 +125,7 @@ etl/
   stations.py       folder -> station registry, and the timezone assumption
   schema.sql        the full SQLite DDL; read this before changing a query
   db.py             connection handling, ingest_runs bookkeeping
+  verify.py         the baseline guard CI enforces
   readers/
     times.py        the one timestamp format, and its UTC conversion
     xlsx.py         block detection, row iteration, SHA-256
@@ -135,6 +138,9 @@ etl/
   build_parquet.py  Parquet interchange output
   build_exports.py  CSV rollups the website fetches
   report.py         the data-quality report
+scripts/
+  parquet_manifest.py   snapshot/compare the committed Parquet layout
+  check_frontend.mjs    chart + CSV semantics, over the real exports
 ```
 
 ## Regenerating after a change
@@ -144,16 +150,82 @@ there is no incremental-update logic to get wrong. After changing anything in
 `etl/`, run:
 
 ```bash
-make check && python -m etl all
+make check && python -m etl all && python -m etl verify
 ```
 
 Then read `data/processed/quality_report.md` and check the numbers did not move.
 A change that silently alters the reading count is a bug even if every test
-passes, so treat the report as the acceptance test for data changes.
+passes, so treat the report as the acceptance test for data changes — and let
+`verify` enforce it, because it is the only check that sees the real archive.
 
 Current baseline, for comparison: **735,004 readings** across 8 stations from
 364 files, 4,403 duplicate timestamps absorbed, 6 malformed cells rejected,
 10 recovered notes, 23 unconfirmed scale regimes.
+
+### When the numbers *should* move
+
+Some changes legitimately alter the output — a corrected timezone, a new
+station, a fixed header mapping. Re-record the baseline deliberately, with a
+reason, so the diff appears in the pull request as an explicit number rather
+than a silent rewrite:
+
+```bash
+python -m etl verify --update-baseline --reason "corrected tz for phumy2a"
+```
+
+Never "fix" a red build by loosening `data/baseline.json` by hand. The baseline
+is the record of what the data is, and CI failing is the point.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+1. `ruff check`, `ruff format --check`, `pytest` — fast, no data.
+2. A full `python -m etl all` against the real 364-file archive, then
+   `python -m etl verify`. **Any baseline drift fails the job.**
+3. A Parquet freshness check: the committed `data/processed/parquet/` layout is
+   snapshotted before the build and compared after, because the build
+   overwrites it. Run it locally with
+   `scripts/parquet_manifest.py write` / `check`.
+4. The report is written to `$GITHUB_STEP_SUMMARY` and uploaded as an artefact.
+
+`.github/workflows/release.yml` attaches a `VACUUM`ed, gzipped `solardata.db`
+to a tag's GitHub Release, verified against the baseline first.
+
+### Why `solardata.db` is not committed
+
+It is 158 MiB, over GitHub's 100 MiB per-file limit for a git blob, so a commit
+of it would be rejected outright. What *is* committed:
+
+| Path | Size | Why |
+|---|---|---|
+| `data/processed/parquet/` | 7.4 MiB | The interchange format; gives anyone the processed data from a clone |
+| `public/data/` | 167 KB | The CSV/JSON rollups the site fetches, so GitHub Pages works from a clone |
+| `data/processed/quality_report.md` | ~10 KB | The review artefact, readable in a pull request |
+| `data/processed/quality_report.json` | ~80 KB | Machine-readable form of the same |
+| `data/baseline.json` | ~1 KB | The expected counts CI enforces |
+| `data/raw/**` | 30.4 MiB | The primary source of truth |
+
+`solardata.db` and the retired `data/exports/` are gitignored. Rebuild locally
+with `make build`, or download the database from a Release.
+
+## The website
+
+Plain JSX, no TypeScript, no state library, no chart library. Data flows one
+way: `python -m etl export` writes `public/data/`, `src/data.js` fetches it, and
+the components render it. There is no build step between the CSV and the DOM.
+
+Two rules the frontend inherits from the pipeline, and the reason for each:
+
+- **A gap is a gap.** An empty cell in `readings` reaches the chart as `null`
+  and breaks the line. If you ever coerce it to 0 — even "just for the chart" —
+  every sensor outage becomes a measurement, and the chart will look correct.
+- **Available metrics are discovered, not declared.** `phumy2` has no `solar_v`
+  or `battery_v` at all, so `availableMetrics()` derives the list from the rows
+  and the UI disables what a station does not have.
+
+`node scripts/check_frontend.mjs` guards both, and runs in CI. Add to it when you
+change the chart or the CSV parsing.
 
 ## Open questions a human still has to answer
 
