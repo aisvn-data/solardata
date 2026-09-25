@@ -1,0 +1,22 @@
+# Runtime dependencies for the solardata ETL pipeline.
+#
+#   pip install -r requirements.txt
+#
+# openpyxl is the only hard requirement: the ingest reads Google Sheets XLSX
+# exports and writes SQLite, which is in the standard library.  Everything below
+# that is optional, and each stage that needs it degrades with a clear message
+# rather than crashing.
+#
+#   pip install -r requirements.txt   # full build, including Parquet
+#   pip install openpyxl              # ingest only
+
+openpyxl>=3.1
+
+# Parquet interchange format for the `parquet` stage.  Without it, SQLite is
+# still a complete store and `python -m etl all --only db,regimes,export,report`
+# works fine.
+pyarrow>=14
+
+# Test and lint tooling.
+pytest>=8
+ruff>=0.6
