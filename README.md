@@ -6,9 +6,106 @@
 
 Analyze, clean and display collected solar data.
 
+Four years of telemetry from several solar stations in Nha Be and Phu My Hung,
+Ho Chi City, Vietnam (May 2020 – February 2024): **735,004 readings across 8
+stations**, forwarded to Google Sheets by IFTTT and exported as 364 XLSX files.
+
+## Status
+
+| | |
+|---|---|
+| Raw archive | 364 files, 30.4 MiB, committed and immutable |
+| ETL pipeline | `etl/`, `make build`, ~3 min, 89 tests |
+| Canonical store | `data/processed/solardata.db` (SQLite, 158 MiB — see below) |
+| Interchange | `data/processed/parquet/` (7.4 MiB, **committed**) |
+| Site data | `public/data/` (167 KB, **committed**) |
+| Quality report | `data/processed/quality_report.md` (**committed**) |
+| Baseline guard | `data/baseline.json` (**committed**), enforced by CI |
+| Website | Vite + React at `src/` — station explorer and data-quality inspector |
+| CI | `.github/workflows/` — frontend, lint, test, full build, baseline |
+
+735,004 readings across 8 stations, May 2020 → February 2024. The archive is
+messy in ways that matter: 305 of the 364 files have **no header row**, several
+sheets carry redundant side-by-side column blocks, the same column name means
+different things at different times, and `-992` is a disconnected-sensor
+sentinel rather than a number. All of that is catalogued in
+[`CHANGELOG.md`](CHANGELOG.md) and handled explicitly by the pipeline.
+
+**`solardata.db` is not committed** — at 158 MiB it is over GitHub's 100 MiB
+per-file limit. (It is actually *smaller* than the raw XML: the archive is
+30.4 MiB only because XLSX is deflate-compressed, at 251 MiB uncompressed. See
+[`docs/format-design.md`](docs/format-design.md#why-the-sqlite-file-is-larger-than-the-raw-archive).)
+The Parquet output, the site data and the quality report *are* committed, so a
+clone is immediately useful; the SQLite file ships as a Release asset.
+
 ## Website
 
-The repository now includes the initial **v0.1.0** Vite + React website outline. It provides a lightweight landing page for the project, station overview cards, and a small roadmap for future data work.
+```bash
+npm install
+npm run dev        # http://localhost:5173/solardata/
+npm run build      # -> dist/, deployable to GitHub Pages
+```
+
+Two tabs:
+
+- **Explore** — pick a station, a year and a date range; chart any combination
+  of solar voltage, battery, power, temperature and energy as daily rollups.
+- **Data quality** — the database inspector: what the build inferred, which
+  readings are flagged and why, which scale changes are still unconfirmed, the
+  collector's own margin notes, and the rejected cells.
+
+No chart library: the chart is hand-rolled SVG, because daily rollups need a
+line chart and a package would be ~100 kB of JavaScript to draw two paths.
+
+The site reads static files from `public/data/`, written by
+`python -m etl export`. **A missing value is shown as a gap in the line, never
+as a zero** — `0 W` at midnight and "the sensor was disconnected" are different
+facts, and conflating them would make outages look like measurements.
+
+## Pipeline
+
+```bash
+pip install -r requirements.txt   # or: make setup
+make build                        # ingest -> regimes -> parquet -> export -> report
+```
+
+Or stage by stage:
+
+```bash
+python -m etl ingest     # XLSX -> SQLite   (the slow part)
+python -m etl regimes    # detect unit-scale changes
+python -m etl parquet    # SQLite -> partitioned Parquet
+python -m etl export     # SQLite -> the CSV/JSON rollups the site fetches
+python -m etl report     # write the data-quality report
+python -m etl verify     # fail if the build != data/baseline.json
+python -m etl query "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"
+```
+
+Read the committed Parquet without building anything:
+
+```python
+import duckdb
+duckdb.sql("SELECT station_id, COUNT(*) FROM 'data/processed/parquet/*/*/*.parquet' GROUP BY 1")
+```
+
+If a data change is intentional, re-record the baseline with a reason so the
+diff shows up in the pull request:
+
+```bash
+python -m etl verify --update-baseline --reason "corrected tz for phumy2a"
+```
+
+Read [`AGENTS.md`](AGENTS.md) before changing anything under `etl/` — it lists
+the rules that exist to stop plausible-looking but wrong data, and how CI
+enforces them. Design rationale is in [`docs/format-design.md`](docs/format-design.md),
+the schema in [`docs/data-dictionary.md`](docs/data-dictionary.md), and the
+station histories in [`docs/data-sources.md`](docs/data-sources.md).
+
+## Website
+
+The repository includes the initial **v0.1.0** Vite + React website outline. It
+provides a lightweight landing page, station overview cards, and a roadmap for
+future data work.
 
 ### Run locally
 
@@ -17,15 +114,18 @@ npm install
 npm run dev
 ```
 
-Build a production bundle with `npm run build`. The Vite base path is configured for GitHub Pages at `/solardata/`.
+Build a production bundle with `npm run build`. The Vite base path is configured
+for GitHub Pages at `/solardata/`.
 
 ## Purpose
 
-I collected a lot of data with several solar stations in Nha Be and Phu My Hung in 2020, and some data in 2021. The data sits mostly in Google Sheets. This repository has three goals:
+I collected a lot of data with several solar stations in Nha Be and Phu My Hung
+in 2020, and some data in 2021. The data sits mostly in Google Sheets. This repository has three goals:
 
-- Convert the raw data into structured data, maybe CSV
-- Analyse and structure the data, clean up, label - maybe sqlite
-- Visualize the data on a website, make it searchable
+- Convert the raw data into structured data — **done**, see `etl/`
+- Analyse and structure the data, clean up, label — **done**, see `data/processed/`
+- Visualize the data on a website, make it searchable — the export layer is in
+  place (`data/exports/`); the frontend still needs wiring
 
 ## Data sources
 
@@ -53,13 +153,9 @@ Archived older Applets:
 - test
 - aisvn2
 
-## Convert, analyse and structure - the backend
-
-This should be done in python. It might involve some workers triggered with GitHub Action.
-
-## Display the data - frontend
-
-The data will run with react as frontend, create by vite
+Note that the folder names under `data/raw` are archive chunks rather than
+stations: `phumy2`, `phumy2a` and `phumy2b` are one continuous station. See
+[`docs/data-sources.md`](docs/data-sources.md).
 
 ## Related repositories
 

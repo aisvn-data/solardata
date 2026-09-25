@@ -1,3 +1,6 @@
+# Synology Diskstation
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -216,3 +219,56 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------- solardata
+
+# data/processed holds generated artefacts.  Most of it is gitignored, but three
+# things ARE committed and must be un-ignored explicitly:
+#
+#   quality_report.md / .json  the human review artefact; small enough to read
+#                              in a pull request, and the acceptance test for a
+#                              data change (see AGENTS.md)
+#   parquet/                   7.4 MiB, the interchange format; committing it
+#                              means the processed data is available to anyone
+#                              who clones, and CI can diff a rebuild against
+#                              what was published
+#
+# solardata.db is 158 MiB, which is over GitHub's 100 MiB per-file limit, so it
+# cannot be committed.  It ships as a GitHub Release asset instead; see
+# .github/workflows/release.yml.  Locally: make build (or `python -m etl all`).
+data/processed/*
+!data/processed/quality_report.md
+!data/processed/quality_report.json
+!data/processed/parquet/
+
+# public/data is NOT ignored: it is the static data the site fetches, generated
+# by `python -m etl export` and small enough (about 170 KB) that a rebuild
+# produces a readable diff. Committing it means the GitHub Pages deploy works
+# from the repository alone, with no build step on the server.
+#
+# If you ever add a granularity that makes this grow (hourly rollups are ~5 MB),
+# gitignore that subtree instead and generate it at deploy time.
+
+# The old export location, kept working by --export-dir but no longer default.
+data/exports/
+
+# The raw archive under data/raw IS committed: it is the primary source of
+# truth and must never be regenerated. If you ever need to exclude it, do it
+# here deliberately, not by accident.
+
+# Python bytecode and build output from the etl package
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+.vite/
+
+# Local overrides for the pipeline paths
+.env
+.env.local
