@@ -4,6 +4,71 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-09-26
+
+### Added
+
+- **A working website.** Two tabs over the cleaned data:
+  - **Explore** — pick a station, year and date range; chart any combination of
+    solar voltage, battery, power, temperature and energy from the daily
+    rollups, with a hover readout and summary tiles that include coverage
+    (days reported, readings, hours covered) alongside the statistics.
+  - **Data quality** — the database inspector: overview counts, per-folder
+    breakdown, quality flags with their meaning, the unconfirmed scale regimes,
+    the full channel-mapping table with confidence, the collector's own margin
+    notes, and the rejected cells with samples.
+- `src/data.js` — data access. Two properties of the dataset drive it:
+  - An empty CSV cell stays `null` and breaks the chart line. It is never
+    coerced to 0, because `0 W` at midnight and "the sensor was disconnected"
+    are different facts and conflating them makes outages look like
+    measurements.
+  - Which metrics exist is discovered from the rows, not hardcoded, because
+    `phumy2` has no `solar_v` or `battery_v` at all across 415k rows.
+- `src/components/TimeSeriesChart.jsx` — a hand-rolled SVG line chart. No chart
+  library: daily rollups need a line chart, and a package would be ~100 kB of
+  JavaScript to draw two paths. Gaps break the path into separate subpaths, the
+  hover target is the nearest row by date (so a day with no data still reports
+  "no data"), and all series share one y-axis so an empty band reads honestly.
+- `src/components/TimeControls.jsx`, `StatTiles.jsx`, `StationExplorer.jsx`,
+  `QualityInspector.jsx`.
+- `scripts/check_frontend.mjs` — 12 checks over the chart helpers and the real
+  exported CSVs, run in CI. The two things most likely to be quietly wrong —
+  coercing an empty cell to 0, and drawing a line across a gap — both produce a
+  chart that looks fine and reads as data that does not exist, and a screenshot
+  would not catch either.
+- The export stage now writes to `public/data/` (Vite's static directory) and
+  emits `quality.json` from the same `etl.report.collect` call the committed
+  Markdown report uses, so the browser and the repository cannot disagree.
+  167 KB across 15 files: `stations.json`, `quality.json`, 13 daily CSVs.
+- A `frontend` CI job: the checks above, `npm run build`, and an assertion that
+  the data files reached `dist/` — the deploy can otherwise succeed while every
+  page shows an error.
+
+### Changed
+
+- `etl/config.py`: the default export directory moved from `data/exports/` to
+  `public/data/`, so the site works from a plain clone with no server and
+  `public/data` is committed rather than generated at deploy time.
+- CI: the `build` job now also depends on `frontend`, and warns when the
+  rebuilt `public/data/` differs from the committed copy — the same treatment
+  the quality report gets, for the same reason.
+
+### Findings
+
+- **The SQLite file is not bloated.** `data/raw` is 30.4 MiB only because XLSX
+  is deflate-compressed; uncompressed it is 251.4 MiB, so the database at
+  158.2 MiB is **0.63× the raw XML**. The measurements are already 8-byte
+  float64 (23 `REAL` columns, confirmed with `typeof()`). What is wasteful is
+  30 MiB of `TEXT` — `ts_local` and `tz`, both derivable — but removing them
+  yields ~128 MiB, still over GitHub's 100 MiB limit, so it would not make the
+  database committable. Recorded in `docs/format-design.md` with the
+  attribution, and deliberately deferred.
+
+Build baseline unchanged: 735,004 readings, 4,403 duplicates, 10 notes,
+23 regimes, 89 Python tests.
+
+---
+
 ## [0.3.0] — 2026-09-25
 
 ### Added

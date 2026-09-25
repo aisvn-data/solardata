@@ -241,8 +241,15 @@ data/processed/*
 !data/processed/quality_report.json
 !data/processed/parquet/
 
-# The frontend rollups are ~0.1 MiB but change on every build, and nothing in
-# the repo reads them yet.  Un-ignore when src/ starts fetching them.
+# public/data is NOT ignored: it is the static data the site fetches, generated
+# by `python -m etl export` and small enough (about 170 KB) that a rebuild
+# produces a readable diff. Committing it means the GitHub Pages deploy works
+# from the repository alone, with no build step on the server.
+#
+# If you ever add a granularity that makes this grow (hourly rollups are ~5 MB),
+# gitignore that subtree instead and generate it at deploy time.
+
+# The old export location, kept working by --export-dir but no longer default.
 data/exports/
 
 # The raw archive under data/raw IS committed: it is the primary source of
@@ -257,6 +264,10 @@ dist/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Node
+node_modules/
+.vite/
 
 # Local overrides for the pipeline paths
 .env

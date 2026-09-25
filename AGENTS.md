@@ -15,9 +15,10 @@ Two independent halves live here:
 |---|---|---|
 | `etl/` | Python | Convert the raw archive into a queryable store |
 | `src/` | React + Vite | The website that displays it |
+| `public/data/` | CSV + JSON | What the website fetches, written by `etl/build_exports.py` |
 
-They share only `data/exports/`. The Python package never imports from `src/`,
-and the frontend never imports from `etl/`.
+They meet only at `public/data/`, a committed build artefact. `etl/` never
+imports from `src/`, and `src/` never imports from `etl/`.
 
 ## Commands
 
@@ -139,6 +140,7 @@ etl/
   report.py         the data-quality report
 scripts/
   parquet_manifest.py   snapshot/compare the committed Parquet layout
+  check_frontend.mjs    chart + CSV semantics, over the real exports
 ```
 
 ## Regenerating after a change
@@ -198,13 +200,32 @@ of it would be rejected outright. What *is* committed:
 | Path | Size | Why |
 |---|---|---|
 | `data/processed/parquet/` | 7.4 MiB | The interchange format; gives anyone the processed data from a clone |
+| `public/data/` | 167 KB | The CSV/JSON rollups the site fetches, so GitHub Pages works from a clone |
 | `data/processed/quality_report.md` | ~10 KB | The review artefact, readable in a pull request |
 | `data/processed/quality_report.json` | ~80 KB | Machine-readable form of the same |
 | `data/baseline.json` | ~1 KB | The expected counts CI enforces |
 | `data/raw/**` | 30.4 MiB | The primary source of truth |
 
-`solardata.db` and `data/exports/` are gitignored. Rebuild locally with
-`make build`, or download the database from a Release.
+`solardata.db` and the retired `data/exports/` are gitignored. Rebuild locally
+with `make build`, or download the database from a Release.
+
+## The website
+
+Plain JSX, no TypeScript, no state library, no chart library. Data flows one
+way: `python -m etl export` writes `public/data/`, `src/data.js` fetches it, and
+the components render it. There is no build step between the CSV and the DOM.
+
+Two rules the frontend inherits from the pipeline, and the reason for each:
+
+- **A gap is a gap.** An empty cell in `readings` reaches the chart as `null`
+  and breaks the line. If you ever coerce it to 0 — even "just for the chart" —
+  every sensor outage becomes a measurement, and the chart will look correct.
+- **Available metrics are discovered, not declared.** `phumy2` has no `solar_v`
+  or `battery_v` at all, so `availableMetrics()` derives the list from the rows
+  and the UI disables what a station does not have.
+
+`node scripts/check_frontend.mjs` guards both, and runs in CI. Add to it when you
+change the chart or the CSV parsing.
 
 ## Open questions a human still has to answer
 
