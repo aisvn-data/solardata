@@ -1,0 +1,67 @@
+[project]
+name = "solardata-etl"
+version = "0.2.0"
+description = "Convert the raw IFTTT/Google-Sheets solar archive into a queryable store"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Runtime dependencies are intentionally few. openpyxl is the only hard
+# requirement for the ingest; SQLite is stdlib. pyarrow is only needed for the
+# Parquet stage, which is skippable.
+dependencies = [
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+# Full build: Parquet interchange format.
+parquet = ["pyarrow>=14"]
+# Everything needed to run the tests.
+dev = ["pytest>=8", "ruff>=0.6", "pyarrow>=14"]
+
+[project.scripts]
+solardata-etl = "etl.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["etl", "etl.readers", "etl.normalize"]
+
+[tool.setuptools.package-data]
+etl = ["schema.sql"]
+
+# ---------------------------------------------------------------- tool config
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["etl", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",  # line length is handled by the formatter
+    "RUF001", # ambiguous unicode in strings: the archive has German notes
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests build fixtures inline and use asserts liberally.
+"tests/*" = ["B011"]
+
+[tool.ruff.format]
+quote-style = "double"
