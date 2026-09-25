@@ -275,13 +275,19 @@ class TestCommittedBaseline(unittest.TestCase):
         # These are the figures quoted in README.md and CHANGELOG.md.  If a
         # rebuild moves them, the documentation is wrong and this fails.
         counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
-        self.assertEqual(counts["readings"], 735004)
+        self.assertEqual(counts["readings"], 734908)
         self.assertEqual(counts["files"], 364)
         self.assertEqual(counts["stations"], 8)
-        self.assertEqual(counts["duplicate_ts"], 4403)
+        self.assertEqual(counts["duplicate_ts"], 4399)
         self.assertEqual(counts["notes"], 10)
-        self.assertEqual(counts["unconfirmed_regimes"], 23)
+        self.assertEqual(counts["unconfirmed_regimes"], 20)
         self.assertEqual(counts["headerless_without_donor"], 0)
+
+    def test_malformed_rejects_cover_the_excluded_rows(self):
+        # 6 repeated header rows + 100 excluded pre-reinstall rows in
+        # aisvn/IFTTT_aisvn (25).xlsx.  The exclusions have to stay visible.
+        counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
+        self.assertEqual(counts["malformed_rejects"], 106)
 
     def test_invariants_that_must_never_relax(self):
         counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]

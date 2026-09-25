@@ -115,6 +115,16 @@ class TestCoerceNumber(unittest.TestCase):
             self.assertIsNone(result.value, raw)
             self.assertIn("sentinel", result.flags, raw)
 
+    def test_adc_rail_sentinel_becomes_null_in_any_spelling(self):
+        # aisvn.temp_c logs 342.1 fourteen thousand times: a saturating float32
+        # conversion, not a temperature. The reader normalises integral floats
+        # to their integer spelling, so a cell holding 342.0 arrives as "342" --
+        # matching on text alone would miss it.
+        for raw in ("342.1", "342.0", "342"):
+            result = coerce_number(raw, METRIC_BY_COLUMN["temp_c"])
+            self.assertIsNone(result.value, raw)
+            self.assertIn("sentinel", result.flags, raw)
+
     def test_zero_is_preserved_not_treated_as_sentinel(self):
         # 0 W at night is a real measurement and must survive.
         result = coerce_number("0.0", METRIC_BY_COLUMN["power_w"])

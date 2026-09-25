@@ -1,5 +1,5 @@
 {
-  "tool_version": "0.3.0",
+  "tool_version": "0.5.0",
   "stations": [
     {
       "station_id": "aisvn",
@@ -11,7 +11,7 @@
       "is_production": 1,
       "first_ts_utc": "2020-06-15T06:10:00Z",
       "last_ts_utc": "2022-02-22T21:42:00Z",
-      "n_readings": 77622,
+      "n_readings": 77526,
       "notes": "11-channel logger. Column meaning and sensor scaling both change during the record -- see etl.normalize.units for the regime table."
     },
     {
@@ -107,7 +107,7 @@
     }
   ],
   "totals": {
-    "readings": 735004,
+    "readings": 734908,
     "stations": 8,
     "days": 850,
     "first_ts": "2020-05-16T15:52:00Z",
@@ -169,9 +169,9 @@
         "station_id": "aisvn",
         "files": 39,
         "with_header": 5,
-        "rows_ingested": 77622,
-        "duplicate_ts": 26,
-        "rejected": 27,
+        "rows_ingested": 77526,
+        "duplicate_ts": 22,
+        "rejected": 123,
         "first_ts": "2020-06-15T06:10:00Z",
         "last_ts": "2022-02-22T21:42:00Z"
       },
@@ -233,20 +233,30 @@
     ]
   },
   "quality_flags": {
-    "out_of_range": 653694,
-    "out_of_range,sentinel": 13431,
-    "sentinel,out_of_range": 2932
+    "out_of_range": 606352,
+    "sentinel,out_of_range": 17105,
+    "out_of_range,sentinel": 13488,
+    "out_of_range,bad_window:solar_v,bad_window:battery_v,bad_window:temp_c": 1609,
+    "sentinel": 5,
+    "out_of_range,sentinel,bad_window:solar_v,bad_window:battery_v,bad_window:temp_c": 1
   },
   "flag_totals": {
-    "out_of_range": 670057,
-    "sentinel": 16363
+    "out_of_range": 638555,
+    "sentinel": 30599,
+    "bad_window:solar_v": 1610,
+    "bad_window:battery_v": 1610,
+    "bad_window:temp_c": 1610
   },
   "rejects": {
-    "total": 4409,
+    "total": 4505,
     "by_reason": [
       {
         "reason": "duplicate_ts",
-        "n": 4403
+        "n": 4399
+      },
+      {
+        "reason": "pre-reinstall window; collector confirmed rows from here on are usable",
+        "n": 100
       },
       {
         "reason": "repeated header row",
@@ -375,59 +385,59 @@
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
-        "sheet_row": 27,
+        "sheet_row": 2,
         "column_name": "time",
-        "raw_value": "October 29, 2020 at 05:29PM",
-        "reason": "duplicate_ts"
+        "raw_value": "October 26, 2020 at 02:19AM",
+        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
-        "sheet_row": 34,
+        "sheet_row": 3,
         "column_name": "time",
-        "raw_value": "October 29, 2020 at 05:37PM",
-        "reason": "duplicate_ts"
+        "raw_value": "October 26, 2020 at 02:21AM",
+        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
-        "sheet_row": 46,
+        "sheet_row": 4,
         "column_name": "time",
-        "raw_value": "October 30, 2020 at 04:19PM",
-        "reason": "duplicate_ts"
+        "raw_value": "October 26, 2020 at 02:23AM",
+        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
-        "sheet_row": 100,
+        "sheet_row": 5,
         "column_name": "time",
-        "raw_value": "October 30, 2020 at 06:05PM",
-        "reason": "duplicate_ts"
+        "raw_value": "October 27, 2020 at 04:03PM",
+        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
-        "sheet_row": 127,
+        "sheet_row": 6,
         "column_name": "time",
-        "raw_value": "October 30, 2020 at 06:58PM",
-        "reason": "duplicate_ts"
+        "raw_value": "October 27, 2020 at 04:05PM",
+        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
-        "sheet_row": 235,
+        "sheet_row": 7,
         "column_name": "time",
-        "raw_value": "October 30, 2020 at 10:35PM",
-        "reason": "duplicate_ts"
+        "raw_value": "October 27, 2020 at 04:07PM",
+        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
       },
       {
-        "rel_path": "aisvn/IFTTT_aisvn (27).xlsx",
-        "sheet_row": 1774,
+        "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+        "sheet_row": 8,
         "column_name": "time",
-        "raw_value": "November 27, 2020 at 11:37PM",
-        "reason": "duplicate_ts"
+        "raw_value": "October 27, 2020 at 04:09PM",
+        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
       },
       {
-        "rel_path": "aisvn/IFTTT_aisvn (8).xlsx",
-        "sheet_row": 911,
+        "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+        "sheet_row": 9,
         "column_name": "time",
-        "raw_value": "July 10, 2020 at 01:15AM",
-        "reason": "duplicate_ts"
+        "raw_value": "October 27, 2020 at 08:05PM",
+        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
       }
     ]
   },
@@ -590,9 +600,9 @@
       "canonical_col": "boot_count",
       "unit": "count",
       "confidence": "high",
-      "inferred": 0,
+      "inferred": 1,
       "reason": "exact header match",
-      "n_files": 15
+      "n_files": 38
     },
     {
       "station_id": "aisvn-solar",
@@ -1367,63 +1377,15 @@
     },
     {
       "station_id": "aisvn",
-      "column": "load_v",
+      "column": "solar2_v",
       "unit": "V",
-      "valid_from": "2020-06-20T22:11:00Z",
-      "valid_to": "2020-06-24T05:03:00Z",
+      "valid_from": "2020-06-15T06:10:00Z",
+      "valid_to": "2020-06-18T01:48:00Z",
       "scale": 0.001,
       "status": "unconfirmed",
       "detected_by": "range",
       "confidence": "medium",
-      "notes": "median 0.175 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0002 (100% in range)"
-    },
-    {
-      "station_id": "aisvn",
-      "column": "load_v",
-      "unit": "V",
-      "valid_from": "2020-07-02T18:14:00Z",
-      "valid_to": "2020-07-05T15:05:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 0.72 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0007 (100% in range)"
-    },
-    {
-      "station_id": "aisvn",
-      "column": "load_v",
-      "unit": "V",
-      "valid_from": "2020-07-14T03:10:00Z",
-      "valid_to": "2020-07-17T11:45:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 1.57 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0016 (100% in range)"
-    },
-    {
-      "station_id": "aisvn",
-      "column": "load_v",
-      "unit": "V",
-      "valid_from": "2020-07-25T23:28:00Z",
-      "valid_to": "2020-08-15T06:09:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 1.14 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0011 (100% in range)"
-    },
-    {
-      "station_id": "aisvn",
-      "column": "load_v",
-      "unit": "V",
-      "valid_from": "2020-08-18T04:09:00Z",
-      "valid_to": "2020-08-21T11:28:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 1.325 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0013 (100% in range)"
+      "notes": "median 32.6 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0326 (100% in range)"
     },
     {
       "station_id": "aisvn",
@@ -1468,8 +1430,8 @@
       "valid_from": "2020-05-21T02:52:00Z",
       "valid_to": "2020-06-12T05:04:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
+      "status": "confirmed",
+      "detected_by": "manual",
       "confidence": "medium",
       "notes": "median 3532.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 3.532 (100% in range)"
     },
@@ -1480,10 +1442,34 @@
       "valid_from": "2020-05-21T02:52:00Z",
       "valid_to": "2020-06-12T05:04:00Z",
       "scale": 0.001,
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "medium",
+      "notes": "median 3135.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 3.135 (100% in range)"
+    },
+    {
+      "station_id": "aisvn2",
+      "column": "battery2_v",
+      "unit": "V",
+      "valid_from": "2020-06-18T09:45:00Z",
+      "valid_to": "2021-11-01T02:18:00Z",
+      "scale": 0.001,
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "medium",
+      "notes": "median 12521.0 outside plausible [9.0, 16.0] V; scale 0.001 brings it to 12.521 (100% in range)"
+    },
+    {
+      "station_id": "aisvn2",
+      "column": "lipo2_v",
+      "unit": "V",
+      "valid_from": "2020-06-18T09:45:00Z",
+      "valid_to": "2020-06-23T15:49:00Z",
+      "scale": 0.01,
       "status": "unconfirmed",
       "detected_by": "range",
       "confidence": "medium",
-      "notes": "median 3135.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 3.135 (100% in range)"
+      "notes": "median 300.0 outside plausible [2.5, 4.35] V; scale 0.01 brings it to 3.0 (100% in range)"
     },
     {
       "station_id": "maker-webhooks",
@@ -1492,8 +1478,8 @@
       "valid_from": "2020-05-30T06:03:00Z",
       "valid_to": "2020-06-12T15:21:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
+      "status": "confirmed",
+      "detected_by": "manual",
       "confidence": "medium",
       "notes": "median 11768.0 outside plausible [9.0, 16.0] V; scale 0.001 brings it to 11.768 (96% in range)"
     },
@@ -1504,8 +1490,8 @@
       "valid_from": "2020-05-30T06:03:00Z",
       "valid_to": "2020-06-08T06:34:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
+      "status": "confirmed",
+      "detected_by": "manual",
       "confidence": "medium",
       "notes": "median 4094.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.094 (100% in range)"
     },
@@ -1528,10 +1514,22 @@
       "valid_from": "2020-05-30T06:03:00Z",
       "valid_to": "2020-06-12T05:13:00Z",
       "scale": 0.001,
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "medium",
+      "notes": "median 3300.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 3.3 (100% in range)"
+    },
+    {
+      "station_id": "maker-webhooks",
+      "column": "solar2_v",
+      "unit": "V",
+      "valid_from": "2020-06-10T18:25:00Z",
+      "valid_to": "2020-06-12T15:21:00Z",
+      "scale": 0.001,
       "status": "unconfirmed",
       "detected_by": "range",
       "confidence": "medium",
-      "notes": "median 3300.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 3.3 (100% in range)"
+      "notes": "median 735.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.735 (100% in range)"
     },
     {
       "station_id": "maker-webhooks",
@@ -1539,6 +1537,102 @@
       "unit": "V",
       "valid_from": "2020-05-30T06:03:00Z",
       "valid_to": "2020-06-12T15:21:00Z",
+      "scale": 0.001,
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "medium",
+      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+    },
+    {
+      "station_id": "phumy2",
+      "column": "lipo2_v",
+      "unit": "V",
+      "valid_from": "2020-06-15T02:29:00Z",
+      "valid_to": "2024-02-01T20:18:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 4092.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.092 (100% in range)"
+    },
+    {
+      "station_id": "phumy2",
+      "column": "solar2_v",
+      "unit": "V",
+      "valid_from": "2020-06-15T02:29:00Z",
+      "valid_to": "2021-04-09T15:19:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+    },
+    {
+      "station_id": "phumy2",
+      "column": "solar2_v",
+      "unit": "V",
+      "valid_from": "2021-04-15T08:20:00Z",
+      "valid_to": "2022-10-17T20:15:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+    },
+    {
+      "station_id": "phumy2",
+      "column": "solar2_v",
+      "unit": "V",
+      "valid_from": "2022-10-20T17:47:00Z",
+      "valid_to": "2022-10-23T15:43:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+    },
+    {
+      "station_id": "phumy2",
+      "column": "solar2_v",
+      "unit": "V",
+      "valid_from": "2022-11-16T01:49:00Z",
+      "valid_to": "2022-11-18T23:16:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+    },
+    {
+      "station_id": "phumy2",
+      "column": "solar2_v",
+      "unit": "V",
+      "valid_from": "2022-11-21T21:49:00Z",
+      "valid_to": "2022-11-27T20:09:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+    },
+    {
+      "station_id": "phumy2",
+      "column": "solar2_v",
+      "unit": "V",
+      "valid_from": "2022-12-03T15:13:00Z",
+      "valid_to": "2022-12-18T05:46:00Z",
+      "scale": 0.001,
+      "status": "unconfirmed",
+      "detected_by": "range",
+      "confidence": "medium",
+      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+    },
+    {
+      "station_id": "phumy2",
+      "column": "solar2_v",
+      "unit": "V",
+      "valid_from": "2024-01-14T00:01:00Z",
+      "valid_to": "2024-02-01T20:18:00Z",
       "scale": 0.001,
       "status": "unconfirmed",
       "detected_by": "range",
@@ -1552,8 +1646,8 @@
       "valid_from": "2020-05-16T15:52:00Z",
       "valid_to": "2020-06-15T02:51:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
+      "status": "confirmed",
+      "detected_by": "manual",
       "confidence": "medium",
       "notes": "median 2904.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 2.904 (100% in range)"
     },
@@ -1564,8 +1658,8 @@
       "valid_from": "2020-06-12T15:22:00Z",
       "valid_to": "2020-06-14T01:57:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
+      "status": "confirmed",
+      "detected_by": "manual",
       "confidence": "medium",
       "notes": "median 12272.0 outside plausible [9.0, 16.0] V; scale 0.001 brings it to 12.272 (100% in range)"
     },
@@ -1576,10 +1670,22 @@
       "valid_from": "2020-06-12T15:22:00Z",
       "valid_to": "2020-06-14T01:57:00Z",
       "scale": 0.001,
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "medium",
+      "notes": "median 4012.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.012 (100% in range)"
+    },
+    {
+      "station_id": "test",
+      "column": "solar2_v",
+      "unit": "V",
+      "valid_from": "2020-06-12T15:22:00Z",
+      "valid_to": "2020-06-14T01:57:00Z",
+      "scale": 0.001,
       "status": "unconfirmed",
       "detected_by": "range",
       "confidence": "medium",
-      "notes": "median 4012.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.012 (100% in range)"
+      "notes": "median 735.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.735 (100% in range)"
     },
     {
       "station_id": "test",
@@ -1588,8 +1694,8 @@
       "valid_from": "2020-06-12T15:22:00Z",
       "valid_to": "2020-07-08T05:12:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
+      "status": "confirmed",
+      "detected_by": "manual",
       "confidence": "medium",
       "notes": "median 12912.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 12.912 (99% in range)"
     }
@@ -1598,17 +1704,17 @@
     {
       "station_id": "aisvn",
       "interval_s": 119,
-      "n": 60463
+      "n": 60398
     },
     {
       "station_id": "aisvn",
       "interval_s": 120,
-      "n": 13131
+      "n": 13117
     },
     {
       "station_id": "aisvn",
       "interval_s": 179,
-      "n": 1783
+      "n": 1782
     },
     {
       "station_id": "aisvn",
@@ -1677,13 +1783,13 @@
     },
     {
       "station_id": "aisvn",
-      "interval_s": 59,
-      "n": 13
+      "interval_s": 779,
+      "n": 12
     },
     {
       "station_id": "aisvn",
-      "interval_s": 779,
-      "n": 12
+      "interval_s": 59,
+      "n": 8
     },
     {
       "station_id": "aisvn",
@@ -1713,11 +1819,6 @@
     {
       "station_id": "aisvn",
       "interval_s": 2700,
-      "n": 2
-    },
-    {
-      "station_id": "aisvn",
-      "interval_s": 2580,
       "n": 2
     },
     {
@@ -1752,17 +1853,17 @@
     },
     {
       "station_id": "aisvn",
-      "interval_s": 3539,
-      "n": 1
-    },
-    {
-      "station_id": "aisvn",
       "interval_s": 3479,
       "n": 1
     },
     {
       "station_id": "aisvn",
       "interval_s": 2640,
+      "n": 1
+    },
+    {
+      "station_id": "aisvn",
+      "interval_s": 2580,
       "n": 1
     },
     {
@@ -1783,11 +1884,6 @@
     {
       "station_id": "aisvn",
       "interval_s": 1680,
-      "n": 1
-    },
-    {
-      "station_id": "aisvn",
-      "interval_s": 1679,
       "n": 1
     },
     {
@@ -3249,6 +3345,12 @@
       "gap_hours": 119.0
     },
     {
+      "station_id": "aisvn",
+      "from_ts": "2020-10-25T19:17:00Z",
+      "to_ts": "2020-10-30T11:09:00Z",
+      "gap_hours": 111.9
+    },
+    {
       "station_id": "test",
       "from_ts": "2020-06-17T07:26:00Z",
       "to_ts": "2020-06-20T14:31:00Z",
@@ -3295,27 +3397,21 @@
       "from_ts": "2022-11-11T02:04:00Z",
       "to_ts": "2022-11-14T00:36:00Z",
       "gap_hours": 70.5
-    },
-    {
-      "station_id": "aisvn",
-      "from_ts": "2020-08-29T10:48:00Z",
-      "to_ts": "2020-09-01T07:58:00Z",
-      "gap_hours": 69.2
     }
   ],
   "channel_plausibility": [
     {
       "station_id": "aisvn",
-      "n_solar": 77622,
+      "n_solar": 77526,
       "solar_min": 0.0,
       "solar_max": 20890.0,
-      "n_batt": 77622,
+      "n_batt": 77526,
       "batt_min": -0.99,
       "batt_max": 15310.0,
-      "n_temp": 77621,
+      "n_temp": 63411,
       "temp_min": 0.0,
-      "temp_max": 342.1,
-      "n_power": 29637
+      "temp_max": 341.0,
+      "n_power": 75527
     },
     {
       "station_id": "aisvn-solar",

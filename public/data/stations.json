@@ -12,7 +12,7 @@
     "is_production": 1,
     "first_ts_utc": "2020-06-15T06:10:00Z",
     "last_ts_utc": "2022-02-22T21:42:00Z",
-    "n_readings": 77622,
+    "n_readings": 77526,
     "published": true,
     "years": [
       "2020",

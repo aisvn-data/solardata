@@ -158,9 +158,9 @@ A change that silently alters the reading count is a bug even if every test
 passes, so treat the report as the acceptance test for data changes — and let
 `verify` enforce it, because it is the only check that sees the real archive.
 
-Current baseline, for comparison: **735,004 readings** across 8 stations from
-364 files, 4,403 duplicate timestamps absorbed, 6 malformed cells rejected,
-10 recovered notes, 23 unconfirmed scale regimes.
+Current baseline, for comparison: **734,908 readings** across 8 stations from
+364 files, 4,399 duplicate timestamps absorbed, 106 rejected cells, 10
+recovered notes, 20 unconfirmed scale regimes.
 
 ### When the numbers *should* move
 
@@ -231,26 +231,25 @@ change the chart or the CSV parsing.
 
 These are recorded, not solved. Do not quietly decide them in code.
 
-1. **Timezone.** Everything is stored as `Asia/Ho_Chi_Minh` (UTC+07:00, no
-   DST). Correct for Vietnam, but it is an assumption in `etl/stations.py` and
-   should be confirmed against the collector's own configuration.
-2. **The 23 unconfirmed scale regimes.** `aisvn`, `aisvn2`, `aisvn-solar`,
-   `maker-webhooks` and `solar-2020-05` all appear to log millivolts, and
-   `phumy2` appears to log milliamps on `current2`. Confirm or reject each.
-3. **The `aisvn` temperature recalibration.** Monthly means read 33.4 degC in
-   September 2020, 22.3 degC in October, and 32.4 degC in November — and the
-   collector's own note in the `notes` table says
-   *"Pin 4 is temperature - calibrated ..."* on 2020-10-29. The October window
-   needs to be marked bad or corrected.
-4. **`aisvn (25).xlsx` channel meanings.** In that window `battery` reads
-   29.12 V and `temp` 16.2 degC, which no calibration explains. Several
-   concurrent notes in the same column ("this all is just garbage", "Installed
-   in the dark, let's start again!") suggest the hardware was being reinstalled.
-5. **`load_v`.** Reads as a voltage in `aisvn` (13.8) but the header does not
-   say so, and the `test` station's same-named column is a raw channel.
-6. **Non-production stations.** `test` and `voltage-phumy` are bench data —
-   `test` even contains a WiFi/temperature probe. They are excluded from
-   published exports by default via `stations.NON_PRODUCTION`.
+1. **The 20 remaining unconfirmed scale regimes.** All 20 are `aisvn`. The 11
+   confirmed ones are the short records that log millivolts throughout
+   (`aisvn-solar`, `maker-webhooks`, `solar-2020-05`, `test`,
+   `aisvn2.battery2_v`). What is left needs the firmware, per window.
+2. **The 200.0 / 334.0 outliers in `aisvn.temp_c`** — 2,220 readings, 3.5% of
+   the channel, scattered across two years. They look like a second rail or a
+   dropped divisor, but they are *flagged, not nulled*, because there is not
+   enough evidence to call them invalid. See `CHANGELOG.md` 0.5.0.
+3. **`load_v` when no load is present.** The collector describes it as 10–12 V
+   when a load is switched on and 0 when none is present. The 0 state does not
+   appear anywhere in the correctly-aligned record, so the trigger for it is
+   unknown.
+4. **The `aisvn` gaps.** No readings between 2020-10-25 and 2020-11-04, and
+   September 2020 has only 12 readings. Unknown whether the collector was down
+   or the rows were lost in the Sheets export.
+5. **Non-production stations** stay excluded from published exports. `test` is
+   a WiFi probe mixed with solar channels, and its temperature channel peaks at
+   21:00, consistent with being indoors. `voltage-phumy` is an ADC calibration
+   sheet.
 
 ## Conventions
 

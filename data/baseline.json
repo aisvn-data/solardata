@@ -1,21 +1,21 @@
 {
   "description": "Expected output of `python -m etl ingest`. CI fails on any drift; see etl/verify.py and AGENTS.md.",
   "counts": {
-    "readings": 735004,
+    "readings": 734908,
     "files": 364,
     "stations": 8,
-    "duplicate_ts": 4403,
-    "malformed_rejects": 6,
+    "duplicate_ts": 4399,
+    "malformed_rejects": 106,
     "notes": 10,
-    "unconfirmed_regimes": 23,
+    "unconfirmed_regimes": 20,
     "headerless_without_donor": 0,
-    "hourly_buckets": 25662,
-    "daily_buckets": 1197
+    "hourly_buckets": 25649,
+    "daily_buckets": 1194
   },
   "recorded": {
-    "tool_version": "0.2.0",
-    "run_started_at": "2026-09-25T16:55:53Z",
-    "ingest_notes": "364 files; 735004 rows; 4403 duplicate timestamps absorbed; 4409 rejected; 25662 hourly / 1197 daily buckets",
-    "reason": "first recorded baseline from the 364-file archive"
+    "tool_version": "0.4.0",
+    "run_started_at": "2026-09-25T18:48:23Z",
+    "ingest_notes": "364 files; 734908 rows; 4399 duplicate timestamps absorbed; 4505 rejected; 25649 hourly / 1194 daily buckets",
+    "reason": "fix schema-donor column-width matching: 23 aisvn files (11 cols) inherited a 10-col header, mislabelling 45986 readings; add 342.1/342.0 adc-rail sentinel; exclude 100 pre-reinstall rows in aisvn (25); flag 2020-10-23..30 bad window"
   }
 }

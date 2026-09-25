@@ -8,13 +8,25 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Raw values that mean "sensor not connected / input floating" rather than a
-# genuine measurement.  Found in the ``test`` and ``Maker_Webhooks_Events``
-# archives.  They must become NULL, never 0 -- averaging them in drags every
-# aggregate towards zero.
-SENTINEL_NEGATIVE: dict[str, str] = {
-    "-992": "ifttt_missing_value",  # 8366 cells in Maker_Webhooks, 4668 in test
-    "-1": "ifttt_missing_value",
+# Raw values that mean "sensor not connected / input floating / rail" rather
+# than a genuine measurement. They become NULL, never 0 -- averaging them in
+# drags every aggregate towards zero.
+#
+# -992 and -1 are IFTTT's own missing-value markers, in `test` and
+# `Maker_Webhooks_Events`. 342.1 was found in `aisvn.temp_c`: 14,107 readings at
+# exactly 342.1 and 7 at 342.0. That is the signature of a saturating float32
+# conversion, not a temperature -- no sensor in Ho Chi City reports 342 degC, and
+# a value repeating identically 14,000 times is the hardware saying "no".
+#
+# Keyed by float, not string, because the XLSX reader normalises integral floats
+# to their integer spelling: a cell holding 342.0 arrives as the text "342", so
+# a string-keyed table silently misses the `.0` variants. Comparing the parsed
+# number removes the whole class of spelling variants.
+SENTINELS: dict[float, str] = {
+    -992.0: "ifttt_missing_value",
+    -1.0: "ifttt_missing_value",
+    342.0: "adc_rail",
+    342.1: "adc_rail",
 }
 
 # Values that repeat exactly for long runs and therefore carry no information
@@ -33,6 +45,46 @@ FLAG_OUT_OF_RANGE = "out_of_range"
 FLAG_DUPLICATE_TS = "duplicate_ts"
 FLAG_NON_MONOTONIC = "non_monotonic"
 FLAG_FREE_TEXT = "free_text"
+FLAG_MISALIGNED = "schema_misaligned"
+
+# ---------------------------------------------------------------------------
+# Row-level exclusions, decided by the person who collected the data.
+#
+# Each entry is (rel_path_suffix, first_usable_sheet_row, why).  Rows before the
+# boundary are not ingested; they are counted in `rejects` so the loss stays
+# visible, and the reason is recorded verbatim rather than paraphrased.
+# ---------------------------------------------------------------------------
+ROW_EXCLUSIONS: tuple[tuple[str, int, str], ...] = (
+    (
+        "aisvn/IFTTT_aisvn (25).xlsx",
+        102,
+        # The applet was reinstalled during 2020-10-25..30. The margin notes in
+        # this file read "this all is just garbage", "Pin 4 is temperature -
+        # calibrated ...", "Installed in the dark, let's start again!". For the
+        # first 100 rows battery reads 29.2 V and temp 16 degC, which are not
+        # measurements of anything. Measured transition: battery steps from
+        # -0.99 to 12.84 V at sheet row 112, but rows 102-111 are the
+        # powered-down state (solar 0, load 0), so the earlier boundary is used
+        # and those 10 extra rows are harmless. Confirmed by the collector.
+        "pre-reinstall window; collector confirmed rows from here on are usable",
+    ),
+)
+
+#: Windows in which specific channels are known bad, decided by the collector.
+#: (station_id, valid_from_utc, valid_to_utc, comma-separated columns, why)
+#: Half-open: the good window starts at valid_to.
+BAD_WINDOWS: tuple[tuple[str, str, str, str, str], ...] = (
+    (
+        "aisvn",
+        "2020-10-23T00:00:00Z",
+        "2020-10-30T00:00:00Z",
+        "solar_v,battery_v,temp_c",
+        "solar and battery stop being plausible on 2020-10-23 (collector-confirmed); "
+        "temperature is broken over the same window (median 16.1 degC vs 32.3 degC "
+        "from 2020-10-30, measured). The system was reinstalled on 2020-10-30, "
+        "after which all three channels are normal.",
+    ),
+)
 
 
 @dataclass(frozen=True)
