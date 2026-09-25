@@ -296,5 +296,55 @@ class TestCommittedBaseline(unittest.TestCase):
         self.assertGreater(counts["files"], 0)
 
 
+class TestVersionConsistency(unittest.TestCase):
+    """One repository, one version.
+
+    The Python package and the npm package ship together and share a single
+    CHANGELOG, so a version that drifts between them makes a release ambiguous
+    -- which is exactly what happened: package.json sat at 0.1.0 while the
+    pipeline reached 0.5.0.
+    """
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_package_json_matches_the_etl_version(self):
+        import json as _json
+
+        from etl import __version__
+
+        package = _json.loads((self.ROOT / "package.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            package["version"],
+            __version__,
+            "package.json and etl/__init__.py must agree; see CHANGELOG.md",
+        )
+
+    def test_pyproject_matches_the_etl_version(self):
+        import tomllib
+
+        from etl import __version__
+
+        with open(self.ROOT / "pyproject.toml", "rb") as handle:
+            pyproject = tomllib.load(handle)
+        self.assertEqual(pyproject["project"]["version"], __version__)
+
+    def test_dependencies_are_pinned_not_latest(self):
+        import json as _json
+
+        # "latest" makes a build depend on when it ran. CI uses `npm ci`, which
+        # resolves from the lockfile, but a fresh clone without the lockfile
+        # would get whatever npm serves that day.
+        package = _json.loads((self.ROOT / "package.json").read_text(encoding="utf-8"))
+        for name, spec in package["dependencies"].items():
+            self.assertNotEqual(spec, "latest", f"{name} is pinned to 'latest'")
+            self.assertRegex(spec, r"^\d+\.\d+\.\d+", f"{name} is not an exact version")
+
+    def test_changelog_documents_the_current_version(self):
+        from etl import __version__
+
+        changelog = (self.ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn(f"## [{__version__}]", changelog)
+
+
 if __name__ == "__main__":
     unittest.main()

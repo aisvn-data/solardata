@@ -76,13 +76,25 @@ ROW_EXCLUSIONS: tuple[tuple[str, int, str], ...] = (
 BAD_WINDOWS: tuple[tuple[str, str, str, str, str], ...] = (
     (
         "aisvn",
+        "2020-06-15T00:00:00Z",
+        "2020-06-17T08:20:00Z",
+        "temp_c",
+        "commissioning placeholder: the channel reports exactly 200.0 for every one of "
+        "the first 1,359 readings (2020-06-15 13:10 local onward), then 342.1 for a "
+        "4-hour block, and only becomes real after 2020-06-17 15:20 local -- which is "
+        "the same moment the applet changed its column layout. 90% of all "
+        "out-of-range temperatures on this station are in this window.",
+    ),
+    (
+        "aisvn",
         "2020-10-23T00:00:00Z",
         "2020-10-30T00:00:00Z",
         "solar_v,battery_v,temp_c",
-        "solar and battery stop being plausible on 2020-10-23 (collector-confirmed); "
-        "temperature is broken over the same window (median 16.1 degC vs 32.3 degC "
-        "from 2020-10-30, measured). The system was reinstalled on 2020-10-30, "
-        "after which all three channels are normal.",
+        "solar and battery stop being plausible on 2020-10-23 (collector-confirmed, as "
+        "is the temperature on the 23rd); the system was reinstalled on 2020-10-30 "
+        "('installed in the dark'), after which all three channels are normal. "
+        "Measured: temperature median 16.1 degC in the window vs 32.3 degC from "
+        "2020-10-30.",
     ),
 )
 

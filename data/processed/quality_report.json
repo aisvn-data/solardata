@@ -233,19 +233,21 @@
     ]
   },
   "quality_flags": {
-    "out_of_range": 606352,
+    "out_of_range": 604880,
     "sentinel,out_of_range": 17105,
-    "out_of_range,sentinel": 13488,
+    "out_of_range,sentinel": 13487,
     "out_of_range,bad_window:solar_v,bad_window:battery_v,bad_window:temp_c": 1609,
+    "out_of_range,bad_window:temp_c": 1472,
     "sentinel": 5,
+    "out_of_range,sentinel,bad_window:temp_c": 1,
     "out_of_range,sentinel,bad_window:solar_v,bad_window:battery_v,bad_window:temp_c": 1
   },
   "flag_totals": {
     "out_of_range": 638555,
     "sentinel": 30599,
+    "bad_window:temp_c": 3083,
     "bad_window:solar_v": 1610,
-    "bad_window:battery_v": 1610,
-    "bad_window:temp_c": 1610
+    "bad_window:battery_v": 1610
   },
   "rejects": {
     "total": 4505,

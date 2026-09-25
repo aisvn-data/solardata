@@ -231,25 +231,30 @@ change the chart or the CSV parsing.
 
 These are recorded, not solved. Do not quietly decide them in code.
 
-1. **The 20 remaining unconfirmed scale regimes.** All 20 are `aisvn`. The 11
-   confirmed ones are the short records that log millivolts throughout
-   (`aisvn-solar`, `maker-webhooks`, `solar-2020-05`, `test`,
-   `aisvn2.battery2_v`). What is left needs the firmware, per window.
-2. **The 200.0 / 334.0 outliers in `aisvn.temp_c`** — 2,220 readings, 3.5% of
-   the channel, scattered across two years. They look like a second rail or a
-   dropped divisor, but they are *flagged, not nulled*, because there is not
-   enough evidence to call them invalid. See `CHANGELOG.md` 0.5.0.
-3. **`load_v` when no load is present.** The collector describes it as 10–12 V
-   when a load is switched on and 0 when none is present. The 0 state does not
-   appear anywhere in the correctly-aligned record, so the trigger for it is
-   unknown.
-4. **The `aisvn` gaps.** No readings between 2020-10-25 and 2020-11-04, and
-   September 2020 has only 12 readings. Unknown whether the collector was down
-   or the rows were lost in the Sheets export.
-5. **Non-production stations** stay excluded from published exports. `test` is
+1. **The 20 remaining unconfirmed scale regimes.** 11 are confirmed
+   (millivolts as integers, collector-verified). Of the rest, the strong
+   candidates are `phumy2.lipo2_v` (values 1980–4196, i.e. mV of a 3S pack) and
+   the `aisvn` ×0.001 windows either side of 2020-06-17. The weakest are the
+   `phumy2.solar2_v` windows: only 17.9% of that channel is non-zero, so a
+   proposed ×0.001 rests on a median of ~1.2 V, which is not plausible for a
+   panel either. Those need the firmware, or a decision to drop the channel.
+2. **`aisvn.load_v` behaviour change.** The collector reports the load rail as
+   10–12 V when a load is switched on and 0 when none is present. The 0 state
+   works up to 2020-07-10 and persists sporadically until 2020-10-30
+   (28,192 readings: 80% of June, 78% of July, 19% of August, 0% from November
+   onwards, where the channel is 9.5–24.7 V and never 0). What changed, and
+   whether the 0 readings after July are genuine or a stuck pin, is unknown.
+3. **The `aisvn` gaps.** No readings between 2020-10-25 and 2020-11-04, and
+   September 2020 has only 12 readings. **Confirmed by the collector: the
+   collector was down, no data was lost in the Sheets export.** No action
+   needed; recorded so nobody goes looking for a bug.
+4. **Non-production stations** stay excluded from published exports. `test` is
    a WiFi probe mixed with solar channels, and its temperature channel peaks at
    21:00, consistent with being indoors. `voltage-phumy` is an ADC calibration
    sheet.
+5. **`phumy2.solar2_v` and `phumy2.current2_a`.** `current2_a` reads 155–1997
+   against a ±50 A band, so it is milliamps and is flagged on all 415,117 rows.
+   `solar2_v` is 82% zero. Neither has a confirmed scale.
 
 ## Conventions
 

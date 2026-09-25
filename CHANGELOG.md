@@ -74,14 +74,24 @@ Data corrections, all confirmed by the collector. Baseline re-recorded: **735,00
 - **11 scale regimes promoted to `status = 'confirmed'`.** The collector
   reports these stations log millivolts as integers throughout their records:
   `aisvn-solar`, `maker-webhooks`, `solar-2020-05`, `test` (×0.001) and
-  `aisvn2.battery2_v`. 20 `aisvn` windows remain `unconfirmed`, to be checked
-  against the firmware individually.
+  `aisvn2.battery2_v`. 20 regimes remain unconfirmed.
+- **2020-06-15 → 2020-06-17 15:20 local flagged as a bad window** for
+  `aisvn.temp_c`. Not scattered read errors: the channel reports **exactly
+  200.0 for every one of its first 1,359 readings**, then `342.1` for a 4-hour
+  block, and only becomes real after 2020-06-17 15:20 local — the same moment
+  the applet changed its column layout. 90% of all out-of-range temperatures on
+  this station fall in this window, so it is a commissioning artefact rather
+  than noise.
 - **2020-10-23 → 2020-10-30 flagged as a bad window** for `aisvn`
-  `solar_v`/`battery_v` (collector-confirmed) and `temp_c` (measured: median
-  16.1 °C in the window vs 32.3 °C from 2020-10-30). Values are kept and
-  flagged, not nulled.
-- `load_v` documented as a two-state load rail: 69% of `aisvn` readings from
-  2020-11-01 fall in 9–13 V, 0.1% elsewhere.
+  `solar_v`/`battery_v`/`temp_c`. Values are kept and flagged, not nulled.
+- **`package.json` version synced to 0.5.0** and its dependencies pinned to
+  exact versions. `TestVersionConsistency` now asserts that `package.json`,
+  `pyproject.toml` and `etl.__version__` agree, that dependencies are not
+  `latest`, and that the changelog documents the current version.
+- `load_v` documented as a two-state load rail with a behaviour change: 28,192
+  readings at exactly 0, last on 2020-10-30. Concentrated in June (80%), July
+  (78%) and August (19%); from November 2020 the channel is 9.5–24.7 V and
+  never 0.
 
 ### Build baseline
 

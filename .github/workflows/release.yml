@@ -1,21 +1,28 @@
-name: Release the database
-
+# solardata -- release the queryable database.
+#
 # data/processed/solardata.db is 158 MiB, over GitHub's 100 MiB per-file limit
-# for a git blob, so it cannot be committed.  It ships here as a Release asset
-# instead, which is what git-annex/LFS/fat LFS objects would otherwise be for.
+# for a git blob, so it cannot be committed. It ships here as a Release asset
+# instead.
 #
 # Parquet (7.4 MiB) IS committed, so the processed data is available to anyone
-# who clones without running anything.  This workflow exists for the case where
-# you want the queryable SQLite file rather than a columnar export.
+# who clones without running anything. This workflow exists for the case where
+# you want the SQLite file rather than a columnar export.
+#
+# Trigger: push a `v*` tag. Or run manually and name a tag to publish under.
+# The build always runs against the commit that triggered it -- the tag is only
+# where the assets are *attached*, never what gets checked out. Checking out a
+# named ref here is what made the previous version fail when the tag did not
+# exist yet: actions/checkout fell back to treating it as a branch pattern.
 name: release
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tag to attach the assets to
+        description: Tag to attach the assets to (created if it does not exist)
         required: true
         type: string
 
@@ -27,9 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      # No `ref:` here on purpose -- checkout uses the triggering commit, which
+      # is the tag on a tag push and the selected branch on a manual run.
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -42,16 +49,16 @@ jobs:
       - name: Build the database
         run: python -m etl ingest --quiet
 
-      # Never publish a database that does not match the recorded baseline: an
-      # asset named solardata.db that silently lost 90% of its measurements
+      # Never publish a database that does not match the recorded baseline. An
+      # asset named solardata.db that quietly lost 90% of its measurements
       # would be worse than no asset at all.
       - name: Verify against the baseline
         run: python -m etl verify
 
       - name: Package
         run: |
-          # VACUUM shrinks the file and rewrites it without the free pages left
-          # by the build, which typically saves 10-20 MiB on a Release upload.
+          # VACUUM rewrites the file without the free pages left by the build,
+          # which typically saves 10-20 MiB on a Release upload.
           python -c "
           import sqlite3
           c = sqlite3.connect('data/processed/solardata.db')
@@ -59,20 +66,30 @@ jobs:
           c.close()
           print('vacuumed')
           "
-          cd data/processed
-          gzip -9 -k -f solardata.db
-          ls -lh solardata.db solardata.db.gz
+          gzip -9 -k -f data/processed/solardata.db
+          ls -lh data/processed/solardata.db data/processed/solardata.db.gz
+
+      - name: Resolve the release tag
+        id: release
+        run: |
+          tag='${{ inputs.tag }}'
+          if [ -z "$tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+          fi
+          echo "Publishing under tag: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Attach to the release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
+          tag_name: ${{ steps.release.outputs.tag }}
+          # Creates the release if the tag does not have one yet.
+          fail_on_unmatched_files: true
           files: |
             data/processed/solardata.db.gz
             data/processed/quality_report.md
           body: |
-            `solardata.db.gz` is the canonical SQLite store for this tag:
-            735,004 readings across 8 stations.
+            `solardata.db.gz` is the canonical SQLite store for this tag.
 
             ```
             gunzip solardata.db.gz
