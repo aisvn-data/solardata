@@ -275,19 +275,75 @@ class TestCommittedBaseline(unittest.TestCase):
         # These are the figures quoted in README.md and CHANGELOG.md.  If a
         # rebuild moves them, the documentation is wrong and this fails.
         counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
-        self.assertEqual(counts["readings"], 735004)
+        self.assertEqual(counts["readings"], 734908)
         self.assertEqual(counts["files"], 364)
         self.assertEqual(counts["stations"], 8)
-        self.assertEqual(counts["duplicate_ts"], 4403)
+        self.assertEqual(counts["duplicate_ts"], 4399)
         self.assertEqual(counts["notes"], 10)
-        self.assertEqual(counts["unconfirmed_regimes"], 23)
+        self.assertEqual(counts["unconfirmed_regimes"], 20)
         self.assertEqual(counts["headerless_without_donor"], 0)
+
+    def test_malformed_rejects_cover_the_excluded_rows(self):
+        # 6 repeated header rows + 100 excluded pre-reinstall rows in
+        # aisvn/IFTTT_aisvn (25).xlsx.  The exclusions have to stay visible.
+        counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
+        self.assertEqual(counts["malformed_rejects"], 106)
 
     def test_invariants_that_must_never_relax(self):
         counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
         self.assertEqual(counts["headerless_without_donor"], 0)
         self.assertGreater(counts["readings"], 0)
         self.assertGreater(counts["files"], 0)
+
+
+class TestVersionConsistency(unittest.TestCase):
+    """One repository, one version.
+
+    The Python package and the npm package ship together and share a single
+    CHANGELOG, so a version that drifts between them makes a release ambiguous
+    -- which is exactly what happened: package.json sat at 0.1.0 while the
+    pipeline reached 0.5.0.
+    """
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_package_json_matches_the_etl_version(self):
+        import json as _json
+
+        from etl import __version__
+
+        package = _json.loads((self.ROOT / "package.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            package["version"],
+            __version__,
+            "package.json and etl/__init__.py must agree; see CHANGELOG.md",
+        )
+
+    def test_pyproject_matches_the_etl_version(self):
+        import tomllib
+
+        from etl import __version__
+
+        with open(self.ROOT / "pyproject.toml", "rb") as handle:
+            pyproject = tomllib.load(handle)
+        self.assertEqual(pyproject["project"]["version"], __version__)
+
+    def test_dependencies_are_pinned_not_latest(self):
+        import json as _json
+
+        # "latest" makes a build depend on when it ran. CI uses `npm ci`, which
+        # resolves from the lockfile, but a fresh clone without the lockfile
+        # would get whatever npm serves that day.
+        package = _json.loads((self.ROOT / "package.json").read_text(encoding="utf-8"))
+        for name, spec in package["dependencies"].items():
+            self.assertNotEqual(spec, "latest", f"{name} is pinned to 'latest'")
+            self.assertRegex(spec, r"^\d+\.\d+\.\d+", f"{name} is not an exact version")
+
+    def test_changelog_documents_the_current_version(self):
+        from etl import __version__
+
+        changelog = (self.ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn(f"## [{__version__}]", changelog)
 
 
 if __name__ == "__main__":
