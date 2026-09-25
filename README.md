@@ -15,11 +15,13 @@ stations**, forwarded to Google Sheets by IFTTT and exported as 364 XLSX files.
 | | |
 |---|---|
 | Raw archive | 364 files, 30.4 MiB, committed and immutable |
-| ETL pipeline | `etl/`, `make build`, ~3 min, 61 tests |
-| Canonical store | `data/processed/solardata.db` (SQLite, 158 MiB) |
-| Interchange | `data/processed/parquet/` (6.8 MiB, station/year partitioned) |
+| ETL pipeline | `etl/`, `make build`, ~3 min, 89 tests |
+| Canonical store | `data/processed/solardata.db` (SQLite, 158 MiB — see below) |
+| Interchange | `data/processed/parquet/` (7.4 MiB, **committed**) |
+| Quality report | `data/processed/quality_report.md` (**committed**) |
+| Baseline guard | `data/baseline.json` (**committed**), enforced by CI |
 | Frontend export | `data/exports/` (CSV rollups, 0.1 MiB) |
-| Quality report | `data/processed/quality_report.md` |
+| CI | `.github/workflows/` — lint, test, full build, baseline check |
 | Website | Vite + React outline at `src/`, not yet wired to the data |
 
 The archive is messy in ways that matter. 305 of the 364 files have **no header
@@ -27,6 +29,11 @@ row**, several sheets carry redundant side-by-side column blocks, the same
 column name means different things at different times, and `-992` is a
 disconnected-sensor sentinel rather than a number. All of that is catalogued in
 [`CHANGELOG.md`](CHANGELOG.md) and handled explicitly by the pipeline.
+
+**`solardata.db` is not committed** — at 158 MiB it is over GitHub's 100 MiB
+per-file limit. The Parquet output and the quality report *are* committed, so
+the processed data is available from a clone; the SQLite file ships as a
+Release asset (`.github/workflows/release.yml`).
 
 ## Pipeline
 
@@ -43,17 +50,29 @@ python -m etl regimes    # detect unit-scale changes
 python -m etl parquet    # SQLite -> partitioned Parquet
 python -m etl export     # SQLite -> CSV rollups for the website
 python -m etl report     # write the data-quality report
+python -m etl verify     # fail if the build != data/baseline.json
 python -m etl query "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"
 ```
 
-Output lands in `data/processed/` and `data/exports/`, both gitignored and fully
-reproducible from `data/raw`.
+Read the committed Parquet without building anything:
+
+```python
+import duckdb
+duckdb.sql("SELECT station_id, COUNT(*) FROM 'data/processed/parquet/*/*/*.parquet' GROUP BY 1")
+```
+
+If a data change is intentional, re-record the baseline with a reason so the
+diff shows up in the pull request:
+
+```bash
+python -m etl verify --update-baseline --reason "corrected tz for phumy2a"
+```
 
 Read [`AGENTS.md`](AGENTS.md) before changing anything under `etl/` — it lists
-the rules that exist to stop plausible-looking but wrong data. Design rationale
-is in [`docs/format-design.md`](docs/format-design.md), the schema in
-[`docs/data-dictionary.md`](docs/data-dictionary.md), and the station histories
-in [`docs/data-sources.md`](docs/data-sources.md).
+the rules that exist to stop plausible-looking but wrong data, and how CI
+enforces them. Design rationale is in [`docs/format-design.md`](docs/format-design.md),
+the schema in [`docs/data-dictionary.md`](docs/data-dictionary.md), and the
+station histories in [`docs/data-sources.md`](docs/data-sources.md).
 
 ## Website
 

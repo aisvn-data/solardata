@@ -4,6 +4,80 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-09-25
+
+### Added
+
+- **Continuous integration.** `.github/workflows/ci.yml` runs on every push and
+  pull request:
+  1. `ruff check`, `ruff format --check`, `pytest` — fast, no data.
+  2. A full `python -m etl all` against the real 364-file archive, then
+     `python -m etl verify`. **Any baseline drift fails the job.**
+  3. A Parquet freshness check. The committed `data/processed/parquet/` layout
+     is snapshotted before the build and compared after, because the build
+     overwrites it — otherwise a stale published artefact goes unnoticed.
+  4. The build summary is written to `$GITHUB_STEP_SUMMARY` and the report is
+     uploaded as an artefact.
+- `.github/workflows/release.yml` attaches a `VACUUM`ed, gzipped
+  `solardata.db` to a tag's GitHub Release, baseline-verified first.
+- **`etl/verify.py` and the baseline guard.** `data/baseline.json` records the
+  expected output of a build; `python -m etl verify` compares against it and
+  exits non-zero on any drift. This is the only check that sees the real
+  735,004-row archive, so it is the only thing that catches a pipeline change
+  that silently alters the data while every unit test still passes. The two
+  modes it targets:
+  - **Loss** — a schema-inheritance regression leaves a headerless file mapped
+    to no columns. Every timestamp still ingests; the measurements become NULL.
+    The `headerless_without_donor` field is pinned to 0 for exactly this.
+  - **Duplication** — `INSERT OR IGNORE` stops absorbing an overlap, so the same
+    instant lands twice and the count rises by thousands.
+
+  Re-record deliberately, with a reason, so the diff appears in the pull
+  request as an explicit number rather than a silent rewrite.
+- `scripts/parquet_manifest.py` — snapshot and compare the committed Parquet
+  layout, so the same check runs locally.
+- Committed artefacts: `data/processed/parquet/` (7.4 MiB),
+  `data/processed/quality_report.md` and `.json`, and `data/baseline.json`. The
+  processed data is now available from a clone without running anything.
+- 27 new tests (89 total): the baseline guard against a real in-memory
+  database, the CLI flag-parsing regression below, and the Parquet staleness
+  logic.
+
+### Fixed
+
+- **Every CLI flag placed before the subcommand was silently ignored.**
+  `python -m etl --out-dir /tmp ingest` used the default output directory and
+  reported success. argparse's subparser re-applies its own defaults to the
+  namespace, clobbering anything the parent parser had already set. The shared
+  parent now uses `argument_default=SUPPRESS` with defaults applied explicitly,
+  and `tests/test_cli.py::TestFlagParsing` locks it down. This also meant the
+  documented claim that "common flags work on either side of the subcommand" was
+  false for the four flags that existed before this release.
+
+### Changed
+
+- `data/exports/` is still gitignored: the rollups are only ~0.1 MiB but change
+  on every build and nothing in `src/` reads them yet. Un-ignore when the
+  frontend is wired up.
+
+### Build baseline
+
+Unchanged by this release — the numbers below are the same as 0.2.0, which is
+the point: adding CI and committing artefacts did not move the data.
+
+| | |
+|---|---|
+| Raw files | 364 in 10 folders |
+| Readings | **735,004** across 8 stations |
+| Range | 2020-05-16T15:52Z → 2024-02-01T20:18Z |
+| Duplicate timestamps absorbed | 4,403 (each also recorded in `rejects`) |
+| Malformed cells rejected | 6 |
+| Notes recovered | 10 |
+| Unconfirmed scale regimes | 23 |
+| Artefact sizes | SQLite 158 MiB · Parquet 7.4 MiB · frontend CSV 0.1 MiB |
+
+---
+
 ## [0.2.0] — 2026-09-25
 
 First working pipeline over the whole archive, plus a full audit of the raw
@@ -28,8 +102,7 @@ are the reason the schema looks the way it does.**
 - `data/processed/quality_report.md` and `.json` — the human-facing half of the
   pipeline.
 - 61 tests, including real XLSX fixtures and regression tests for the two
-  failures described below.
-- `AGENTS.md`, `docs/data-dictionary.md`, `docs/data-sources.md`,
+  failures described below.- `AGENTS.md`, `docs/data-dictionary.md`, `docs/data-sources.md`,
   `docs/format-design.md`, `pyproject.toml`, `Makefile`, `requirements.txt`.
 
 ### Build baseline

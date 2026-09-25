@@ -1,0 +1,21 @@
+{
+  "description": "Expected output of `python -m etl ingest`. CI fails on any drift; see etl/verify.py and AGENTS.md.",
+  "counts": {
+    "readings": 735004,
+    "files": 364,
+    "stations": 8,
+    "duplicate_ts": 4403,
+    "malformed_rejects": 6,
+    "notes": 10,
+    "unconfirmed_regimes": 23,
+    "headerless_without_donor": 0,
+    "hourly_buckets": 25662,
+    "daily_buckets": 1197
+  },
+  "recorded": {
+    "tool_version": "0.2.0",
+    "run_started_at": "2026-09-25T16:55:53Z",
+    "ingest_notes": "364 files; 735004 rows; 4403 duplicate timestamps absorbed; 4409 rejected; 25662 hourly / 1197 daily buckets",
+    "reason": "first recorded baseline from the 364-file archive"
+  }
+}

@@ -46,6 +46,9 @@ class Settings:
     export_dir: Path = REPO_ROOT / "data" / "exports"
     report_json: Path = REPO_ROOT / "data" / "processed" / "quality_report.json"
     report_md: Path = REPO_ROOT / "data" / "processed" / "quality_report.md"
+    #: Expected output of a build.  Committed, and enforced by CI, so that a
+    #: pipeline change which silently alters the data fails loudly.
+    baseline_path: Path = REPO_ROOT / "data" / "baseline.json"
 
     # Chunking
     parquet_rows_per_group: int = 50_000

@@ -12,9 +12,10 @@ PYTHON ?= python
 PYTEST ?= $(PYTHON) -m pytest
 RUFF   ?= $(PYTHON) -m ruff
 ETL    := $(PYTHON) -m etl
+PQ     := $(PYTHON) scripts/parquet_manifest.py
 
 .DEFAULT_GOAL := help
-.PHONY: help setup build ingest regimes parquet export report test lint fmt check clean distclean query
+.PHONY: help setup build ingest regimes parquet export report verify test lint fmt check clean distclean query baseline
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -41,6 +42,13 @@ export: ## SQLite -> CSV rollups for the website
 report: ## Write the data-quality report
 	$(ETL) report
 
+verify: ## Fail if the build does not match data/baseline.json
+	$(ETL) verify
+
+baseline: ## Re-record the baseline (requires REASON=...)
+	@test -n "$(REASON)" || { echo "usage: make baseline REASON=\"why the numbers moved\""; exit 2; }
+	$(ETL) verify --update-baseline --reason "$(REASON)"
+
 query: ## Ad-hoc SQL, e.g. make query SQL="SELECT 1"
 	$(ETL) query "$(SQL)"
 
@@ -48,11 +56,11 @@ test: ## Run the test suite
 	$(PYTEST)
 
 lint: ## Lint
-	$(RUFF) check etl tests
+	$(RUFF) check etl tests scripts
 
 fmt: ## Auto-format
-	$(RUFF) format etl tests
-	$(RUFF) check --fix etl tests
+	$(RUFF) format etl tests scripts
+	$(RUFF) check --fix etl tests scripts
 
 check: lint test ## Lint and test
 

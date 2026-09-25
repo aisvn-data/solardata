@@ -72,15 +72,21 @@ SQLite or Parquet, and a GitHub Pages site cannot run a query server.
 ```
 data/raw/**.xlsx                  364 files, 30.4 MiB   immutable, committed
   |
-  +-- data/processed/solardata.db          158 MiB   canonical, query in place
-  +-- data/processed/parquet/             6.8 MiB     interchange, for analysis
-  +-- data/processed/quality_report.md                 the review artefact
-  +-- data/exports/                      0.1 MiB     for the browser
+  +-- data/processed/parquet/       7.4 MiB  committed: interchange
+  +-- data/processed/quality_report.*         committed: the review artefact
+  +-- data/baseline.json                      committed: the guard CI enforces
+  +-- data/processed/solardata.db   158 MiB   not committable (>100 MiB)
+  +-- data/exports/                  0.1 MiB  for the browser
 ```
 
-Everything after `data/raw` is gitignored and rebuilt by `make build`. The
-archive is the only thing in the repository that cannot be regenerated, so it is
-the only thing that is committed.
+The Parquet output, the report and the baseline are committed, so the processed
+data and the record of what the build should produce are both available from a
+clone without running anything. `solardata.db` is not, because at 158 MiB it
+exceeds GitHub's 100 MiB per-file limit for a git blob; it ships as a Release
+asset instead. `data/exports/` stays out of git until the frontend reads it.
+
+The archive is the only thing in the repository that cannot be regenerated, so
+it is the only thing that must be committed at full size.
 
 ## The principle
 
@@ -91,3 +97,9 @@ when it can hold *uncertainty* as first-class data: which file a value came
 from, which header described it, how confident that mapping is, and what a human
 still has to check. That is the property SQLite-with-metadata-tables buys, and
 it is not something a spreadsheet-shaped format can express.
+
+The baseline guard extends the same idea to the *build*: if a change to the
+pipeline alters what gets ingested, the recorded counts stop matching and CI
+fails. Without it, a refactor that quietly drops a channel would be invisible —
+the unit tests would still pass, because they exercise fixtures rather than the
+archive.
