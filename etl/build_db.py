@@ -25,6 +25,7 @@ from etl.config import (
     BAD_WINDOWS,
     FLAG_DUPLICATE_TS,
     FLAG_MISALIGNED,
+    NULL_WINDOWS,
     ROW_EXCLUSIONS,
     Settings,
 )
@@ -322,6 +323,29 @@ def _bad_window_flags(station_id: str, ts_utc: str, row: dict) -> tuple[str, ...
     return tuple(flags)
 
 
+def _null_windows(station_id: str, ts_utc: str, row: dict) -> tuple[tuple[str, ...], list[str]]:
+    """Null channels inside a window where the stored value is affirmatively wrong.
+
+    Returns ``(flags, reasons)``. Unlike :func:`_bad_window_flags` this discards
+    the number, because here the number makes a false claim -- 0.0 V from a
+    panel says "produced nothing" when the truth is "not connected". Every
+    affected cell is also written to ``rejects`` so nothing disappears silently.
+    """
+    flags: list[str] = []
+    reasons: list[str] = []
+    for win_station, valid_from, valid_to, columns, why in NULL_WINDOWS:
+        if win_station != station_id or not (valid_from <= ts_utc < valid_to):
+            continue
+        for column in columns.split(","):
+            column = column.strip()
+            if row.get(column) is None:
+                continue
+            row[column] = None
+            flags.append(f"no_signal:{column}")
+            reasons.append(why)
+    return tuple(flags), reasons
+
+
 def _insert_file(
     conn: sqlite3.Connection,
     run_id: int,
@@ -448,11 +472,14 @@ def _insert_file(
             row[column] = result.value
             flags.append(result.flags)
 
-        row["quality_flags"] = merge_flags(
+        null_flags, null_reasons = _null_windows(station.station_id, ts_utc, row)
+        row_flags = merge_flags(
             *flags,
             (FLAG_MISALIGNED,) if misaligned else (),
             _bad_window_flags(station.station_id, ts_utc, row),
+            null_flags,
         )
+        row["quality_flags"] = row_flags
         values = tuple(row.get(name) for name in _INSERT_COLUMNS)
         inserted = conn.execute(_INSERT_SQL, values).rowcount
         if inserted:
@@ -486,6 +513,17 @@ def _insert_file(
                     "time",
                     raw_ts,
                     FLAG_DUPLICATE_TS,
+                )
+            )
+        for reason in null_reasons:
+            rejects.append(
+                (
+                    file_id,
+                    station.station_id,
+                    sheet_row,
+                    ",".join(c for c in row_flags if c.startswith("no_signal:")),
+                    raw_ts,
+                    reason,
                 )
             )
 

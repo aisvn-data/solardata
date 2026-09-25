@@ -160,7 +160,7 @@ passes, so treat the report as the acceptance test for data changes — and let
 
 Current baseline, for comparison: **734,908 readings** across 8 stations from
 364 files, 4,399 duplicate timestamps absorbed, 106 rejected cells, 10
-recovered notes, 20 unconfirmed scale regimes.
+recovered notes, 14 unconfirmed scale regimes.
 
 ### When the numbers *should* move
 
@@ -231,30 +231,33 @@ change the chart or the CSV parsing.
 
 These are recorded, not solved. Do not quietly decide them in code.
 
-1. **The 20 remaining unconfirmed scale regimes.** 11 are confirmed
-   (millivolts as integers, collector-verified). Of the rest, the strong
-   candidates are `phumy2.lipo2_v` (values 1980–4196, i.e. mV of a 3S pack) and
-   the `aisvn` ×0.001 windows either side of 2020-06-17. The weakest are the
-   `phumy2.solar2_v` windows: only 17.9% of that channel is non-zero, so a
-   proposed ×0.001 rests on a median of ~1.2 V, which is not plausible for a
-   panel either. Those need the firmware, or a decision to drop the channel.
-2. **`aisvn.load_v` behaviour change.** The collector reports the load rail as
+1. **The 14 remaining unconfirmed scale regimes.** 13 are confirmed
+   (millivolts as integers, collector-verified, including `phumy2.solar2_v` and
+   `phumy2.lipo2_v`). What is left needs the firmware. The weakest are the
+   `aisvn` ×0.001 windows either side of 2020-06-17, which are only three days
+   each and sit in the commissioning period.
+2. **The `phumy2` bridge ratio.** `solar2_v` is confirmed as millivolts, but the
+   level steps from ~5000 mV to ~1200 mV when a bridge and load were fitted, so
+   the stored value is a divider output rather than the panel voltage. Without
+   the ratio, `solar2_v` after the bridge is not a panel voltage and should not
+   be charted as one.
+3. **`aisvn.load_v` behaviour change.** The collector reports the load rail as
    10–12 V when a load is switched on and 0 when none is present. The 0 state
    works up to 2020-07-10 and persists sporadically until 2020-10-30
    (28,192 readings: 80% of June, 78% of July, 19% of August, 0% from November
    onwards, where the channel is 9.5–24.7 V and never 0). What changed, and
    whether the 0 readings after July are genuine or a stuck pin, is unknown.
-3. **The `aisvn` gaps.** No readings between 2020-10-25 and 2020-11-04, and
+4. **The `aisvn` gaps.** No readings between 2020-10-25 and 2020-11-04, and
    September 2020 has only 12 readings. **Confirmed by the collector: the
    collector was down, no data was lost in the Sheets export.** No action
    needed; recorded so nobody goes looking for a bug.
-4. **Non-production stations** stay excluded from published exports. `test` is
+5. **Non-production stations** stay excluded from published exports. `test` is
    a WiFi probe mixed with solar channels, and its temperature channel peaks at
    21:00, consistent with being indoors. `voltage-phumy` is an ADC calibration
    sheet.
-5. **`phumy2.solar2_v` and `phumy2.current2_a`.** `current2_a` reads 155–1997
-   against a ±50 A band, so it is milliamps and is flagged on all 415,117 rows.
-   `solar2_v` is 82% zero. Neither has a confirmed scale.
+6. **`phumy2.current2_a`.** Reads 155–1997 against a ±50 A band, so it is
+   milliamps, and is flagged `out_of_range` on all 415,117 rows. The scale is not
+   confirmed.
 
 ## Conventions
 

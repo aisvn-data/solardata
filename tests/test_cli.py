@@ -280,14 +280,46 @@ class TestCommittedBaseline(unittest.TestCase):
         self.assertEqual(counts["stations"], 8)
         self.assertEqual(counts["duplicate_ts"], 4399)
         self.assertEqual(counts["notes"], 10)
-        self.assertEqual(counts["unconfirmed_regimes"], 20)
+        self.assertEqual(counts["unconfirmed_regimes"], 14)
         self.assertEqual(counts["headerless_without_donor"], 0)
 
-    def test_malformed_rejects_cover_the_excluded_rows(self):
-        # 6 repeated header rows + 100 excluded pre-reinstall rows in
-        # aisvn/IFTTT_aisvn (25).xlsx.  The exclusions have to stay visible.
+    def test_malformed_rejects_cover_the_excluded_and_nulled_cells(self):
+        # 6 repeated header rows
+        # + 100 excluded pre-reinstall rows in aisvn/IFTTT_aisvn (25).xlsx
+        # + the phumy2.solar2_v stuck-at-zero window (2022-10 .. 2023-12)
+        # All three must stay visible rather than silently dropped.
         counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
-        self.assertEqual(counts["malformed_rejects"], 106)
+        self.assertEqual(counts["malformed_rejects"], 220180)
+
+    def test_the_stuck_channel_window_is_not_silently_zero(self):
+        # phumy2.solar2_v reads 0.0 at every hour of 2023, which is a
+        # disconnected input rather than a dark panel. It must be NULL.
+        db = Path(__file__).resolve().parent.parent / "data" / "processed" / "solardata.db"
+        if not db.exists():
+            self.skipTest("no built database; run `python -m etl ingest` first")
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT COUNT(*), COUNT(solar2_v) FROM readings"
+                " WHERE station_id = 'phumy2' AND ts_local >= '2023-01-01'"
+                "   AND ts_local < '2024-01-01'"
+            ).fetchone()
+            flagged = conn.execute(
+                "SELECT COUNT(*) FROM readings WHERE station_id = 'phumy2'"
+                "   AND ts_local >= '2023-01-01' AND ts_local < '2024-01-01'"
+                "   AND quality_flags LIKE '%no_signal:solar2_v%'"
+            ).fetchone()[0]
+            # The channel must be alive again once the window ends.
+            after = conn.execute(
+                "SELECT COUNT(solar2_v) FROM readings"
+                " WHERE station_id = 'phumy2' AND ts_local >= '2024-01-15'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertGreater(rows[0], 0)
+        self.assertEqual(rows[1], 0, "stuck-at-zero readings must be NULL, not 0.0")
+        self.assertEqual(flagged, rows[0])
+        self.assertGreater(after, 0, "the channel recovers in 2024 and must not be nulled")
 
     def test_invariants_that_must_never_relax(self):
         counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
