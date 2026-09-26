@@ -4,6 +4,109 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-09-26
+
+A reading of the archive does not change in this release: `python -m etl verify`
+reports the same 734,908 readings, 364 files, 4,399 duplicate timestamps, 10
+recovered notes and 11 unconfirmed regimes. What changes is what the site shows
+and how it decides what to distrust.
+
+### Added
+
+- **The site can plot the hourly rollup.** `readings_hourly` was already built,
+  exported behind a flag and never read; the browser could only fetch
+  `readings_daily`. Both are now published by default and the explorer has a
+  **Day / Hour** switch, so a solar curve has a dawn and a dusk instead of being
+  a flat 24-hour mean. That is 13 more station-years and 24,210 rows for 1.7 MB
+  of CSV; `public/data/` goes from 167 KB to 1.9 MiB.
+
+  The two are kept consistent by assertion rather than by convention:
+  `check_frontend.mjs` now checks that every day and every sample count in a
+  daily file is also in its hourly sibling, and pins both inventories (13 files
+  / 1,124 daily rows, 13 files / 24,210 hourly rows).
+
+  Hour is as fine as the site goes. The native cadence is 119 s — 734,908
+  readings, which is the Parquet export and not a file a browser fetches. There
+  is deliberately no `raw` granularity; `config.export_granularity` documented
+  one and nothing read it.
+
+- **`public/data/metrics.json`**, the plausibility bands copied verbatim from
+  `etl/normalize/metrics.py`, so the browser applies the same criterion the
+  ingest applied to each raw cell. A band corrected in Python now reaches the
+  site on the next export instead of drifting against a second copy in
+  JavaScript. Channels with no band are listed with null bounds, so the UI can
+  answer "never flagged" rather than infer it from a missing key.
+
+- Every flagged value in the current range is **listed** under the chart, with
+  its channel, value, recorded band and sample count. "Marked, never dropped"
+  was a claim a reader had to take on trust; now it is a table.
+
+### Fixed
+
+- **The outlier filter was removing real data, and its answer depended on which
+  metrics were ticked.** The chart dropped any day where every *selected* metric
+  was a "spike" against that channel's own median/MAD. Two things were wrong
+  with that test. It was measuring sampling coverage rather than plausibility: a
+  panel's 24-hour mean is dominated by night, so a fully covered day averages
+  6–9 V while a single afternoon sample averages 17–19 V, and the test read
+  that as 8 real days being spikes. And because the test was per-metric, the
+  same day was filtered under one selection and drawn under another.
+
+  Measured on `aisvn` 2020 with the default solar + battery selection:
+
+  | | before | after |
+  |---|---:|---:|
+  | days dropped from the chart | **17 of 101** | **0** |
+  | of those, real measurements | **16** | 0 |
+  | days dropped when a third metric is ticked | 0 → test pattern drawn | 0 |
+
+  The 16 were five single-afternoon-sample days at 17.7–19.1 V, four
+  post-reinstall days at 28.9–29.6 V with 353–701 samples each, and the rest of
+  the same shape. They are still shown; they are just not called artefacts.
+
+  Replaced by a band test on the value actually being plotted. `aisvn` 2020 now
+  flags 4 days on solar (three unconverted-millivolt commissioning days and the
+  2020-10-01 ADC test pattern) and 23 on battery, drawn, ringed and counted.
+  The battery count is worth stating rather than hiding: the recorded band is
+  9–16 V for a 3S LiPo and `aisvn` reads 17.6–29.6 V on those days, which is a
+  question about the hardware, not something the site should resolve by deleting
+  the days.
+
+- **The `out_of_range` count was fetched and thrown away.** `n_out_of_range`
+  ships in every rollup and was parsed by the frontend, then never read. It now
+  appears in the hover readout and the flagged table.
+
+- **The daily and hourly rollups disagree about what "Battery" means.**
+  `readings_hourly` has `battery_v_avg` and `readings_daily` does not, because a
+  mean of minima is not a useful number — so the daily column is the day's
+  *lowest* battery voltage and the hourly column is the hour's mean. Both were
+  rendered under one label. The statistic is now named wherever a value is
+  shown.
+
+- **Metric selection was keyed by station, not by station-year.** Switching
+  `phumy2` from 2022 to 2023 silently narrowed the selection to the one channel
+  2023 has, and switching back did not restore it, because the surviving
+  selection was non-empty. It is now keyed by station *and* resolution, which is
+  the granularity the selection was actually derived from.
+
+- `QualityInspector`'s flag dictionary was a flat table, so the two
+  column-parameterised families — `bad_window:<column>` and `no_signal:<column>`,
+  226,372 rows between them — rendered as a bare dash. It now resolves the
+  prefix. `clip`, `non_monotonic` and `free_text` are labelled for what they
+  actually are: declared in `etl/config.py`, never assigned.
+
+- `docs/data-dictionary.md` listed `clip`, `non_monotonic` and `free_text` as
+  live flags, omitted the two parameterised families, and pointed at
+  `data/exports/` — a gitignored directory nothing reads — instead of
+  `public/data/`.
+
+### Changed
+
+- `--hourly` is replaced by `--granularity {both,hour,day}`. Both rollups are
+  written by default, so the flag now narrows the run rather than widening it.
+  `config.export_granularity` moves from `"hour"` to `"both"` and stops being
+  dead.
+
 ## [0.6.1] — 2026-09-26
 
 ### Changed

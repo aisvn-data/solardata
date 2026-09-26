@@ -59,10 +59,15 @@ jobs:
         run: |
           test -f dist/index.html
           test -f dist/data/stations.json
+          test -f dist/data/metrics.json
           test -f dist/data/quality.json
+          # 13 station-years at two resolutions: the daily and hourly rollups the
+          # site's resolution switch reads. A count that is not 26 means one of
+          # them stopped being written, and the deploy would publish a site whose
+          # Hour view 404s.
           count=$(find dist/data -name '*.csv' | wc -l)
           echo "csv files in dist: $count"
-          test "$count" -eq 13
+          test "$count" -eq 26
 
       - uses: actions/configure-pages@v5
 

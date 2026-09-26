@@ -203,6 +203,9 @@ nav a.active { color: #102a43; font-weight: 700; }
 .chart .axis-label { fill: #829ab1; font-size: 11px; }
 .chart .series-line { stroke-linejoin: round; stroke-linecap: round; stroke-width: 2; }
 .chart .crosshair { stroke: #bcccdc; stroke-dasharray: 3 3; stroke-width: 1; }
+/* A value outside its channel's recorded band. Drawn hollow on top of the line
+   so the point is still readable as a measurement, not replaced by a warning. */
+.chart .breach-marker { stroke-width: 2; }
 
 .chart-readout {
   align-items: center;
@@ -216,6 +219,12 @@ nav a.active { color: #102a43; font-weight: 700; }
 }
 .readout-item { align-items: center; display: flex; gap: 6px; }
 .readout-item i { border-radius: 2px; height: 9px; width: 9px; }
+.readout-item .breach {
+  color: #9b2c2c;
+  font-size: .78rem;
+  font-style: normal;
+  font-weight: 700;
+}
 
 .chart-note {
   background: #fffaf0;
@@ -231,6 +240,61 @@ nav a.active { color: #102a43; font-weight: 700; }
   background: #ebf8ff;
   border-color: #90cdf4;
   color: #2a4365;
+}
+
+.chart-note.flagged {
+  background: #fff5f5;
+  border-color: #feb2b2;
+  color: #742a2a;
+}
+
+.chart-note.muted {
+  background: #f7fafc;
+  border-color: #e5edf3;
+  color: #627d98;
+}
+
+/* The flagged-value list: the part of "marked, never dropped" a reader can cite. */
+.flagged-table {
+  border-top: 1px solid #edf2f7;
+  font-size: .82rem;
+  margin: 10px 12px 0;
+  padding-top: 8px;
+}
+.flagged-table summary { color: #9b2c2c; cursor: pointer; font-weight: 700; }
+.flagged-table table { border-collapse: collapse; margin-top: 10px; width: 100%; }
+.flagged-table th,
+.flagged-table td {
+  border-bottom: 1px solid #edf2f7;
+  font-size: .78rem;
+  padding: 5px 8px;
+  text-align: left;
+}
+.flagged-table th {
+  color: #627d98;
+  font-size: .68rem;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.flagged-table td code { font-size: .75rem; }
+
+.control-hint {
+  color: #829ab1;
+  font-size: .78rem;
+  line-height: 1.5;
+  margin: 12px 0 0;
+}
+.flag-toggle {
+  align-items: center;
+  color: #486581;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 600;
+  gap: 6px;
+}
+.preset-buttons button.active {
+  background: #d97706;
+  color: #fff;
 }
 
 .chart-empty {

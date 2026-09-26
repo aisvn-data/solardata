@@ -148,7 +148,12 @@ class Settings:
 
     # Chunking
     parquet_rows_per_group: int = 50_000
-    export_granularity: str = "hour"  # hour | day | raw
+    #: Which rollups the export stage publishes.  ``both`` is the default: the
+    #: site switches resolution at runtime, and the daily rollup is derived from
+    #: the hourly one, so the two cannot disagree.  There is no ``raw`` -- the
+    #: native 119 s cadence is 734,908 rows, which is a Parquet download and not
+    #: a static file a browser can fetch.
+    export_granularity: str = "both"  # both | hour | day
 
     # Deduplication.  "keep_first" wins on (station_id, ts_utc) collisions,
     # which come from overlapping 2000-row chunk boundaries and IFTTT re-sends.

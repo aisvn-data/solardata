@@ -18,7 +18,7 @@ stations**, forwarded to Google Sheets by IFTTT and exported as 364 XLSX files.
 | ETL pipeline | `etl/`, `make build`, ~3 min, 89 tests |
 | Canonical store | `data/processed/solardata.db` (SQLite, 158 MiB — see below) |
 | Interchange | `data/processed/parquet/` (7.4 MiB, **committed**) |
-| Site data | `public/data/` (167 KB, **committed**) |
+| Site data | `public/data/` (1887 KB, **committed**) |
 | Quality report | `data/processed/quality_report.md` (**committed**) |
 | Baseline guard | `data/baseline.json` (**committed**), enforced by CI |
 | Website | Vite + React at `src/` — station explorer and data-quality inspector |
@@ -48,19 +48,33 @@ npm run build      # -> dist/, deployed to GitHub Pages by CI on push to main
 
 Two tabs:
 
-- **Explore** — pick a station, a year and a date range; chart any combination
-  of solar voltage, battery, power, temperature and energy as daily rollups.
+- **Explore** — pick a station, a year, a resolution and a date range; chart any
+  combination of solar voltage, battery, power, temperature and energy.
 - **Data quality** — the database inspector: what the build inferred, which
   readings are flagged and why, which scale changes are still unconfirmed, the
   collector's own margin notes, and the rejected cells.
 
-No chart library: the chart is hand-rolled SVG, because daily rollups need a
-line chart and a package would be ~100 kB of JavaScript to draw two paths.
+**Day or Hour.** `Day` plots a mean over the day's hourly buckets; `Hour` plots a
+mean over the ~30 readings inside that hour, so the solar curve has a dawn and a
+dusk instead of being a flat average. Hour is as fine as the site goes: the
+archive's native cadence is 119 seconds, and those 734,908 unaggregated readings
+are the Parquet export — a download, not something a browser fetches.
+
+No chart library: the chart is hand-rolled SVG, because a rollup needs a line
+chart and a package would be ~100 kB of JavaScript to draw two paths.
 
 The site reads static files from `public/data/`, written by
-`python -m etl export`. **A missing value is shown as a gap in the line, never
-as a zero** — `0 W` at midnight and "the sensor was disconnected" are different
-facts, and conflating them would make outages look like measurements.
+`python -m etl export`. Two rules it inherits from the pipeline:
+
+- **A missing value is a gap in the line, never a zero.** `0 W` at midnight and
+  "the sensor was disconnected" are different facts, and conflating them would
+  make outages look like measurements.
+- **A flagged value is drawn, ringed and listed — never removed.** A value
+  outside the band the pipeline records for its channel is marked on the chart
+  and enumerated underneath it, because implausible is not the same as wrong and
+  only a human can adjudicate that. The bands arrive in
+  `public/data/metrics.json`, copied verbatim from `etl/normalize/metrics.py`, so
+  the site applies the same criterion the ingest did.
 
 ## Pipeline
 
@@ -124,8 +138,8 @@ in 2020, and some data in 2021. The data sits mostly in Google Sheets. This repo
 
 - Convert the raw data into structured data — **done**, see `etl/`
 - Analyse and structure the data, clean up, label — **done**, see `data/processed/`
-- Visualize the data on a website, make it searchable — the export layer is in
-  place (`data/exports/`); the frontend still needs wiring
+- Visualize the data on a website, make it searchable — **done**, see `src/` and
+  the committed rollups in `public/data/`
 
 ## Data sources
 
