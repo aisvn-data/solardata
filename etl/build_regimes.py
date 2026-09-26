@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from etl.normalize.metrics import METRIC_BY_COLUMN
 from etl.normalize.units import detect_per_file
@@ -27,36 +27,95 @@ WATCHED = (
     "load_v",
 )
 
-#: Regimes the collector has confirmed against the firmware. Keyed by
-#: (station_id, column, valid_from date) -> the confirmed scale.
+#: Regimes the collector has confirmed against the firmware, as
+#: (station_id, column, scale).
 #:
-#: The collector reports that these stations log millivolts as integers
-#: throughout their records: `aisvn-solar`, `maker-webhooks`, `solar-2020-05`
-#: and `test` are all x0.001 and their records are short and self-consistent.
-#: These are marked 'confirmed' rather than left as proposals, so a query can
-#: trust them; the remaining `aisvn` windows stay 'unconfirmed' because they
-#: need to be checked against the firmware one at a time.
-CONFIRMED: tuple[tuple[str, str, str, float], ...] = (
-    ("aisvn-solar", "solar_v", "2020-05-21", 0.001),
-    ("aisvn-solar", "lipo_v", "2020-05-21", 0.001),
-    ("maker-webhooks", "solar_v", "2020-05-30", 0.001),
-    ("maker-webhooks", "battery_v", "2020-05-30", 0.001),
-    ("maker-webhooks", "load_v", "2020-05-30", 0.001),
-    ("maker-webhooks", "lipo_v", "2020-05-30", 0.001),
-    ("solar-2020-05", "lipo_v", "2020-05-16", 0.001),
-    ("test", "solar_v", "2020-06-12", 0.001),
-    ("test", "battery_v", "2020-06-12", 0.001),
-    ("test", "lipo_v", "2020-06-12", 0.001),
-    ("aisvn2", "battery2_v", "2020-06-18", 0.001),
-    # phumy2.solar2_v is a small ~5 V panel behind a bridge and load, logged in
-    # millivolts. The collector confirms the unit. Note that the *level* still
-    # moves when the bridge was fitted -- roughly 5000 mV before, ~1200 mV
-    # after -- so the stored millivolt value is a divider output, not always the
-    # panel voltage. Recovering true panel voltage needs the bridge ratio.
-    ("phumy2", "solar2_v", "2020-06-15", 0.001),
-    # phumy2.lipo2_v reads 1980-4196 throughout, which is mV of a 3S pack.
-    ("phumy2", "lipo2_v", "2020-06-15", 0.001),
+#: These deliberately have no date window. The collector's statement is that
+#: these channels are logged in millivolts *as integers* for their whole record
+#: -- not over some sub-period -- so the window is taken from the extent of the
+#: data rather than from whatever window the detector happened to propose.
+#: Pinning a window that is narrower than the channel is how phumy2.solar2_v
+#: ended up scaled for its first seven months and raw for the following three
+#: years.
+#:
+#: Note for phumy2.solar2_v: the *unit* is millivolts throughout, but the
+#: *level* steps from ~5000 mV to ~1200 mV when a bridge and load are fitted.
+#: Scaling the whole channel by 0.001 therefore yields panel voltage before the
+#: bridge and a bridge-divider output after it. Recovering the panel voltage
+#: after the bridge needs the divider ratio, which is not in the archive.
+CONFIRMED: tuple[tuple[str, str, float], ...] = (
+    ("aisvn-solar", "solar_v", 0.001),
+    ("aisvn-solar", "lipo_v", 0.001),
+    ("aisvn2", "battery2_v", 0.001),
+    ("maker-webhooks", "solar_v", 0.001),
+    ("maker-webhooks", "battery_v", 0.001),
+    ("maker-webhooks", "load_v", 0.001),
+    ("maker-webhooks", "lipo_v", 0.001),
+    ("solar-2020-05", "lipo_v", 0.001),
+    ("test", "solar_v", 0.001),
+    ("test", "battery_v", 0.001),
+    ("test", "lipo_v", 0.001),
+    ("phumy2", "solar2_v", 0.001),
+    ("phumy2", "lipo2_v", 0.001),
 )
+
+
+def _channel_extent(conn, station_id: str, column: str) -> tuple[str | None, str | None]:
+    """First and last instant a channel has any value at all."""
+    row = conn.execute(
+        f"SELECT MIN(ts_utc), MAX(ts_utc) FROM readings"
+        f" WHERE station_id = ? AND {column} IS NOT NULL",
+        (station_id,),
+    ).fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def apply_confirmed(conn) -> int:
+    """Write the collector-confirmed regimes, windowed to the channel's extent.
+
+    Runs after the heuristic detector so a confirmed row replaces the
+    proposal for the same channel rather than sitting beside it.
+
+    ``valid_to`` is the *exclusive* end, so it is the day after the last day with
+    data.  Writing the last day's own date would exclude that day from a
+    half-open window, which is how ``aisvn-solar`` kept a raw 601 V on its final
+    day and ``phumy2`` a raw 1384 V on 2024-02-01.
+    """
+    written = 0
+    for station_id, column, scale in CONFIRMED:
+        first, last = _channel_extent(conn, station_id, column)
+        if first is None:
+            continue
+        exclusive_end = (datetime.fromisoformat(last[:10]) + timedelta(days=1)).date().isoformat()
+        conn.execute(
+            "DELETE FROM regimes WHERE station_id = ? AND column = ?   AND status = 'unconfirmed'",
+            (station_id, column),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO regimes"
+            " (station_id, column, unit, valid_from, valid_to, scale, status,"
+            "  detected_by, confidence, notes, evidence)"
+            " VALUES (?, ?, ?, ?, ?, ?, 'confirmed', 'manual', 'high', ?, ?)",
+            (
+                station_id,
+                column,
+                METRIC_BY_COLUMN[column].unit if column in METRIC_BY_COLUMN else None,
+                first,
+                exclusive_end,
+                scale,
+                "collector-confirmed: logged in millivolts as an integer for the whole record",
+                json.dumps(
+                    {
+                        "scale": scale,
+                        "source": "collector confirmation, window from channel extent",
+                        "confirmed_against_firmware": True,
+                    }
+                ),
+            ),
+        )
+        written += 1
+    conn.commit()
+    return written
 
 
 @dataclass
@@ -161,7 +220,13 @@ def _coalesce(items: list[RegimeReport]) -> list[RegimeReport]:
 
 
 def detect(conn: sqlite3.Connection, *, verbose: bool = True) -> list[RegimeReport]:
-    """Propose scale regimes and persist them to the ``regimes`` table."""
+    """Propose scale regimes, then apply the collector-confirmed ones.
+
+    The confirmed rows go in last so they replace the detector's proposal for
+    the same channel rather than sitting beside it, and they are windowed to the
+    extent of the data instead of to whichever sub-period the detector happened
+    to look at.
+    """
     conn.execute("DELETE FROM regimes WHERE detected_by = 'range'")
     found: list[RegimeReport] = []
 
@@ -184,12 +249,11 @@ def detect(conn: sqlite3.Connection, *, verbose: bool = True) -> list[RegimeRepo
                 )
 
     for item in _coalesce(found):
-        signed_off = item.scale in _confirmed_scales(item)
         conn.execute(
             "INSERT OR REPLACE INTO regimes"
             " (station_id, column, unit, valid_from, valid_to, scale, status,"
             "  detected_by, confidence, notes, evidence)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, 'unconfirmed', 'range', ?, ?, ?)",
             (
                 item.station_id,
                 item.column,
@@ -197,48 +261,34 @@ def detect(conn: sqlite3.Connection, *, verbose: bool = True) -> list[RegimeRepo
                 item.valid_from,
                 item.valid_to,
                 item.scale,
-                # Only a human confirmation promotes a regime. `detected_by`
-                # records which route it took, so a confirmed regime is still
-                # distinguishable from a heuristic one that happens to agree.
-                "confirmed" if signed_off else "unconfirmed",
-                "manual" if signed_off else "range",
                 item.confidence,
                 item.notes,
                 json.dumps(
                     {
                         "scale": item.scale,
                         "source": "per-file medians, coalesced",
-                        "confirmed_against_firmware": signed_off,
+                        "confirmed_against_firmware": False,
                     }
                 ),
             ),
         )
 
     conn.commit()
+    signed_off = apply_confirmed(conn)
+
     if verbose:
-        if not found:
-            print("  no scale anomalies detected")
-        else:
-            merged = _coalesce(found)
-            confirmed = sum(1 for r in merged if r.scale in _confirmed_scales(r))
+        merged = _coalesce(found)
+        remaining = conn.execute(
+            "SELECT COUNT(*) FROM regimes WHERE status = 'unconfirmed'"
+        ).fetchone()[0]
+        print(
+            f"  {len(found)} per-file windows -> {len(merged)} proposals;"
+            f" {signed_off} channels confirmed against firmware;"
+            f" {remaining} windows still unconfirmed"
+        )
+        for item in merged[:12]:
             print(
-                f"  {len(found)} per-file windows -> {len(merged)} regimes; "
-                f"{confirmed} confirmed against firmware, "
-                f"{len(merged) - confirmed} still unconfirmed:"
+                f"    {item.station_id:<14} {item.column:<11} "
+                f"x{item.scale:<9g} {item.window()}  [{item.confidence}]"
             )
-            for item in merged[:20]:
-                state = "confirmed" if item.scale in _confirmed_scales(item) else item.confidence
-                print(
-                    f"    {item.station_id:<14} {item.column:<11} "
-                    f"x{item.scale:<9g} {item.window()}  [{state}]"
-                )
     return _coalesce(found)
-
-
-def _confirmed_scales(regime: RegimeReport) -> set[float]:
-    """Scales a human has signed off for this station/column/period."""
-    return {
-        scale
-        for st, col, date, scale in CONFIRMED
-        if st == regime.station_id and col == regime.column and regime.valid_from.startswith(date)
-    }

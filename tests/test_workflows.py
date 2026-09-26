@@ -231,7 +231,7 @@ class TestWorkflowFiles(unittest.TestCase):
             with self.subTest(workflow=name):
                 # `etl all` runs every stage, so it satisfies all of them.
                 runs_everything = "etl all" in script
-                for stage in ("etl ingest", "etl regimes", "etl report"):
+                for stage in ("etl ingest", "etl regimes", "etl aggregate", "etl report"):
                     if runs_everything:
                         continue
                     self.assertIn(

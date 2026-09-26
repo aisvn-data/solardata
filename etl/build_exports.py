@@ -48,6 +48,7 @@ DAILY_COLUMNS = (
     "temp_c_min",
     "temp_c_avg",
     "temp_c_max",
+    "scaled_channels",
 )
 
 HOURLY_COLUMNS = (
@@ -66,6 +67,7 @@ HOURLY_COLUMNS = (
     "temp_c_avg",
     "current_a_avg",
     "energy_wh",
+    "scaled_channels",
 )
 
 

@@ -1,5 +1,5 @@
 {
-  "tool_version": "0.5.0",
+  "tool_version": "0.6.0",
   "stations": [
     {
       "station_id": "aisvn",
@@ -1437,36 +1437,36 @@
       "column": "lipo_v",
       "unit": "V",
       "valid_from": "2020-05-21T02:52:00Z",
-      "valid_to": "2020-06-12T05:04:00Z",
+      "valid_to": "2020-06-13",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 3532.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 3.532 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "aisvn-solar",
       "column": "solar_v",
       "unit": "V",
       "valid_from": "2020-05-21T02:52:00Z",
-      "valid_to": "2020-06-12T05:04:00Z",
+      "valid_to": "2020-06-13",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 3135.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 3.135 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "aisvn2",
       "column": "battery2_v",
       "unit": "V",
       "valid_from": "2020-06-18T09:45:00Z",
-      "valid_to": "2021-11-01T02:18:00Z",
+      "valid_to": "2021-11-02",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 12521.0 outside plausible [9.0, 16.0] V; scale 0.001 brings it to 12.521 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "aisvn2",
@@ -1485,48 +1485,36 @@
       "column": "battery_v",
       "unit": "V",
       "valid_from": "2020-05-30T06:03:00Z",
-      "valid_to": "2020-06-12T15:21:00Z",
+      "valid_to": "2020-06-13",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 11768.0 outside plausible [9.0, 16.0] V; scale 0.001 brings it to 11.768 (96% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "maker-webhooks",
       "column": "lipo_v",
       "unit": "V",
       "valid_from": "2020-05-30T06:03:00Z",
-      "valid_to": "2020-06-08T06:34:00Z",
+      "valid_to": "2020-06-13",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 4094.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.094 (100% in range)"
-    },
-    {
-      "station_id": "maker-webhooks",
-      "column": "lipo_v",
-      "unit": "V",
-      "valid_from": "2020-06-10T18:25:00Z",
-      "valid_to": "2020-06-12T15:21:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 4015.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.015 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "maker-webhooks",
       "column": "load_v",
       "unit": "V",
       "valid_from": "2020-05-30T06:03:00Z",
-      "valid_to": "2020-06-12T05:13:00Z",
+      "valid_to": "2020-06-13",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 3300.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 3.3 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "maker-webhooks",
@@ -1545,96 +1533,72 @@
       "column": "solar_v",
       "unit": "V",
       "valid_from": "2020-05-30T06:03:00Z",
-      "valid_to": "2020-06-12T15:21:00Z",
+      "valid_to": "2020-06-13",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "phumy2",
       "column": "lipo2_v",
       "unit": "V",
       "valid_from": "2020-06-15T02:29:00Z",
-      "valid_to": "2024-02-01T20:18:00Z",
+      "valid_to": "2024-02-02",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 4092.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.092 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "phumy2",
       "column": "solar2_v",
       "unit": "V",
       "valid_from": "2020-06-15T02:29:00Z",
-      "valid_to": "2021-04-09T15:19:00Z",
+      "valid_to": "2024-02-02",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
-    },
-    {
-      "station_id": "phumy2",
-      "column": "solar2_v",
-      "unit": "V",
-      "valid_from": "2021-04-15T08:20:00Z",
-      "valid_to": "2022-10-17T20:15:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
-    },
-    {
-      "station_id": "phumy2",
-      "column": "solar2_v",
-      "unit": "V",
-      "valid_from": "2024-01-14T00:01:00Z",
-      "valid_to": "2024-02-01T20:18:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "solar-2020-05",
       "column": "lipo_v",
       "unit": "V",
       "valid_from": "2020-05-16T15:52:00Z",
-      "valid_to": "2020-06-15T02:51:00Z",
+      "valid_to": "2020-06-16",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 2904.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 2.904 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "test",
       "column": "battery_v",
       "unit": "V",
       "valid_from": "2020-06-12T15:22:00Z",
-      "valid_to": "2020-06-14T01:57:00Z",
+      "valid_to": "2020-07-09",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 12272.0 outside plausible [9.0, 16.0] V; scale 0.001 brings it to 12.272 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "test",
       "column": "lipo_v",
       "unit": "V",
       "valid_from": "2020-06-12T15:22:00Z",
-      "valid_to": "2020-06-14T01:57:00Z",
+      "valid_to": "2020-06-18",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 4012.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.012 (100% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     },
     {
       "station_id": "test",
@@ -1652,13 +1616,13 @@
       "station_id": "test",
       "column": "solar_v",
       "unit": "V",
-      "valid_from": "2020-06-12T15:22:00Z",
-      "valid_to": "2020-07-08T05:12:00Z",
+      "valid_from": "2020-06-12T22:19:00Z",
+      "valid_to": "2020-07-09",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
-      "confidence": "medium",
-      "notes": "median 12912.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 12.912 (99% in range)"
+      "confidence": "high",
+      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
     }
   ],
   "sampling_interval_seconds": [

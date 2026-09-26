@@ -227,6 +227,12 @@ nav a.active { color: #102a43; font-weight: 700; }
   padding: 10px 14px;
 }
 
+.chart-note.scaled {
+  background: #ebf8ff;
+  border-color: #90cdf4;
+  color: #2a4365;
+}
+
 .chart-empty {
   background: #fff;
   border: 1px solid #e5edf3;

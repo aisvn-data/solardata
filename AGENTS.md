@@ -28,6 +28,7 @@ pip install -r requirements.txt   # or: make setup
 python -m etl all                 # full rebuild (~3 min; the ingest is the slow part)
 python -m etl ingest              # XLSX -> SQLite
 python -m etl regimes             # detect unit-scale changes
+python -m etl aggregate           # hourly/daily rollups, applying confirmed scales
 python -m etl parquet             # SQLite -> partitioned Parquet
 python -m etl export              # SQLite -> CSV rollups for the website
 python -m etl report              # write the data-quality report
@@ -77,10 +78,18 @@ it, and interpolating a timestamp into the text turns 4,403 duplicates into
 
 ### 3. Never rescale a value on the strength of a heuristic
 
-`regimes` records scale *proposals* with `status = 'unconfirmed'`. Nothing
-downstream should apply them until a human promotes them to `confirmed`. If you
-find yourself writing `value * 0.001` in a query, stop: either the regime has
-been confirmed, or you are inventing data.
+`regimes` records scale *proposals* with `status = 'unconfirmed'`. Only
+`status = 'confirmed'` is ever applied, and only in the rollups, never in
+`readings`. If you find yourself writing `value * 0.001` in a query, stop: either
+the regime has been confirmed, or you are inventing data.
+
+### 3a. The rollups are a separate stage, and the order matters
+
+`aggregate` runs *after* `regimes`, not inside `ingest`. Applying a scale needs
+the `regimes` table, and rolling up during the ingest meant the daily table was
+built before the detector ran — so on a clean build it came out silently
+unscaled. If you add a stage, check every workflow that calls `verify` still
+runs it; `tests/test_workflows.py` does that automatically.
 
 ### 4. Parse timestamps; never compare them as strings
 
