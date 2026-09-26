@@ -18,18 +18,18 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PYTHON_VERSION: "3.12"
+  PYTHON_VERSION: "3.13"
 
 jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - name: Install
@@ -57,9 +57,9 @@ jobs:
     name: Lint and unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -68,11 +68,15 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Ruff lint
-        run: ruff check etl tests
+        run: ruff check etl tests scripts
 
       - name: Ruff format
-        run: ruff format --check etl tests
+        run: ruff format --check etl tests scripts
 
+      # Catches the "Invalid workflow file" class of error before it reaches
+      # Actions: yaml.safe_load only checks syntax, not the Actions schema, so a
+      # misplaced key like a workflow-level `environment` parses cleanly and is
+      # then rejected at runtime.
       - name: Pytest
         run: pytest tests
 
@@ -84,9 +88,9 @@ jobs:
     # rather than risk a flaky timeout on a loaded runner.
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -168,7 +172,7 @@ jobs:
 
       - name: Upload the quality report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: quality-report
           path: |

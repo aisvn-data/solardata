@@ -227,6 +227,24 @@ Two rules the frontend inherits from the pipeline, and the reason for each:
 `node scripts/check_frontend.mjs` guards both, and runs in CI. Add to it when you
 change the chart or the CSV parsing.
 
+### Deploying to GitHub Pages
+
+`.github/workflows/pages.yml` builds `dist/` and publishes it on every push to
+`main`. Two things are easy to get wrong:
+
+- **Pages must be enabled once in the repository settings**, which no workflow
+  file can do for you: *Settings → Pages → Build and deployment → Source →
+  "GitHub Actions"*. Until that is set, every request returns
+  `404 There isn't a GitHub Pages site here` no matter what the workflow does.
+- **`base` in `vite.config.js` is `/solardata/`**, which is the project-pages
+  path for a repository named `solardata` under the `kreier` account. Renaming
+  either requires changing `base` too, or every asset and data fetch 404s.
+
+The data files are committed under `public/data/`, so a frontend-only change
+deploys without re-running the Python pipeline. The deploy asserts that
+`dist/data/` contains `stations.json`, `quality.json` and all 13 CSVs, so a
+build that loses them fails instead of publishing a site full of errors.
+
 ## Open questions a human still has to answer
 
 These are recorded, not solved. Do not quietly decide them in code.

@@ -9,8 +9,69 @@ versions follow [Semantic Versioning](https://semver.org/).
 Data corrections, all confirmed by the collector. Baseline re-recorded: **735,004
 → 734,908 readings**.
 
+### Added
+
+- **GitHub Pages deployment.** `.github/workflows/pages.yml` builds `dist/` and
+  publishes it on every push to `main`, so a frontend-only change ships without
+  re-running the Python pipeline. The build output was already correct for
+  project pages — `base` is `/solardata/` and all 15 data files land in
+  `dist/data/` — but nothing deployed it, and Pages answered every request with
+  `404 There isn't a GitHub Pages site here` because no site had been created
+  for the repository.
+  - Pages must be enabled once in the repository settings (*Settings → Pages →
+    Build and deployment → Source → GitHub Actions*); no workflow file can do
+    that for you.
+  - The deploy asserts `dist/data/` contains `stations.json`, `quality.json` and
+    all 13 CSVs, so a build that loses them fails instead of publishing a site
+    full of errors.
+  - `concurrency` cancels an in-flight deploy when a newer commit lands, so the
+    published site never moves backwards.
+- `tests/test_workflows.py` — 9 checks over the workflow files, in CI. These
+  validate the *Actions schema*, not just YAML syntax: `yaml.safe_load` accepts
+  any well-formed mapping, so `environment:` sat at the workflow level and
+  Actions rejected the whole file with `Unexpected value 'environment'`, while
+  every local check passed. The test asserts the allowed top-level, job and step
+  keys, that `needs` points at real jobs, that `environment` is on the deploy
+  job, and that no workflow is back on a deprecated Node 20 action.
+- Action versions moved off the deprecated Node 20 runtimes: `checkout@v5`,
+  `setup-node@v5`, `setup-python@v6`, `cache@v5`, `upload-artifact@v5`, plus
+  `configure-pages@v5`, `upload-pages-artifact@v4` and `deploy-pages@v4` for the
+  new deploy. CI runs Python 3.13 and Node 22, matching the local toolchain.
+
 ### Fixed
 
+- **`pyyaml` was used by the tests but never declared.** It worked locally only
+  because an unrelated earlier task happened to install it, and CI failed at
+  *collection* with `ModuleNotFoundError: No module named 'yaml'` — which aborts
+  the entire pytest run rather than skipping one file, so every other test result
+  was lost as well. Now declared in `requirements.txt`, and
+  `tests/test_workflows.py` imports it inside a `try`/`except` that skips at
+  module level so a minimal environment degrades instead of dying.
+- `tests/test_workflows.py` gained a check that walks the imports across the
+  whole test suite and asserts every third-party module is declared in
+  `requirements.txt`. A new import now fails locally instead of reaching CI.
+  Verified by removing `pyyaml` from the requirements: the suite fails with
+  *test_workflows.py imports 'yaml' but it is not in requirements.txt*.
+- **`release.yml` failed at the baseline check.** It ran only `etl ingest`, which
+  rebuilds the database but does **not** populate `regimes` — that is a separate
+  stage. The table came out empty and the guard correctly reported
+  `unconfirmed_regimes: 14 -> 0`. The build now runs `ingest`, `regimes` and
+  `report`; `report` was also missing even though the quality report is uploaded
+  as a release asset, so the asset was being copied from the commit rather than
+  regenerated. This is the baseline guard working as intended: it caught a
+  workflow that was quietly producing an incomplete database.
+- **Node 20 deprecation warning in the release path.**
+  `softprops/action-gh-release@v2` still runs on the Node 20 runtime. The upload
+  now uses the `gh` CLI that ships with the runner, which removes both the
+  warning and the third-party dependency. `release.yml` now uses only
+  `actions/checkout@v5` and `actions/setup-python@v6`, both on Node 24.
+- `tests/test_workflows.py` gained two checks after the above:
+  - A workflow that calls `etl verify` must first run every stage the baseline
+    depends on, or run `etl all` which covers them. Verified by reintroducing
+    the missing stages: the suite fails with *release.yml runs `etl verify` but
+    never `etl regimes`*.
+  - `release.yml` may use only first-party actions, so a third-party action on a
+    deprecated runtime cannot come back unnoticed.
 - **A schema-donor bug mislabelled 45,986 readings — 59% of the `aisvn`
   station.** On 2020-06-17 the applet gained a `power` column, going from 10
   columns to 11. Donor selection matched on date alone, so the 23 headerless

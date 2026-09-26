@@ -1,0 +1,86 @@
+# Deploy the site to GitHub Pages.
+#
+# One-time setup required in the repository settings, because it cannot be
+# enabled from a workflow file:
+#
+#   Settings -> Pages -> Build and deployment -> Source -> "GitHub Actions"
+#
+# Without that, Pages answers every request with
+#   "404 There isn't a GitHub Pages site here"
+# regardless of what this workflow does, because no site has been created for
+# the repository yet.
+#
+# The build is a plain `vite build`, which reads the committed data files from
+# `public/data/` and emits them into `dist/data/`. Nothing from Python runs here,
+# so a frontend-only change does not have to wait on a three-minute ingest.
+#
+# Deploys are scoped to `main` so a pull request cannot publish itself, and
+# `concurrency` cancels an in-flight deploy when a newer commit lands so the
+# published site never moves backwards.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci || npm install
+
+      # Fails the deploy rather than publishing a chart that silently coerces a
+      # missing reading to zero.
+      - name: Check the chart helpers and exported data
+        run: node scripts/check_frontend.mjs
+
+      - name: Build
+        run: npx vite build
+
+      - name: Confirm the data reached the bundle
+        run: |
+          test -f dist/index.html
+          test -f dist/data/stations.json
+          test -f dist/data/quality.json
+          count=$(find dist/data -name '*.csv' | wc -l)
+          echo "csv files in dist: $count"
+          test "$count" -eq 13
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # `environment` belongs to the job, not the workflow: it is only valid at
+    # job level, and putting it at the top level makes Actions reject the whole
+    # file with "Unexpected value 'environment'". The environment has to exist
+    # with the matching name, which is what the official deploy action expects.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

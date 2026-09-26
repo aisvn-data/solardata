@@ -36,22 +36,32 @@ jobs:
     steps:
       # No `ref:` here on purpose -- checkout uses the triggering commit, which
       # is the tag on a tag push and the selected branch on a manual run.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Every stage the baseline depends on has to run before `verify`, and the
+      # set is not obvious: `ingest` rebuilds the database from scratch but does
+      # NOT populate `regimes` -- that is a separate stage. Skipping it left the
+      # table empty and the guard correctly reported `unconfirmed_regimes: 14 ->
+      # 0`. `report` is here for the same reason: the quality report is uploaded
+      # as a release asset and must be regenerated, not copied from the commit.
       - name: Build the database
-        run: python -m etl ingest --quiet
+        run: |
+          python -m etl ingest --quiet
+          python -m etl regimes
+          python -m etl report
 
       # Never publish a database that does not match the recorded baseline. An
       # asset named solardata.db that quietly lost 90% of its measurements
-      # would be worse than no asset at all.
+      # would be worse than no asset at all. This is a real guard, not a
+      # formality: it is what caught the missing stage above.
       - name: Verify against the baseline
         run: python -m etl verify
 
@@ -79,23 +89,43 @@ jobs:
           echo "Publishing under tag: $tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+      # Uses the `gh` CLI that ships with the runner rather than a third-party
+      # action. `softprops/action-gh-release@v2` still runs on the Node 20
+      # runtime, which is what produced the deprecation warning; this removes
+      # the dependency and the warning together.
       - name: Attach to the release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.release.outputs.tag }}
-          # Creates the release if the tag does not have one yet.
-          fail_on_unmatched_files: true
-          files: |
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          `solardata.db.gz` is the canonical SQLite store for this tag.
+
+          ```
+          gunzip solardata.db.gz
+          python -m etl --out-dir <dir containing solardata.db> query \
+            "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"
+          ```
+
+          The Parquet interchange format (~7 MiB) is committed in
+          `data/processed/parquet/` and does not need downloading.
+          NOTES
+
+          files=(
             data/processed/solardata.db.gz
             data/processed/quality_report.md
-          body: |
-            `solardata.db.gz` is the canonical SQLite store for this tag.
+          )
+          for f in "${files[@]}"; do
+            test -f "$f" || { echo "missing asset: $f" >&2; exit 1; }
+          done
 
-            ```
-            gunzip solardata.db.gz
-            python -m etl --out-dir <dir containing solardata.db> query \
-              "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"
-            ```
-
-            The Parquet interchange format (~7 MiB) is committed in
-            `data/processed/parquet/` and does not need downloading.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists; replacing the assets."
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            gh release create "$TAG" \
+              --title "solardata $TAG" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              "${files[@]}"
+          fi
+          gh release view "$TAG" --json url --jq .url
