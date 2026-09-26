@@ -6,6 +6,7 @@ import {
   loadDaily,
   loadStations,
   summarise,
+  trustworthyRows,
 } from '../data.js'
 import StatTiles from './StatTiles.jsx'
 import TimeControls from './TimeControls.jsx'
@@ -26,10 +27,15 @@ export default function StationExplorer() {
   const [rows, setRows] = useState([])
   const [fromDay, setFromDay] = useState('')
   const [toDay, setToDay] = useState('')
-  const [selected, setSelected] = useState(['solar'])
+  // Keyed by station so switching back to a station restores what you were
+  // looking at, instead of resetting to whatever is first in the list -- which is
+  // what made the selection look predetermined.
+  const [selectionByStation, setSelectionByStation] = useState({})
   const [hoverDay, setHoverDay] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  const selected = selectionByStation[stationId] ?? []
 
   useEffect(() => {
     let cancelled = false
@@ -57,8 +63,8 @@ export default function StationExplorer() {
     }
   }, [])
 
-  // Load the CSV whenever station or year changes. The range resets because
-  // the days that exist in 2021 have nothing to do with 2022.
+  // Load the CSV whenever station or year changes. The range resets because the
+  // days that exist in 2021 have nothing to do with 2022.
   useEffect(() => {
     if (!stationId || !year) return
     let cancelled = false
@@ -70,11 +76,13 @@ export default function StationExplorer() {
         setFromDay('')
         setToDay('')
         const available = availableMetrics(data)
-        setSelected((current) => {
-          const kept = current.filter((key) => available.includes(key))
-          // Land on something drawable: keep the selection if it survives,
-          // otherwise fall back to whatever this station does have.
-          return kept.length > 0 ? kept : available.slice(0, 2).map((m) => m.key)
+        setSelectionByStation((current) => {
+          const kept = (current[stationId] ?? []).filter((k) => available.includes(k))
+          return {
+            ...current,
+            // First visit to a station: start on the first two channels it has.
+            [stationId]: kept.length > 0 ? kept : available.slice(0, 2).map((m) => m.key),
+          }
         })
       })
       .catch((err) => {
@@ -87,23 +95,30 @@ export default function StationExplorer() {
 
   const station = stations.find((s) => s.station_id === stationId) ?? null
   const metrics = useMemo(() => availableMetrics(rows), [rows])
-  const visible = useMemo(() => filterByRange(rows, fromDay, toDay), [rows, fromDay, toDay])
+  const inRange = useMemo(() => filterByRange(rows, fromDay, toDay), [rows, fromDay, toDay])
   const series = useMemo(
     () => selected.map((key) => METRIC_BY_KEY[key]).filter(Boolean),
     [selected],
   )
+  // Days that are artefacts rather than measurements: no samples at all, or
+  // every value a spike against its own channel's distribution.
+  const plotted = useMemo(() => trustworthyRows(inRange, series), [inRange, series])
 
   const primary = series[0] ?? null
-  const summary = primary && visible.length ? summarise(visible, primary) : null
+  const summary = primary && plotted.length ? summarise(plotted, primary) : null
 
   function toggleMetric(key) {
-    setSelected((current) => {
-      if (current.includes(key)) {
+    setSelectionByStation((current) => {
+      const existing = current[stationId] ?? []
+      let next
+      if (existing.includes(key)) {
         // Keep at least one metric selected, otherwise the chart has nothing
         // to draw and the user has no way back except re-picking.
-        return current.length === 1 ? current : current.filter((k) => k !== key)
+        next = existing.length === 1 ? existing : existing.filter((k) => k !== key)
+      } else {
+        next = [...existing, key]
       }
-      return [...current, key]
+      return { ...current, [stationId]: next }
     })
   }
 
@@ -189,14 +204,24 @@ export default function StationExplorer() {
 
             <StatTiles
               station={station}
-              rows={visible}
+              rows={plotted}
               metric={primary}
               summary={summary}
               range={fromDay || toDay ? { from: fromDay || 'start', to: toDay || 'end' } : null}
             />
 
+            {plotted.droppedDays > 0 && (
+              <p className="chart-note" role="status">
+                {plotted.droppedDays} day{plotted.droppedDays === 1 ? '' : 's'} in
+                this range excluded from the chart as artefacts &mdash; either no
+                readings at all, or values sitting far outside that channel&apos;s
+                own distribution. The rows are kept in the database and the
+                Parquet export; only the drawing is filtered.
+              </p>
+            )}
+
             <TimeSeriesChart
-              rows={visible}
+              rows={plotted}
               series={series}
               onHover={setHoverDay}
               hoverDay={hoverDay}
