@@ -67,32 +67,54 @@ station did not have it, and NULL is not the same as 0.**
 | `source_file_id`, `sheet_row` | — | — | Exact provenance for the row |
 
 Bands only ever set a flag. No value is ever clipped, nulled, or rescaled
-because of them.
+because of them. The same table is published to the browser as
+`public/data/metrics.json`, so the site's chart applies the identical criterion
+to a rollup value that the ingest applied to the raw cell.
 
 ### `quality_flags`
 
-| Flag | Set when |
-|---|---|
-| `sentinel` | Raw cell was `-992` or `-1`; stored as NULL |
-| `out_of_range` | Value kept, but outside the metric's band |
-| `duplicate_ts` | Row lost a `(station_id, ts_utc)` collision |
-| `clip` | Repeated identical value long enough to be a rail artefact |
-| `non_monotonic` | Counter went backwards |
-| `free_text` | Prose found in a numeric cell; the text is in `notes` |
+Comma-separated, so one row can carry several at once. Two families are
+parameterised by column — `bad_window:<column>` and `no_signal:<column>` — which
+is why a flat lookup is not enough to explain every flagged row.
+
+| Flag | Rows | Set when |
+|---|---|---|
+| `out_of_range` | 638,555 | Value kept, but outside the metric's band |
+| `no_signal:<column>` | 220,069 | A `NULL_WINDOWS` entry: the input was disconnected, so the stored number is a false reading. Nulled, with a `rejects` row carrying the prose |
+| `sentinel` | 30,599 | Raw cell was `-992`, `-1`, `342.0` or `342.1`; stored as NULL |
+| `bad_window:<column>` | 6,303 | A `BAD_WINDOWS` entry: kept, but a human has said not to believe it |
+| `schema_misaligned` | 0 | Row did not match the donor schema. Unreachable now that donors match on width |
+| `clip` | 0 | Detector implemented and unit-tested, never wired into the ingest |
+| `non_monotonic` | 0 | No reboot detector runs, despite `boot_count` being a usable one |
+| `free_text` | 0 | Unmapped columns are skipped before this could be set |
+
+`duplicate_ts` appears **only** as a `rejects.reason`, never in
+`readings.quality_flags`: the primary key absorbs the second copy, so no
+`readings` row exists to carry the flag.
 
 ### `metric_defs`
 
-What each raw column of each folder means, and how confident we are. One row per
-`(station_id, source_dir, col_index)`.
+What each raw column of each station means, and how confident we are. One row per
+`(station_id, source_dir, n_columns, col_index)`.
 
 | Column | Meaning |
 |---|---|
+| `n_columns` | Width of the raw layout this row describes |
 | `col_index` | 0-based index in the raw sheet |
 | `raw_name` | Header text, `''` when the file had no header |
 | `canonical_col` | Target column in `readings`, NULL when unmapped |
 | `confidence` | `high` for an exact header match, else lower |
 | `inferred` | 1 when the names were borrowed from a donor file |
 | `reason` | Why it mapped, or why it did not |
+| `n_files` | Files in the folder using this layout |
+
+`n_columns` is part of the key because a folder is a chronological run of chunks
+from one applet and the applet may change its columns partway through. `aisvn`
+went from 10 columns to 11 on 2020-06-17 when a `power` channel was added, so
+column 4 is `load` in one file and `power` in the other 38; `test` holds two
+unrelated schemas (4 columns of nix/temp/wifi probe for 16 of its 19 files, 11
+columns of solar channels for 2). Keyed on the column index alone, a folder can
+hold only one meaning per index and the second layout overwrites the first.
 
 `confidence` is the column to filter on before trusting an automatic analysis.
 
@@ -129,29 +151,52 @@ spreadsheet column it came from. Currently 10 rows; see `CHANGELOG.md` F4.
 
 ### `readings_hourly` and `readings_daily`
 
-Pre-aggregated so the website never scans the raw table.
+Pre-aggregated so the website never scans the raw table. `readings_daily` is
+derived from `readings_hourly`, so the two cannot disagree — `check_frontend.mjs`
+asserts that every day and every sample count matches across the pair.
 
 - `day` is the **local** calendar day; `ts_utc_day` is the UTC midnight of that
   local day. They are not the same instant and both are provided.
+- `n_out_of_range` counts samples in the bucket that carried the flag on **any**
+  channel. It is a row-level count, so a day can be flagged because of a channel
+  the chart is not drawing; the site therefore applies the band per drawn value
+  rather than trusting this count to identify which value is suspect.
 - `energy_wh` assumes a 2-minute nominal cadence
   (`avg_power * n_samples * 2 / 3600`), which matches 357 of 364 files.
+- `boot_count_min` / `boot_count_max` carry the logger's own monotonic read
+  counter, which resets on reboot. Min and max, never a mean: a mean across a
+  reboot averages two boot sessions into a number that never happened. A bucket
+  whose min is 1 restarted; the max is how long it had been up. This is the only
+  channel recording the hardware's view of its own uptime, and it is absent for
+  `solar-2020-05` and `voltage-phumy`, whose sheets have no such column.
+- The two tables do not carry the same statistics. `readings_hourly` has
+  `battery_v_avg` and `readings_daily` does not, so the daily battery column is
+  `battery_v_min` — the day's lowest. The site names the statistic in its
+  readout, because both appear under one "Battery" label.
 
 ## Artefacts
 
 | Path | Format | Size | In git? | Purpose |
 |---|---|---|---|---|
-| `data/processed/solardata.db` | SQLite | 158 MiB | no | Canonical store, query in place |
-| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 7.4 MiB | **yes** | Interchange; pandas/duckdb/dask |
-| `data/exports/{station}/daily/{year}.csv` | CSV | 0.1 MiB | no | What the frontend fetches |
-| `data/exports/stations.json` | JSON | — | no | Station metadata and coverage |
+| `data/processed/solardata.db` | SQLite | 167 MiB | no | Canonical store, query in place. 19 MiB gzipped as a Release asset |
+| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 7.5 MiB | **yes** | Interchange; pandas/duckdb/dask. All 734,908 readings at the native 119 s cadence |
+| `public/data/{station}/daily/{year}.csv` | CSV | 0.1 MiB | **yes** | Daily rollups the site's Day view fetches |
+| `public/data/{station}/hourly/{year}.csv` | CSV | 1.7 MiB | **yes** | Hourly rollups the site's Hour view fetches |
+| `public/data/stations.json` | JSON | 5 KB | **yes** | Station metadata, coverage, which rollups exist |
+| `public/data/metrics.json` | JSON | 5 KB | **yes** | The plausibility bands, verbatim from the ETL |
+| `public/data/quality.json` | JSON | 80 KB | **yes** | The whole report, for the inspector tab |
 | `data/processed/quality_report.md` | Markdown | ~10 KB | **yes** | The review artefact |
 | `data/processed/quality_report.json` | JSON | ~80 KB | **yes** | Machine-readable form of the same |
 | `data/baseline.json` | JSON | ~1 KB | **yes** | Expected counts, enforced by CI |
 
-`solardata.db` and `data/exports/` are gitignored: the database is over GitHub's
-100 MiB per-file limit, and the exports change on every build while nothing reads
-them yet. Everything is rebuilt with `make build`; the database is also
-distributed as a Release asset.
+`public/data/` is committed because the site is static: GitHub Pages serves the
+files straight from a clone, and a frontend-only change must not need the ingest.
+`solardata.db` is gitignored — at 167 MiB it is over GitHub's 100 MiB
+per-file limit. `release.yml` ships it VACUUMed and gzipped (19 MiB); the
+committed Parquet is 7.5 MiB for the same 734,908 rows and needs no download
+at all.
+Everything is rebuilt with `make build`; the database is also distributed as a
+Release asset.
 
 ## `data/baseline.json`
 

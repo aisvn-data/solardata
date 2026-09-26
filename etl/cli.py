@@ -25,7 +25,7 @@ _FLAG_DEFAULTS: dict[str, object] = {
     "baseline": None,
     "only": None,
     "quiet": False,
-    "hourly": False,
+    "granularity": None,
     "all_stations": False,
     "update_baseline": False,
     "reason": "",
@@ -65,8 +65,10 @@ def _settings(args) -> Settings:
         overrides["export_dir"] = Path(export_dir)
     if only:
         overrides["only"] = tuple(s.strip() for s in only.split(",") if s.strip())
-    if getattr(args, "hourly", False):
-        overrides["export_granularity"] = "hour"
+    # Both rollups are published by default; the setting narrows the run.
+    granularity = getattr(args, "granularity", None)
+    if granularity:
+        overrides["export_granularity"] = granularity
     if baseline:
         overrides["baseline_path"] = Path(baseline)
     return Settings(**{**base.__dict__, **overrides})
@@ -155,7 +157,7 @@ def cmd_export(args) -> int:
         written = build(
             conn,
             settings.export_dir,
-            include_hourly=args.hourly,
+            granularity=settings.export_granularity,
             include_non_production=args.all_stations,
             verbose=not getattr(args, "quiet", False),
         )
@@ -330,7 +332,12 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--only", help=f"comma separated subset of {','.join(STAGES)}")
     common.add_argument("-q", "--quiet", action="store_true", help="less per-file output")
     common.add_argument(
-        "--hourly", action="store_true", help="also write hourly rollups (export/all)"
+        "--granularity",
+        choices=("both", "hour", "day"),
+        help=(
+            "which rollup to export: both (default), hour only, or day only. "
+            "Both are cheap and the site switches between them at runtime"
+        ),
     )
     common.add_argument(
         "--all-stations",

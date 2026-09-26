@@ -1,11 +1,20 @@
-/** Headline numbers for the current station, year and date range. */
-export default function StatTiles({ station, rows, metric, summary, range }) {
+/**
+ * Headline numbers for the current station, year and date range.
+ *
+ * `stat` is the statistic behind the plotted column, and it is named in the
+ * labels because it is not always a mean: the daily battery column is the day's
+ * minimum, so a "Battery mean" tile over daily rows would be a mean of minima.
+ * The min and max tiles are still taken across the plotted values, which for a
+ * minimum column makes the "max" the highest of the day's lows.
+ */
+export default function StatTiles({ station, rows, metric, stat, summary, range }) {
   const tiles = []
+  const noun = stat === 'min' ? 'lowest daily' : 'mean'
 
   if (summary && summary.count > 0) {
     const decimals = metric.decimals ?? 1
     tiles.push({
-      label: `${metric.label} mean`,
+      label: `${metric.label} ${noun}`,
       value: summary.mean.toFixed(decimals),
       unit: metric.unit,
     })
@@ -29,12 +38,13 @@ export default function StatTiles({ station, rows, metric, summary, range }) {
   }
 
   // Coverage, not values: how much of the selected range actually reported.
-  // A day with no samples is a real gap and belongs next to the statistics.
+  // A bucket with no samples is a real gap and belongs next to the statistics.
   const withSamples = rows.filter((row) => (row.nSamples ?? 0) > 0)
   const totalSamples = withSamples.reduce((sum, row) => sum + (row.nSamples ?? 0), 0)
   const totalHours = withSamples.reduce((sum, row) => sum + (row.nHours ?? 0), 0)
+  const bucket = rows.length > 1 && rows[0]?.nHours === 1 ? 'Hours' : 'Days'
   tiles.push({
-    label: 'Days reported',
+    label: `${bucket} reported`,
     value: `${withSamples.length}/${rows.length}`,
     unit: '',
   })

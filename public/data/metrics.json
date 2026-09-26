@@ -1,0 +1,180 @@
+{
+  "note": "Plausibility bands, verbatim from etl/normalize/metrics.py. A reading outside its channel's band is flagged out_of_range by the pipeline and kept; the site marks such a point on the chart and never removes it. A value is NOT evidence that the sensor is wrong -- the bands are set from what the hardware produced, so a band that is wrong for the site it is installed in will flag real readings.",
+  "bands": {
+    "solar_v": {
+      "unit": "V",
+      "lo": 0.0,
+      "hi": 60.0,
+      "kind": "voltage",
+      "description": "Solar panel / collector voltage"
+    },
+    "solar2_v": {
+      "unit": "V",
+      "lo": 0.0,
+      "hi": 60.0,
+      "kind": "voltage",
+      "description": "Second solar input voltage"
+    },
+    "solar3_v": {
+      "unit": "V",
+      "lo": 0.0,
+      "hi": 60.0,
+      "kind": "voltage",
+      "description": "Third solar input voltage"
+    },
+    "battery_v": {
+      "unit": "V",
+      "lo": 9.0,
+      "hi": 16.0,
+      "kind": "voltage",
+      "description": "Battery bank voltage (3S LiPo)"
+    },
+    "battery2_v": {
+      "unit": "V",
+      "lo": 9.0,
+      "hi": 16.0,
+      "kind": "voltage",
+      "description": "Second battery bank voltage"
+    },
+    "current_a": {
+      "unit": "A",
+      "lo": -50.0,
+      "hi": 50.0,
+      "kind": "current",
+      "description": "Primary current"
+    },
+    "current2_a": {
+      "unit": "A",
+      "lo": -50.0,
+      "hi": 50.0,
+      "kind": "current",
+      "description": "Secondary current"
+    },
+    "current_a_chA": {
+      "unit": "A",
+      "lo": -50.0,
+      "hi": 50.0,
+      "kind": "current",
+      "description": "Current, channel A"
+    },
+    "current_a_chB": {
+      "unit": "A",
+      "lo": -50.0,
+      "hi": 50.0,
+      "kind": "current",
+      "description": "Current, channel B"
+    },
+    "power_w": {
+      "unit": "W",
+      "lo": -2000.0,
+      "hi": 2000.0,
+      "kind": "power",
+      "description": "Instantaneous power"
+    },
+    "load_v": {
+      "unit": "V",
+      "lo": 0.0,
+      "hi": 60.0,
+      "kind": "voltage",
+      "description": "Load / dump rail voltage"
+    },
+    "load1_v": {
+      "unit": "V",
+      "lo": 0.0,
+      "hi": 60.0,
+      "kind": "voltage",
+      "description": "Load rail 1 voltage"
+    },
+    "load2_v": {
+      "unit": "V",
+      "lo": 0.0,
+      "hi": 60.0,
+      "kind": "voltage",
+      "description": "Load rail 2 voltage"
+    },
+    "wind_v": {
+      "unit": "V",
+      "lo": null,
+      "hi": null,
+      "kind": "voltage",
+      "description": "Wind turbine input (unused, reads 0)"
+    },
+    "temp_c": {
+      "unit": "degC",
+      "lo": 5.0,
+      "hi": 45.0,
+      "kind": "temperature",
+      "description": "Ambient temperature (Ho Chi City)"
+    },
+    "lipo_v": {
+      "unit": "V",
+      "lo": 2.5,
+      "hi": 4.35,
+      "kind": "voltage",
+      "description": "LiPo pack voltage"
+    },
+    "lipo2_v": {
+      "unit": "V",
+      "lo": 2.5,
+      "hi": 4.35,
+      "kind": "voltage",
+      "description": "Second LiPo pack voltage"
+    },
+    "adc_raw": {
+      "unit": "count",
+      "lo": null,
+      "hi": null,
+      "kind": "raw",
+      "description": "Raw ADC reading, uncalibrated"
+    },
+    "voltage_adc": {
+      "unit": "count",
+      "lo": null,
+      "hi": null,
+      "kind": "raw",
+      "description": "Raw ADC reading on the voltage channel"
+    },
+    "digital_adc": {
+      "unit": "count",
+      "lo": null,
+      "hi": null,
+      "kind": "raw",
+      "description": "Raw ADC reading on a digital channel"
+    },
+    "dump_adc": {
+      "unit": "count",
+      "lo": null,
+      "hi": null,
+      "kind": "raw",
+      "description": "Raw ADC reading on the dump channel"
+    },
+    "boot_count": {
+      "unit": "count",
+      "lo": null,
+      "hi": null,
+      "kind": "count",
+      "description": "Monotonic logger counter, resets on reboot"
+    },
+    "millis_ms": {
+      "unit": "ms",
+      "lo": null,
+      "hi": null,
+      "kind": "count",
+      "description": "millis() since boot"
+    },
+    "nix_raw": {
+      "unit": "count",
+      "lo": null,
+      "hi": null,
+      "kind": "raw",
+      "description": "Non-solar probe channel (test bench)"
+    },
+    "wifi_raw": {
+      "unit": "count",
+      "lo": null,
+      "hi": null,
+      "kind": "raw",
+      "description": "WiFi probe counter (test bench)"
+    }
+  }
+}

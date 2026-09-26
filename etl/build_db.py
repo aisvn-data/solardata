@@ -26,6 +26,8 @@ from etl.config import (
     FLAG_DUPLICATE_TS,
     FLAG_MISALIGNED,
     NULL_WINDOWS,
+    REASON_NO_SIGNAL,
+    REASON_ROW_FLOOR,
     ROW_EXCLUSIONS,
     Settings,
 )
@@ -272,7 +274,16 @@ def _register_metric_defs(
     n_columns: int,
     inferred: bool,
 ) -> None:
-    """Record the column meaning for this folder.
+    """Record the column meaning for one *layout* in this folder.
+
+    Keyed on the layout's width as well as its column index, because a folder
+    can contain more than one: `aisvn` gained a `power` column on 2020-06-17 and
+    went from 10 columns to 11, `Maker_Webhooks_Events` did the same, and `test`
+    holds two unrelated schemas. Keyed on the column index alone -- which is what
+    this used to do -- a folder can only ever hold one meaning per index, so the
+    second layout overwrote the first and `aisvn` ended up claiming column 4 was
+    `load` for all 39 files when 38 of them are 11-column files where it is
+    `power`. The ingest was never wrong; only this record of it was.
 
     ``inferred`` is 1 when the column names were borrowed from a sibling file
     because this one had no header row.  That flag is the honest signal that we
@@ -284,10 +295,10 @@ def _register_metric_defs(
         metric = METRIC_BY_COLUMN.get(mapping.column) if mapping.column else None
         conn.execute(
             "INSERT INTO metric_defs"
-            " (station_id, source_dir, col_index, raw_name, canonical_col, unit, kind,"
-            "  confidence, inferred, reason, n_files)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
-            " ON CONFLICT(station_id, source_dir, col_index) DO UPDATE SET"
+            " (station_id, source_dir, n_columns, col_index, raw_name, canonical_col,"
+            "  unit, kind, confidence, inferred, reason, n_files)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
+            " ON CONFLICT(station_id, source_dir, n_columns, col_index) DO UPDATE SET"
             "   n_files = n_files + 1,"
             "   raw_name = CASE WHEN excluded.inferred = 1 THEN metric_defs.raw_name"
             "                   ELSE excluded.raw_name END,"
@@ -299,6 +310,7 @@ def _register_metric_defs(
             (
                 station.station_id,
                 source_dir,
+                n_columns,
                 mapping.index,
                 mapping.raw_name,
                 mapping.column,
@@ -329,27 +341,47 @@ def _bad_window_flags(station_id: str, ts_utc: str, row: dict) -> tuple[str, ...
     return tuple(flags)
 
 
-def _null_windows(station_id: str, ts_utc: str, row: dict) -> tuple[tuple[str, ...], list[str]]:
+def _null_windows(
+    station_id: str, ts_utc: str, row: dict
+) -> tuple[tuple[str, ...], list[str], list[str]]:
     """Null channels inside a window where the stored value is affirmatively wrong.
 
-    Returns ``(flags, reasons)``. Unlike :func:`_bad_window_flags` this discards
-    the number, because here the number makes a false claim -- 0.0 V from a
-    panel says "produced nothing" when the truth is "not connected". Every
-    affected cell is also written to ``rejects`` so nothing disappears silently.
+    Returns ``(flags, reasons, columns)``. Unlike :func:`_bad_window_flags` this
+    discards the number, because here the number makes a false claim -- 0.0 V
+    from a panel says "produced nothing" when the truth is "not connected".
+    Every affected cell is also written to ``rejects`` so nothing disappears
+    silently.
+
+    ``reasons`` are stable *categories*, never the window's prose.  Rule 2 in
+    ``AGENTS.md`` asks for exactly that, and the archive is where the cost of
+    ignoring it shows: writing the collector's note as the reason stored one
+    ~300-character sentence on 220,074 rows and made ``rejects`` (96.1 MiB) as
+    large as ``readings`` itself.  The prose is not lost -- it lives once, in
+    ``config.NULL_WINDOWS``, which is version-controlled, human-readable and the
+    only copy there has to be.  ``report.collect`` republishes it to
+    ``quality.json`` so the site can explain the category without the database
+    repeating it.
+
+    ``columns`` is returned rather than re-derived from the flags: ``row_flags``
+    is a merged *string*, so iterating it for ``no_signal:`` prefixes walks its
+    characters and silently yields nothing.  That is why every ``null_window``
+    reject had an empty ``column_name`` until this returned the list.
     """
     flags: list[str] = []
     reasons: list[str] = []
-    for win_station, valid_from, valid_to, columns, why in NULL_WINDOWS:
+    columns: list[str] = []
+    for win_station, valid_from, valid_to, win_columns, _why in NULL_WINDOWS:
         if win_station != station_id or not (valid_from <= ts_utc < valid_to):
             continue
-        for column in columns.split(","):
+        for column in win_columns.split(","):
             column = column.strip()
             if row.get(column) is None:
                 continue
             row[column] = None
             flags.append(f"no_signal:{column}")
-            reasons.append(why)
-    return tuple(flags), reasons
+            reasons.append(REASON_NO_SIGNAL)
+            columns.append(column)
+    return tuple(flags), reasons, columns
 
 
 def _insert_file(
@@ -401,13 +433,14 @@ def _insert_file(
     _register_metric_defs(conn, station, source_dir, effective, usable_width, scan.inferred)
 
     # Row-level exclusion decided by the collector, e.g. the reinstall window in
-    # data/raw/aisvn/IFTTT_aisvn (25).xlsx.
+    # data/raw/aisvn/IFTTT_aisvn (25).xlsx.  `why` goes to the report, not to
+    # `rejects.reason`: rule 2 wants a groupable category there.
     row_floor = 0
     row_floor_reason = ""
-    for suffix, first_row, why in ROW_EXCLUSIONS:
+    for suffix, first_row, _why in ROW_EXCLUSIONS:
         if scan.rel_path.endswith(suffix.replace("/", "\\")) or scan.rel_path.endswith(suffix):
             row_floor = first_row
-            row_floor_reason = why
+            row_floor_reason = REASON_ROW_FLOOR
             break
 
     outcome = FileOutcome(
@@ -478,7 +511,7 @@ def _insert_file(
             row[column] = result.value
             flags.append(result.flags)
 
-        null_flags, null_reasons = _null_windows(station.station_id, ts_utc, row)
+        null_flags, null_reasons, null_columns = _null_windows(station.station_id, ts_utc, row)
         row_flags = merge_flags(
             *flags,
             (FLAG_MISALIGNED,) if misaligned else (),
@@ -521,13 +554,13 @@ def _insert_file(
                     FLAG_DUPLICATE_TS,
                 )
             )
-        for reason in null_reasons:
+        for reason, column in zip(null_reasons, null_columns, strict=True):
             rejects.append(
                 (
                     file_id,
                     station.station_id,
                     sheet_row,
-                    ",".join(c for c in row_flags if c.startswith("no_signal:")),
+                    column,
                     raw_ts,
                     reason,
                 )

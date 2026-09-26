@@ -1,14 +1,16 @@
 /**
  * Data access for the site.
  *
- * Everything the browser needs is a small static file under `public/data`,
- * written by `python -m etl export`:
+ * Everything the browser needs is a static file under `public/data`, written by
+ * `python -m etl export`:
  *
  *   stations.json               station metadata, coverage, available years
- *   {station}/daily/{year}.csv  daily rollups, ~4 rows per month
+ *   metrics.json                the plausibility bands, verbatim from the ETL
+ *   {station}/hourly/{year}.csv  ~30 rows/day, the native rollup
+ *   {station}/daily/{year}.csv   ~4 rows/month, a mean over the hourly rows
  *   quality.json                the data-quality report, for the inspector
  *
- * Two properties of the data drive the design here, and both come from
+ * Four properties of the data drive the design here, and all of them come from
  * `AGENTS.md`:
  *
  * 1. **NULL is not 0.** A missing channel and a genuine zero reading are
@@ -19,6 +21,14 @@
  *    `solar2`/`lipo2`, so those columns are empty for all 415k rows. Which
  *    metrics exist is therefore a property of the data, not a fixed list, and
  *    the UI has to discover it rather than assume.
+ * 3. **A flagged value is kept, never dropped.** The pipeline flags an
+ *    implausible reading and stores it; the site marks it and says so. The one
+ *    thing the UI must not do is decide on its own that a value is not real --
+ *    see `classifyRows` for what replaced the heuristic that used to.
+ * 4. **The rollups are means, and which mean depends on the granularity.** The
+ *    daily battery column is a day's *minimum*; the hourly one is the hour's
+ *    *mean*. They are both labelled "Battery" in the UI, so the readout has to
+ *    name the statistic or the two views look comparable when they are not.
  */
 
 const DATA_ROOT = `${import.meta.env.BASE_URL}data`
@@ -56,14 +66,39 @@ export function loadQuality() {
   return cache.get('quality')
 }
 
-export function loadDaily(stationId, year) {
-  const key = `daily:${stationId}:${year}`
+/**
+ * The plausibility bands, keyed by canonical channel.
+ *
+ * Shipped rather than retyped so the browser applies the identical criterion
+ * the ingest applied to each raw cell. Correct a band in
+ * `etl/normalize/metrics.py` and the site follows on the next export; a second
+ * copy of the numbers in JavaScript would drift, and a drifted band is a chart
+ * that lies with a straight face.
+ */
+export function loadBands() {
+  if (!cache.has('bands')) {
+    cache.set(
+      'bands',
+      fetchJson('metrics.json').then((payload) => payload.bands ?? {}),
+    )
+  }
+  return cache.get('bands')
+}
+
+/** The two resolutions the exporter publishes, in the order the UI offers them. */
+export const GRANULARITIES = [
+  { folder: 'daily', label: 'Day', noun: 'day' },
+  { folder: 'hourly', label: 'Hour', noun: 'hour' },
+]
+
+export function loadRollup(stationId, folder, year) {
+  const key = `rollup:${stationId}:${folder}:${year}`
   if (!cache.has(key)) {
     cache.set(
       key,
-      fetchText(`${stationId}/daily/${year}.csv`).then(parseCsv).then((rows) =>
-        rows.map(decorateRow),
-      ),
+      fetchText(`${stationId}/${folder}/${year}.csv`)
+        .then(parseCsv)
+        .then((rows) => rows.map((row) => decorateRow(row, folder))),
     )
   }
   return cache.get(key)
@@ -74,7 +109,7 @@ export function loadDaily(stationId, year) {
  *
  * The exporter writes plain RFC 4180 with no quoting (no value in this dataset
  * contains a comma or a quote), so a split on the delimiter is sufficient and
- * avoids pulling in a parser for 15 small files.
+ * avoids pulling in a parser for the handful of small files involved.
  */
 function parseCsv(text) {
   const lines = text.trim().split(/\r?\n/).filter((line) => line.length > 0)
@@ -92,43 +127,80 @@ function parseCsv(text) {
 
 const MS_PER_DAY = 86400000
 
-function decorateRow(row) {
-  const day = row.day
+/**
+ * Which CSV column carries each canonical channel, and which statistic it is.
+ *
+ * The statistic is not decoration. `readings_daily` has no `battery_v_avg`
+ * because a mean of minima is not a useful number, so the daily column is
+ * `battery_v_min` -- the *lowest* battery voltage of the day -- while the hourly
+ * column is the hour's mean. Both appear under one "Battery" label, so a reader
+ * has to be told which one they are looking at or the daily dip looks like a
+ * different battery.
+ */
+const VALUE_COLUMNS = {
+  daily: {
+    solar_v: ['solar_v_avg', 'mean'],
+    solar2_v: ['solar2_v_avg', 'mean'],
+    battery_v: ['battery_v_min', 'min'],
+    battery2_v: ['battery2_v_min', 'min'],
+    power_w: ['power_w_avg', 'mean'],
+    temp_c: ['temp_c_avg', 'mean'],
+    energy_wh: ['energy_wh', 'total'],
+    boot_count_max: ['boot_count_max', 'max'],
+  },
+  hourly: {
+    solar_v: ['solar_v_avg', 'mean'],
+    solar2_v: ['solar2_v_avg', 'mean'],
+    battery_v: ['battery_v_avg', 'mean'],
+    battery2_v: ['battery2_v_min', 'min'],
+    power_w: ['power_w_avg', 'mean'],
+    temp_c: ['temp_c_avg', 'mean'],
+    energy_wh: ['energy_wh', 'total'],
+    boot_count_max: ['boot_count_max', 'max'],
+  },
+}
+
+function decorateRow(raw, folder) {
+  const hourly = folder === 'hourly'
+  // An hourly row is keyed by the UTC instant of the hour; a daily row by the
+  // local calendar day, whose UTC instant is midnight *of that day label* and
+  // is therefore not the start of the local day. The two differ by 7 hours in
+  // Asia/Ho_Chi_Minh, which is why the label and the instant are kept apart.
+  const instant = hourly ? raw.ts_utc : `${raw.day}T00:00:00Z`
+  const columns = VALUE_COLUMNS[folder]
+  const values = {}
+  const stats = {}
+  for (const [channel, [column, stat]] of Object.entries(columns)) {
+    values[channel] = num(raw[column])
+    stats[channel] = stat
+  }
   return {
-    day,
-    // Parse as UTC midnight. `new Date('2023-01-01')` is already UTC, but
-    // being explicit avoids the local-timezone trap where a date-only string
-    // shifts by a day west of Greenwich.
-    date: Date.parse(`${day}T00:00:00Z`),
-    // The local calendar day is what the CSV is keyed on; the UTC instant it
-    // starts at is kept so the two are never confused (they differ by 7 hours
-    // in Asia/Ho_Chi_Minh, so a local day is not a UTC day).
-    tsUtcDay: row.ts_utc_day,
-    nSamples: num(row.n_samples),
-    nHours: num(row.n_hours),
-    // Share of the day's samples flagged out-of-range. A day whose only reading
-    // is an ADC test pattern (solar 123 V, battery 456 V) still produces a row
-    // here, so without this the chart cannot tell it from a real day.
-    nOutOfRange: num(row.n_out_of_range) ?? 0,
-    energyWh: num(row.energy_wh),
-    solarAvg: num(row.solar_v_avg),
-    solarMax: num(row.solar_v_max),
-    solar2Avg: num(row.solar2_v_avg),
-    solar2Max: num(row.solar2_v_max),
-    batteryMin: num(row.battery_v_min),
-    batteryMax: num(row.battery_v_max),
-    battery2Min: num(row.battery2_v_min),
-    battery2Max: num(row.battery2_v_max),
-    powerAvg: num(row.power_w_avg),
-    powerMax: num(row.power_w_max),
-    tempMin: num(row.temp_c_min),
-    tempAvg: num(row.temp_c_avg),
-    tempMax: num(row.temp_c_max),
+    // The row's own identifier, kept verbatim so a value on screen can be found
+    // in the CSV and in the database without a conversion in the reader's head.
+    key: hourly ? raw.ts_utc : raw.day,
+    // What the axis and the readout print.
+    day: hourly ? raw.ts_utc.slice(0, 16).replace('T', ' ') : raw.day,
+    // What the From/To date inputs compare against, so a range boundary lands
+    // on the day a reader typed rather than on the first hour of it.
+    dateDay: (hourly ? raw.ts_utc : raw.day).slice(0, 10),
+    date: Date.parse(instant),
+    tsUtcDay: raw.ts_utc_day,
+    nSamples: num(raw.n_samples),
+    // An hourly bucket is one hour wide by construction; the daily rollup
+    // carries how many of the day's hours had any sample at all.
+    nHours: hourly ? 1 : num(raw.n_hours),
+    // How many of the day's samples the pipeline flagged out_of_range. A day
+    // whose only reading is an ADC test pattern (solar 123 V, battery 456 V)
+    // still produces a row here, so without this the chart cannot tell it from
+    // a real day.
+    nOutOfRange: num(raw.n_out_of_range) ?? 0,
+    values,
+    stats,
     // Comma-separated channels that had a collector-confirmed scale applied to
-    // this day's aggregate, e.g. 'solar2_v,lipo2_v'. Empty means the value is
+    // this bucket's aggregate, e.g. 'solar2_v,lipo2_v'. Empty means the value is
     // exactly what the sensor reported, which for a confirmed millivolt channel
     // would mean the chart is about to show 1000x too much.
-    scaledChannels: row.scaled_channels || '',
+    scaledChannels: raw.scaled_channels || '',
   }
 }
 
@@ -144,135 +216,15 @@ function num(value) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-/**
- * Robust per-metric statistics, used to recognise spikes.
- *
- * A spike test has to be relative to the series, not absolute, because the
- * stations do not agree on units: `phumy2.solar2_v` is logged in millivolts and
- * `aisvn` in volts, so a fixed plausibility band flags *every* reading of one
- * and none of the other. The 2020-10-01 problem -- solar 123 V, battery 456 V
- * among neighbouring days of 18 and 19 -- is visible only against the series'
- * own distribution.
- *
- * Median and MAD rather than mean and standard deviation, because a single
- * 456 V reading is exactly what drags a mean away from the value you want to
- * compare against.
- */
-export function robustStats(values) {
-  const sorted = values.filter((v) => v !== null && v !== undefined).sort((a, b) => a - b)
-  if (sorted.length === 0) return { median: null, mad: null, n: 0 }
-  const mid = sorted.length >> 1
-  const median =
-    sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
-  const deviations = sorted.map((v) => Math.abs(v - median)).sort((a, b) => a - b)
-  const mad =
-    deviations.length % 2 ? deviations[mid] : (deviations[mid - 1] + deviations[mid]) / 2
-  return { median, mad, n: sorted.length }
-}
-
-/**
- * How far a value may sit from the median before it counts as a spike.
- *
- * The floor matters: for a channel that is genuinely steady -- and a daily mean
- * of panel voltage is, to within a few percent -- the MAD is near zero, and a
- * pure MAD threshold would flag normal variation.
- *
- * Returns `null` when the series is too irregular for the question to be
- * meaningful. `phumy2.solar2_v` steps from ~5000 mV to ~1200 mV when a bridge is
- * fitted, and over a window containing both halves the distribution is
- * bimodal: half the days look like spikes against the median of the other mode.
- * Calling either mode an artefact would erase a real configuration change, so
- * the detector declines instead of guessing.
- */
-const SPIKE_MAD_MULTIPLIER = 6
-const SPIKE_RELATIVE_FLOOR = 0.35
-const MAX_TIGHTNESS = 0.2
-
-export function spikeLimit(stats, unit) {
-  if (!stats || stats.median === null) return null
-  const mad = stats.mad === null ? 0 : stats.mad
-  const median = stats.median
-  // A channel whose scatter is a large fraction of its own level is
-  // multi-modal or genuinely variable, not steady-with-spikes.
-  if (Math.abs(mad) > Math.abs(median) * MAX_TIGHTNESS) return null
-  const spread = mad * 1.4826 * SPIKE_MAD_MULTIPLIER
-  const relative = Math.abs(median) * SPIKE_RELATIVE_FLOOR
-  // A small absolute floor in the unit's own terms, so a channel sitting near
-  // zero does not get a zero-width tolerance.
-  const absolute = unit === 'Wh' ? 5 : unit === 'W' ? 20 : 1.5
-  return Math.max(spread, relative, absolute)
-}
-
-export function isSpike(value, stats, unit) {
-  if (value === null || value === undefined) return false
-  const limit = spikeLimit(stats, unit)
-  if (limit === null) return false
-  return Math.abs(value - stats.median) > limit
-}
-
-/**
- * Drop the days that are artefacts rather than measurements, and say how many.
- *
- * Two conditions, both scale-independent:
- *   - the day has no samples at all, so there is nothing to draw
- *   - every value it carries is a spike against that channel's own distribution
- *
- * The dropped days are not deleted. `n_out_of_range` is carried through to the
- * readout so the chart can state what it left out and why, rather than quietly
- * drawing a nicer-looking graph.
- */
-export function trustworthyRows(rows, series) {
-  const stats = {}
-  for (const metric of series) {
-    stats[metric.key] = robustStats(rows.map((row) => metric.get(row)))
-  }
-  const kept = []
-  const dropped = []
-  for (const row of rows) {
-    const noData = (row.nSamples ?? 0) === 0
-    const allSpike =
-      !noData &&
-      series.length > 0 &&
-      series.every((metric) => {
-        const value = metric.get(row)
-        if (value === null) return false
-        return isSpike(value, stats[metric.key], metric.unit)
-      })
-    if (noData || allSpike) {
-      dropped.push(row)
-      continue
-    }
-    kept.push(row)
-  }
-  kept.droppedDays = dropped.length
-  kept.dropped = dropped
-  return kept
-}
-
-/**
- * First non-null of the given fields.
- *
- * The stations number their second panel input `solar2` and `aisvn2` uses
- * `solar3` + `battery2`, so "the solar voltage of this station" is whichever
- * member of the family it actually logs. Aggregating only `solar_v` left the two
- * largest stations with nothing to chart.
- */
-function firstOf(row, keys) {
-  for (const key of keys) {
-    const value = row[key]
-    if (value !== null && value !== undefined) return value
-  }
-  return null
-}
-
 export const METRICS = [
   {
     key: 'solar',
     label: 'Solar voltage',
     unit: 'V',
     colour: '#d97706',
-    get: (row) => firstOf(row, ['solarAvg', 'solar2Avg']),
-    peak: (row) => firstOf(row, ['solarMax', 'solar2Max']),
+    // The stations number their second panel input `solar2`, so "the solar
+    // voltage of this station" is whichever member of the family it logs.
+    channels: ['solar_v', 'solar2_v'],
     decimals: 2,
   },
   {
@@ -280,8 +232,7 @@ export const METRICS = [
     label: 'Battery',
     unit: 'V',
     colour: '#2f855a',
-    get: (row) => firstOf(row, ['batteryMin', 'battery2Min']),
-    peak: (row) => firstOf(row, ['batteryMax', 'battery2Max']),
+    channels: ['battery_v', 'battery2_v'],
     decimals: 2,
   },
   {
@@ -289,8 +240,7 @@ export const METRICS = [
     label: 'Power',
     unit: 'W',
     colour: '#805ad5',
-    get: (row) => row.powerAvg,
-    peak: (row) => row.powerMax,
+    channels: ['power_w'],
     decimals: 1,
   },
   {
@@ -298,8 +248,7 @@ export const METRICS = [
     label: 'Temperature',
     unit: '°C',
     colour: '#2b6cb0',
-    get: (row) => row.tempAvg,
-    peak: (row) => row.tempMax,
+    channels: ['temp_c'],
     decimals: 1,
   },
   {
@@ -307,41 +256,178 @@ export const METRICS = [
     label: 'Energy',
     unit: 'Wh',
     colour: '#b7791f',
-    get: (row) => row.energyWh,
-    peak: (row) => row.energyWh,
+    channels: ['energy_wh'],
     decimals: 1,
+  },
+  {
+    key: 'boot',
+    // The logger's own monotonic counter, which resets when it reboots. Shown
+    // because it is the only channel that records the hardware's view of its own
+    // uptime: a line that climbs and drops to 1 is the station restarting, which
+    // is also where the gaps in the other channels come from. It is a count, not
+    // a measurement, so it has no plausibility band and is never flagged.
+    label: 'Uptime counter',
+    unit: 'reads',
+    colour: '#4c51bf',
+    channels: ['boot_count_max'],
+    decimals: 0,
   },
 ]
 
 export const METRIC_BY_KEY = Object.fromEntries(METRICS.map((m) => [m.key, m]))
 
 /**
- * Which metrics actually have data for this station.
+ * Which channel a row actually has, and what it says.
+ *
+ * Returns the first channel in the family with a value, so a station that logs
+ * `solar2_v` is charted on the "Solar voltage" control without the UI needing
+ * to know which numbered variant it is.
+ */
+export function pick(row, metric) {
+  for (const channel of metric.channels) {
+    const value = row.values[channel]
+    if (value !== null && value !== undefined) {
+      return { channel, value, stat: row.stats[channel] }
+    }
+  }
+  return { channel: null, value: null, stat: null }
+}
+
+/** The plotted value for a metric, or null. A null is a gap, not a zero. */
+export function get(row, metric) {
+  return pick(row, metric).value
+}
+
+/** How a statistic should be named in the readout. */
+const STAT_LABELS = {
+  mean: 'mean',
+  min: 'minimum',
+  max: 'peak',
+  total: 'total',
+}
+
+export function statLabel(stat) {
+  return STAT_LABELS[stat] ?? stat ?? ''
+}
+
+/**
+ * Which metrics actually have data for this station, as keys.
  *
  * Derived from the rows rather than hardcoded: `phumy2` has no `solar_v` or
  * `battery_v` at all (it logs `solar2` and has no battery channel), and
- * `aisvn2` uses `solar3` + `battery2`. A fixed list would offer controls that
- * draw a flat empty axis.
+ * `aisvn2` uses `battery2` with no solar channel whatsoever. A fixed list would
+ * offer controls that draw a flat empty axis.
+ *
+ * **Keys, not metric objects, and there is deliberately only one form.** The
+ * selection state and the picker both hold keys, and the two shapes are
+ * interchangeable at a glance: returning objects from here while the picker
+ * tested `metrics.includes(metric.key)` made every checkbox render `disabled`
+ * for every station, with no error anywhere and the chart still drawing the
+ * default two channels. `check_frontend.mjs` has a regression check by name.
  */
-export function availableMetrics(rows) {
+export function availableMetricKeys(rows) {
   if (!rows || rows.length === 0) return []
-  return METRICS.filter((metric) => rows.some((row) => metric.get(row) !== null))
+  return METRICS.filter((metric) => rows.some((row) => get(row, metric) !== null)).map(
+    (metric) => metric.key,
+  )
+}
+
+/**
+ * The months that have data in the loaded rollup, as `YYYY-MM`.
+ *
+ * Computed from the rows rather than from the calendar, so a station that only
+ * reported in June and July is offered two months instead of twelve, and picking
+ * one cannot select a range with nothing in it.
+ */
+export function availableMonths(rows) {
+  const seen = new Set()
+  for (const row of rows ?? []) {
+    if (row.nSamples > 0) seen.add(row.dateDay.slice(0, 7))
+  }
+  return [...seen].sort()
 }
 
 export function filterByRange(rows, fromDay, toDay) {
   if (!fromDay && !toDay) return rows
   return rows.filter((row) => {
-    if (fromDay && row.day < fromDay) return false
-    if (toDay && row.day > toDay) return false
+    if (fromDay && row.dateDay < fromDay) return false
+    if (toDay && row.dateDay > toDay) return false
     return true
   })
+}
+
+/** The band for a channel, or null if it has none or was never flagged. */
+function bandFor(bands, channel) {
+  if (!bands || !channel) return null
+  const band = bands[channel]
+  if (!band || band.lo === null || band.hi === null) return null
+  return band
+}
+
+export function isOutOfBand(bands, channel, value) {
+  const band = bandFor(bands, channel)
+  if (!band || value === null || value === undefined) return null
+  return value >= band.lo && value <= band.hi ? null : band
+}
+
+/**
+ * Decide what the chart draws, and say what it is uneasy about.
+ *
+ * A row is *unplottable* only when it holds no samples at all: there is nothing
+ * to draw, and a straight line across the hole would invent one.
+ *
+ * A row is *flagged* when a value being plotted falls outside the band the
+ * pipeline records for that channel -- the same band that raised `out_of_range`
+ * on the underlying cell. Flagged rows are **kept and drawn**, with a marker and
+ * a stated reason. Nothing is removed, because a value being implausible is not
+ * the same as a value being wrong, and only a human can adjudicate that here:
+ * the `aisvn` battery band of 9-16 V is a 3S LiPo, and 23 of its 101 days in
+ * 2020 sit above it, which may be a second battery pack or a scale nobody has
+ * confirmed. Deleting those days would have hidden the question.
+ *
+ * What this replaced
+ * ------------------
+ * A median/MAD "spike" test that compared each value against its own series'
+ * spread. It was removed because it was measuring sampling coverage rather than
+ * plausibility. A panel's 24-hour mean is dominated by night, so a fully covered
+ * day averages 6-9 V while a single afternoon sample averages 17-19 V; the test
+ * read that as 8 real days being "spikes" and dropped them, along with the 4
+ * post-reinstall days at 29 V. It also made the answer depend on which metrics
+ * happened to be selected, so the 123 V ADC test pattern was filtered under one
+ * selection and drawn under another. A band is scale-explicit, selection-local
+ * and the same one the data pipeline uses.
+ */
+export function classifyRows(rows, series, bands) {
+  const plottable = []
+  const flaggedRows = []
+  const unplottable = []
+  let breaches = 0
+  for (const row of rows) {
+    const found = []
+    for (const metric of series) {
+      const { channel, value } = pick(row, metric)
+      const band = isOutOfBand(bands, channel, value)
+      if (band) {
+        found.push({ metric: metric.key, channel, value, band })
+        breaches += 1
+      }
+    }
+    const annotated = { ...row, breaches: found }
+    if ((row.nSamples ?? 0) === 0) {
+      unplottable.push(annotated)
+      continue
+    }
+    if (found.length > 0) flaggedRows.push(annotated)
+    plottable.push(annotated)
+  }
+  return { plottable, flaggedRows, unplottable, breaches }
 }
 
 /** Summary numbers for the current selection. */
 export function summarise(rows, metric) {
   const values = []
   for (const row of rows) {
-    const value = metric.get(row)
+    const value = get(row, metric)
     if (value !== null) values.push(value)
   }
   if (values.length === 0) {

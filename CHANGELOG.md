@@ -4,6 +4,263 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`metric_defs` could only describe one layout per folder, and the wrong one
+  won.** Its primary key was `(station_id, source_dir, col_index)`, so a folder
+  held exactly one meaning per column index and a second layout silently
+  overwrote the first. A folder is a chronological run of chunks from one
+  applet, and the applet is allowed to change its columns partway through:
+
+  | station | folder | the change |
+  |---|---|---|
+  | `aisvn` | 39 files | 10 → 11 columns on 2020-06-17, a `power` channel added |
+  | `maker-webhooks` | 5 files | 10 → 11 columns, a `solar2` channel added |
+  | `test` | 19 files | two unrelated schemas: 4 columns of nix/temp/wifi probe for 16 files, 11 columns of solar channels for 2 |
+  | `phumy2` | 102 files | column 0 renamed `time` → `date`, 2020-11 onwards |
+
+  The recorded result was that `aisvn` column 4 was `load`/`load_v` for all 39
+  files, when it is `load` in one file and `power`/`power_w` in the other 38.
+  `test`'s 4-column probe schema was not recorded at all, despite `nix_raw` and
+  `wifi_raw` holding 31,228 rows between them.
+
+  **The ingest was never wrong.** Each file is mapped with its own
+  width-matched effective header, and `readings` is correct: `load_v` is
+  populated and `power_w` is NULL before 2020-06-17, the reverse after. This
+  table is the one the report and the channel-coverage tab present as the
+  schema, so it was the only place the archive's two layouts were conflated.
+  `n_columns` is now part of the key.
+
+- **`rejects.reason` was a sentence, on 220,074 rows.** Rule 2 says to keep it
+  a stable category, and the archive is where ignoring that shows: the
+  `NULL_WINDOWS` path stored the collector's ~300-character note as the reason on
+  every cell it nulled. That is **80.6 MiB of one paragraph, repeated**, and it
+  made `rejects` (96.1 MiB) as large as `readings` — in a database that is not
+  committed and that nobody downloads whole.
+
+  | | before | after |
+  |---|---:|---:|
+  | `rejects.reason` for those rows | 300 chars | `null_window`, 11 chars |
+  | `rejects` table | 96.1 MiB | **15.8 MiB** |
+  | `solardata.db`, VACUUMed | 329.2 MiB | **166.7 MiB** |
+  | gzipped, the Release asset | 20.0 MiB | 18.7 MiB |
+
+  **No data moved.** The counts are identical — 734,908 readings, 224,579
+  rejected cells, 220,074 of them nulled in the same window — so
+  `python -m etl verify` matches the baseline unchanged and no re-record was
+  needed. What changed is where the sentence lives: once, in `config.py`, which
+  is version-controlled and human-readable. `report.collect` republishes it to
+  `quality.json` as `null_windows` and `bad_windows`, paired with the number of
+  rows each explains, so the site can still explain every flagged cell — and now
+  says so on a dedicated **Windows** tab, where previously a reader saw the
+  category with no reasoning attached. The same fix applies to
+  `pre-reinstall window; collector confirmed rows from here on are usable`,
+  which is now `pre_reinstall`.
+
+- **`null_window` rejects had an empty `column_name`.** The code derived it by
+  iterating `row_flags` for `no_signal:` prefixes, but `row_flags` is a merged
+  *string*, so the loop walked its characters and matched nothing. Every one of
+  the 220,074 rows said nothing about which channel it was about, and the
+  window's `n_rejected` in the report was silently 0. `_null_windows` now returns
+  the columns it nulled.
+
+### Added
+
+- **The uptime counter, `boot`, is now a channel you can chart.** The logger
+  writes a monotonic read counter that resets on reboot. It is the only record
+  that the hardware restarted, and the gaps in every other channel begin where it
+  drops — but it was in `readings` and in the Parquet export and in *neither*
+  rollup, so the site could not show it. It is aggregated as min and max, never a
+  mean: a mean across a reboot averages two boot sessions into a number that
+  never happened. A day whose `boot_count_min` is 1 restarted; `boot_count_max` is
+  how long it had been up. Coverage is 100% for `aisvn`, `aisvn2`, `aisvn-solar`,
+  `maker-webhooks` and `phumy2`, and genuinely absent for `solar-2020-05` and
+  `voltage-phumy`, whose sheets have no such column.
+
+  | station | readings | boot | share | downward steps |
+  |---|---:|---:|---:|---:|
+  | `phumy2` | 415,117 | 415,091 | 100.0% | 33 |
+  | `aisvn` | 77,526 | 77,516 | 100.0% | 98 |
+  | `aisvn2` | 164,098 | 164,078 | 100.0% | 25 |
+  | `aisvn-solar` | 13,788 | 13,785 | 100.0% | 4 |
+  | `maker-webhooks` | 8,535 | 8,531 | 100.0% | **526** |
+  | `test` | 37,371 | 2,008 | 5.4% | 1 |
+  | `solar-2020-05` | 12,920 | 0 | 0% | — |
+  | `voltage-phumy` | 5,553 | 0 | 0% | — |
+
+  `maker-webhooks`' 526 resets across 8,535 readings is the one figure here that
+  does not look like ordinary rebooting, and it is recorded rather than explained.
+  It may be a genuinely flaky applet or a counter that is not a reboot counter
+  for that firmware; there is no way to tell from the archive alone.
+- A **Windows** tab in the data-quality inspector, rendering each configured
+  window once: station, channels, span, row count, and the reasoning in full.
+  `rejects.by_reason` also gained a Meaning column, so a category is never a
+  shrug.
+- `check_frontend.mjs` asserts two invariants by name — *a reject reason is a
+  category, never a sentence* and *a folder that changed layout keeps both
+  layouts, not the last one* — plus *the uptime counter is published, since it is
+  the only reboot evidence*. They fail the build if either regresses.
+
+### Changed
+
+- The channel-coverage tab shows the layout width, so the same column index in two
+  layouts is visible as two rows rather than one.
+- The size claims in `AGENTS.md`, `README.md`, `docs/data-dictionary.md` and
+  `docs/format-design.md` are updated to the measured figures. `CHANGELOG.md` is
+  deliberately not: its older numbers are records of releases where they were
+  true, and rewriting a changelog to match today's build is how a changelog
+  stops being a changelog.
+
+## [0.7.1] — 2026-09-26
+
+A patch, and the interesting part is the bug. The reading of the archive is
+unchanged again: `python -m etl verify` reports the same 734,908 readings across
+364 files.
+
+### Fixed
+
+- **Every metric checkbox was disabled, for every station.** 0.7.0 changed
+  `availableMetrics()` to pass the metric list straight through to
+  `TimeControls`, but it returns metric *objects* while the picker tests
+  `metrics.includes(metric.key)` — a string. So `available` was false for every
+  metric and all five rendered `disabled`.
+
+  It was silent in the worst way: no error, no empty chart, and the default two
+  channels still drew from the selection the load effect had already stored, so
+  the chart looked correct while offering no way to change it. The two shapes are
+  interchangeable at a glance, which is the actual defect — the function is now
+  `availableMetricKeys()` and returns keys as its only form, so there is nothing
+  to mismatch. `check_frontend.mjs` has a regression check by name that walks
+  every published station-year and asserts each key is a string and selectable,
+  and pins `solar-2020-05` as the one station whose disabled picker is correct.
+
+### Added
+
+- **A month selector.** Sits between Year and From, and offers only the months
+  that actually have data — `aisvn` 2020 gets seven options, not thirteen. It is
+  derived from the range rather than stored separately: it shows a month only
+  when From and To are exactly that month's bounds, so the two controls cannot
+  disagree. Choosing one moves the date inputs to that month; editing a date
+  drops it back to "All". The bounds come from the data rather than the calendar,
+  so a partly-reported month is not padded with empty days.
+
+### Changed
+
+- **The page is wider** — 1120px to 1320px, via a `--page-width` custom property
+  so the header and body cannot drift apart again. Seven stat tiles need about
+  900px and the explorer now has roughly 980px once the station rail and gutters
+  are taken out, so the six value tiles and the station tile sit on one row
+  instead of the station name wrapping below them. Below about 1240px the grid
+  reflows to two rows rather than squeezing the uppercase labels, and a label
+  now wraps rather than overflowing into its neighbour. Prose is capped
+  separately (`.hero-copy`, `.prose`), so a wider page does not stretch a
+  paragraph to an unreadable line length.
+
+## [0.7.0] — 2026-09-26
+
+A reading of the archive does not change in this release: `python -m etl verify`
+reports the same 734,908 readings, 364 files, 4,399 duplicate timestamps, 10
+recovered notes and 11 unconfirmed regimes. What changes is what the site shows
+and how it decides what to distrust.
+
+### Added
+
+- **The site can plot the hourly rollup.** `readings_hourly` was already built,
+  exported behind a flag and never read; the browser could only fetch
+  `readings_daily`. Both are now published by default and the explorer has a
+  **Day / Hour** switch, so a solar curve has a dawn and a dusk instead of being
+  a flat 24-hour mean. That is 13 more station-years and 24,210 rows for 1.7 MB
+  of CSV; `public/data/` goes from 167 KB to 1.9 MiB.
+
+  The two are kept consistent by assertion rather than by convention:
+  `check_frontend.mjs` now checks that every day and every sample count in a
+  daily file is also in its hourly sibling, and pins both inventories (13 files
+  / 1,124 daily rows, 13 files / 24,210 hourly rows).
+
+  Hour is as fine as the site goes. The native cadence is 119 s — 734,908
+  readings, which is the Parquet export and not a file a browser fetches. There
+  is deliberately no `raw` granularity; `config.export_granularity` documented
+  one and nothing read it.
+
+- **`public/data/metrics.json`**, the plausibility bands copied verbatim from
+  `etl/normalize/metrics.py`, so the browser applies the same criterion the
+  ingest applied to each raw cell. A band corrected in Python now reaches the
+  site on the next export instead of drifting against a second copy in
+  JavaScript. Channels with no band are listed with null bounds, so the UI can
+  answer "never flagged" rather than infer it from a missing key.
+
+- Every flagged value in the current range is **listed** under the chart, with
+  its channel, value, recorded band and sample count. "Marked, never dropped"
+  was a claim a reader had to take on trust; now it is a table.
+
+### Fixed
+
+- **The outlier filter was removing real data, and its answer depended on which
+  metrics were ticked.** The chart dropped any day where every *selected* metric
+  was a "spike" against that channel's own median/MAD. Two things were wrong
+  with that test. It was measuring sampling coverage rather than plausibility: a
+  panel's 24-hour mean is dominated by night, so a fully covered day averages
+  6–9 V while a single afternoon sample averages 17–19 V, and the test read
+  that as 8 real days being spikes. And because the test was per-metric, the
+  same day was filtered under one selection and drawn under another.
+
+  Measured on `aisvn` 2020 with the default solar + battery selection:
+
+  | | before | after |
+  |---|---:|---:|
+  | days dropped from the chart | **17 of 101** | **0** |
+  | of those, real measurements | **16** | 0 |
+  | days dropped when a third metric is ticked | 0 → test pattern drawn | 0 |
+
+  The 16 were five single-afternoon-sample days at 17.7–19.1 V, four
+  post-reinstall days at 28.9–29.6 V with 353–701 samples each, and the rest of
+  the same shape. They are still shown; they are just not called artefacts.
+
+  Replaced by a band test on the value actually being plotted. `aisvn` 2020 now
+  flags 4 days on solar (three unconverted-millivolt commissioning days and the
+  2020-10-01 ADC test pattern) and 23 on battery, drawn, ringed and counted.
+  The battery count is worth stating rather than hiding: the recorded band is
+  9–16 V for a 3S LiPo and `aisvn` reads 17.6–29.6 V on those days, which is a
+  question about the hardware, not something the site should resolve by deleting
+  the days.
+
+- **The `out_of_range` count was fetched and thrown away.** `n_out_of_range`
+  ships in every rollup and was parsed by the frontend, then never read. It now
+  appears in the hover readout and the flagged table.
+
+- **The daily and hourly rollups disagree about what "Battery" means.**
+  `readings_hourly` has `battery_v_avg` and `readings_daily` does not, because a
+  mean of minima is not a useful number — so the daily column is the day's
+  *lowest* battery voltage and the hourly column is the hour's mean. Both were
+  rendered under one label. The statistic is now named wherever a value is
+  shown.
+
+- **Metric selection was keyed by station, not by station-year.** Switching
+  `phumy2` from 2022 to 2023 silently narrowed the selection to the one channel
+  2023 has, and switching back did not restore it, because the surviving
+  selection was non-empty. It is now keyed by station *and* resolution, which is
+  the granularity the selection was actually derived from.
+
+- `QualityInspector`'s flag dictionary was a flat table, so the two
+  column-parameterised families — `bad_window:<column>` and `no_signal:<column>`,
+  226,372 rows between them — rendered as a bare dash. It now resolves the
+  prefix. `clip`, `non_monotonic` and `free_text` are labelled for what they
+  actually are: declared in `etl/config.py`, never assigned.
+
+- `docs/data-dictionary.md` listed `clip`, `non_monotonic` and `free_text` as
+  live flags, omitted the two parameterised families, and pointed at
+  `data/exports/` — a gitignored directory nothing reads — instead of
+  `public/data/`.
+
+### Changed
+
+- `--hourly` is replaced by `--granularity {both,hour,day}`. Both rollups are
+  written by default, so the flag now narrows the run rather than widening it.
+  `config.export_granularity` moves from `"hour"` to `"both"` and stops being
+  dead.
+
 ## [0.6.1] — 2026-09-26
 
 ### Changed

@@ -58,6 +58,7 @@ export default function QualityInspector() {
           ['flags', `Flags${Object.keys(flags).length ? ` (${Object.keys(flags).length})` : ''}`],
           ['regimes', `Scale regimes (${unconfirmed.length})`],
           ['channels', 'Channel coverage'],
+          ['windows', `Windows (${(report.null_windows ?? []).length + (report.bad_windows ?? []).length})`],
           ['notes', `Collector notes (${report.notes?.length ?? 0})`],
           ['rejects', `Rejected cells (${report.rejects?.total ?? 0})`],
         ].map(([key, label]) => (
@@ -160,7 +161,7 @@ export default function QualityInspector() {
                     <td className="num">
                       {((count / totals.readings) * 100).toFixed(1)}%
                     </td>
-                    <td className="muted small">{FLAG_MEANINGS[flag] ?? '—'}</td>
+                    <td className="muted small">{flagMeaning(flag)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -250,13 +251,19 @@ export default function QualityInspector() {
             How each raw column of each archive folder was mapped.{' '}
             <code>inferred</code> means the file had no header row and borrowed the
             layout from an earlier sibling — 305 of 364 files, so most mappings
-            are inherited rather than read.
+            are inherited rather than read. <strong>Width</strong> is part of the
+            key: a folder can hold more than one layout, because an applet is
+            allowed to add a column partway through a run. <code>aisvn</code> went
+            from 10 columns to 11 on 2020-06-17 when a <code>power</code> channel
+            was added, so column 4 is <code>load</code> in one file and{' '}
+            <code>power</code> in the other 38.
           </p>
           <table className="data-table">
             <thead>
               <tr>
                 <th>Station</th>
                 <th>Folder</th>
+                <th className="num">Width</th>
                 <th className="num">Col</th>
                 <th>Raw header</th>
                 <th>Canonical</th>
@@ -267,11 +274,14 @@ export default function QualityInspector() {
             </thead>
             <tbody>
               {(report.metric_defs ?? []).map((def, index) => (
-                <tr key={`${def.station_id}-${def.source_dir}-${def.col_index}-${index}`}>
+                <tr
+                  key={`${def.station_id}-${def.source_dir}-${def.n_columns}-${def.col_index}-${index}`}
+                >
                   <td>
                     <code>{def.station_id}</code>
                   </td>
                   <td className="small">{def.source_dir}</td>
+                  <td className="num">{def.n_columns}</td>
                   <td className="num">{def.col_index}</td>
                   <td>
                     <code>{def.raw_name || '—'}</code>
@@ -291,6 +301,10 @@ export default function QualityInspector() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {section === 'windows' && (
+        <WindowsPanel report={report} />
       )}
 
       {section === 'notes' && (
@@ -330,6 +344,7 @@ export default function QualityInspector() {
               <tr>
                 <th>Reason</th>
                 <th className="num">Count</th>
+                <th>Meaning</th>
               </tr>
             </thead>
             <tbody>
@@ -339,6 +354,7 @@ export default function QualityInspector() {
                     <code>{row.reason}</code>
                   </td>
                   <td className="num">{row.n.toLocaleString()}</td>
+                  <td className="muted small">{rejectMeaning(row.reason)}</td>
                 </tr>
               ))}
             </tbody>
@@ -370,14 +386,125 @@ export default function QualityInspector() {
   )
 }
 
-const FLAG_MEANINGS = {
-  sentinel: 'Raw cell was -992 or -1: the input was floating. Stored as NULL.',
+/**
+ * What each quality flag means, and where the ones with no explanation come from.
+ *
+ * Two of these carry the 226,000 rows that `out_of_range` alone cannot account
+ * for, and both are *parameterised by column* -- `bad_window:temp_c`,
+ * `no_signal:solar2_v` -- so a flat lookup table left a quarter of all flagged
+ * readings rendering as a bare dash. `flagMeaning` handles the prefix.
+ *
+ * The three marked "never assigned" are declared in `etl/config.py` and have a
+ * detector or a constant behind them, but nothing in the pipeline calls one.
+ * They are listed so their absence from the table above is visibly deliberate
+ * rather than an oversight; see `AGENTS.md`'s open questions.
+ */
+const FLAG_MEANINGS = {  sentinel: 'Raw cell was -992 or -1: the input was floating. Stored as NULL.',
   out_of_range:
-    'Value kept, but outside the channel’s plausible band. Often a scale change.',
-  clip: 'Repeated identical value long enough to be a rail artefact.',
+    'Value kept, but outside the channel’s plausible band. Ringed on the chart, never removed. Usually how a scale change gets noticed.',
+  'bad_window': 'A named window in etl/config.py where the reading is kept but should not be believed.',
+  no_signal:
+    'A named window in etl/config.py where the input was disconnected, so the stored value is a false reading. Nulled, with a rejects row carrying the reason.',
+  schema_misaligned:
+    'The row did not match the donor schema. Unreachable now that donor selection matches on width.',
+  duplicate_ts: 'Same station, same instant: absorbed by the primary key, recorded in rejects.',
+  clip: 'Repeated identical value long enough to be a rail artefact. Never assigned — the detector is not wired into the ingest.',
+  non_monotonic:
+    'A counter went backwards, i.e. the logger rebooted. Never assigned — no reboot detector runs.',
+  free_text: 'Prose in a numeric cell. Never assigned — unmapped columns are skipped before this point.',
+}
+
+function flagMeaning(flag) {
+  if (FLAG_MEANINGS[flag]) return FLAG_MEANINGS[flag]
+  const [family, column] = flag.split(':')
+  if (column && FLAG_MEANINGS[family]) return `${FLAG_MEANINGS[family]} Channel: ${column}.`
+  return '—'
+}
+
+const REJECT_REASONS = {
+  null_window:
+    'A named window in etl/config.py where the input was disconnected, so the stored value was a false reading. The cell is nulled and recorded here. The reasoning is on the Windows tab — once per window, not once per cell.',
   duplicate_ts: 'Same station, same instant: absorbed by the primary key.',
-  non_monotonic: 'A counter went backwards, i.e. the logger rebooted.',
-  free_text: 'Prose found in a numeric cell; the text is kept in the notes table.',
+  repeated_header: 'A header row repeated inside a headerless chunk.',
+  unparseable: 'The cell could not be parsed into the schema.',
+  'pre-reinstall window':
+    'Rows before a hardware reinstall that the collector confirmed as unusable. See etl/config.py.',
+}
+
+function rejectMeaning(reason) {
+  return REJECT_REASONS[reason] ?? flagMeaning(reason)
+}
+
+/**
+ * The windows, stated once.
+ *
+ * This is where the reasoning behind `null_window` and `bad_window:*` lives, and
+ * it is here rather than on each row because the rows are 220,074 of them: the
+ * database records the category, and `etl/config.py` holds the sentence. Before
+ * that split the same ~300-character note was stored 220,074 times, which made
+ * `rejects` as large as `readings` in a database nobody downloads.
+ */
+function WindowsPanel({ report }) {
+  const nulls = report.null_windows ?? []
+  const bads = report.bad_windows ?? []
+  if (nulls.length === 0 && bads.length === 0) {
+    return (
+      <div className="panel">
+        <p>No windows are configured.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="panel">
+      <p className="muted">
+        Periods where a value was <strong>nulled</strong> or{' '}
+        <strong>flagged but kept</strong>, and why. These are decisions, not
+        measurements: each one is a judgement recorded in{' '}
+        <code>etl/config.py</code> and republished here with the number of rows it
+        explains. The database stores only a category on each row — a window that
+        affects 220,074 cells says so once, not 220,074 times.
+      </p>
+      {nulls.map((w, i) => (
+        <WindowCard
+          key={`n${i}`}
+          window={w}
+          kind="nulled"
+          count={w.n_rejected}
+          unit="cells"
+        />
+      ))}
+      {bads.map((w, i) => (
+        <WindowCard
+          key={`b${i}`}
+          window={w}
+          kind="flagged, value kept"
+          count={w.n_flagged}
+          unit="readings"
+        />
+      ))}
+    </div>
+  )
+}
+
+function WindowCard({ window, kind, count, unit }) {
+  return (
+    <div className="window-card">
+      <div className="window-head">
+        <strong>{window.station_id}</strong>
+        {window.columns.map((c) => (
+          <code key={c} className="flag-chip">
+            {c}
+          </code>
+        ))}
+        <span className="muted small">
+          {window.valid_from.slice(0, 10)} → {window.valid_to?.slice(0, 10) ?? 'open'}
+        </span>
+        <span className="badge">{count.toLocaleString()} {unit}</span>
+      </div>
+      <p className="window-why">{window.why}</p>
+      <p className="muted small">{kind}</p>
+    </div>
+  )
 }
 
 function span(min, max) {

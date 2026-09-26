@@ -9,7 +9,7 @@
  * chart.
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
 
@@ -172,6 +172,25 @@ check('stations.json has the production stations with years', () => {
   }
 })
 
+check('every published station declares the rollups that exist on disk', () => {
+  // The resolution switch offers only what stations.json claims, so a missing
+  // hourly file has to fail here rather than as a 404 in the browser.
+  for (const station of stations.filter((s) => s.published)) {
+    for (const folder of ['daily', 'hourly']) {
+      assert.ok(
+        station.granularities.includes(folder),
+        `${station.station_id} is published without ${folder}`,
+      )
+      for (const year of station.years) {
+        assert.ok(
+          existsSync(join(DATA, station.station_id, folder, `${year}.csv`)),
+          `${station.station_id}/${folder}/${year}.csv is missing`,
+        )
+      }
+    }
+  }
+})
+
 check('bench stations are present but flagged unpublished', () => {
   const bench = stations.filter((s) => !s.published).map((s) => s.station_id)
   assert.ok(bench.includes('test'), bench.join(','))
@@ -187,19 +206,127 @@ check('quality.json carries the counts the UI displays', () => {
   assert.ok(quality.notes.length >= 10)
 })
 
-let csvFiles = 0
-let totalRows = 0
+check('a folder that changed layout keeps both layouts, not the last one', () => {
+  // Regression. `metric_defs` was keyed on (station, folder, col_index), so a
+  // folder could hold exactly one meaning per column index and the second layout
+  // silently overwrote the first. `aisvn` gained a `power` column on 2020-06-17
+  // and went from 10 columns to 11, so column 4 ended up recorded as `load` for
+  // all 39 files when 38 of them are 11-column files where it is `power`. The
+  // ingest was never wrong -- it maps each file with its own width-matched
+  // header -- but this table is what the report and the channel-coverage tab
+  // present as the schema.
+  const defs = quality.metric_defs
+  assert.ok(defs.length > 0, 'quality.json has no metric_defs')
+  for (const def of defs) {
+    assert.ok(
+      'n_columns' in def,
+      `metric_defs row for ${def.station_id}/${def.source_dir}/${def.col_index} has no width`,
+    )
+  }
+  const aisvn = defs.filter((d) => d.station_id === 'aisvn' && d.col_index === 4)
+  assert.equal(aisvn.length, 2, `aisvn column 4 should have two layouts, got ${aisvn.length}`)
+  const byWidth = Object.fromEntries(aisvn.map((d) => [d.n_columns, d]))
+  assert.equal(byWidth[10].raw_name, 'load', 'the 10-column layout has load at index 4')
+  assert.equal(byWidth[10].canonical_col, 'load_v')
+  assert.equal(byWidth[11].raw_name, 'power', 'the 11-column layout has power at index 4')
+  assert.equal(byWidth[11].canonical_col, 'power_w')
+  assert.ok(byWidth[10].n_files < byWidth[11].n_files, 'the wider layout should cover more files')
+  // `test` is two unrelated schemas in one folder: 4 columns of nix/temp/wifi
+  // probe for 16 of its 19 files, 11 columns of solar channels for 2.
+  const widths = new Set(defs.filter((d) => d.station_id === 'test').map((d) => d.n_columns))
+  assert.ok(widths.has(4) && widths.has(11), `test should have both layouts, saw ${[...widths]}`)
+})
+
+check('the uptime counter is published, since it is the only reboot evidence', () => {
+  // `boot` is the logger's own monotonic read counter. It is the only record that
+  // the hardware restarted, and the gaps in every other channel start where it
+  // drops. It has no plausibility band (it is a count, not a measurement) and it
+  // was absent from both rollups, so the site could not show it at all.
+  for (const [station, year, column] of [
+    ['aisvn', '2020', 'boot_count_max'],
+    ['phumy2', '2023', 'boot_count_max'],
+    ['aisvn2', '2021', 'boot_count_max'],
+  ]) {
+    const rows = parseCsv(readFileSync(join(DATA, station, 'daily', `${year}.csv`), 'utf8'))
+    assert.ok(column in rows[0], `${station} ${year} has no ${column} column`)
+    const values = rows.map((r) => num(r[column])).filter((v) => v !== null)
+    assert.ok(values.length > 0, `${station} ${year} ${column} has no values`)
+    assert.ok(Math.max(...values) > 1, `${station} ${year}: counter never got past 1`)
+  }
+  // A station whose applet has no boot column must not gain a fabricated one.
+  const noBoot = parseCsv(readFileSync(join(DATA, 'solar-2020-05', 'daily', '2020.csv'), 'utf8'))
+  assert.ok(
+    noBoot.every((r) => num(r.boot_count_max) === null),
+    'solar-2020-05 has no boot channel and must not have uptime values',
+  )
+  const hourly = parseCsv(readFileSync(join(DATA, 'aisvn', 'hourly', '2020.csv'), 'utf8'))
+  assert.ok('boot_count_min' in hourly[0], 'the hourly rollup needs boot_count_min too')
+})
+
+check('a reject reason is a category, never a sentence', () => {
+  // Rule 2, and the archive is where ignoring it cost 80.6 MiB: storing the
+  // NULL_WINDOWS prose as `rejects.reason` put one ~300-character sentence on
+  // 220,074 rows and made `rejects` as large as `readings`. The prose now lives
+  // once, in etl/config.py, and is republished here -- so this asserts the
+  // category is short AND that the sentence is still reachable by a reader.
+  for (const row of quality.rejects.by_reason) {
+    assert.ok(
+      row.reason.length <= 40,
+      `rejects.reason is ${row.reason.length} chars: ${row.reason.slice(0, 60)}`,
+    )
+    assert.ok(!/\s\s|;/.test(row.reason), `rejects.reason reads as prose: ${row.reason}`)
+  }
+  assert.ok(
+    quality.rejects.by_reason.some((r) => r.reason === 'null_window'),
+    'the null_window category is missing from by_reason',
+  )
+  // And the explanation has to still be published, or the category is a shrug.
+  assert.ok(Array.isArray(quality.null_windows), 'quality.json has no null_windows')
+  assert.ok(quality.null_windows.length > 0, 'null_windows is empty')
+  const window = quality.null_windows.find((w) => w.n_rejected > 1000)
+  assert.ok(window, 'no window explains a significant number of cells')
+  assert.ok(window.why.length > 40, 'the window has no explanation')
+  assert.ok(Array.isArray(window.columns) && window.columns.length > 0)
+  assert.ok(window.valid_from && window.valid_to)
+  // Every column the window names should be accounted for in the count.
+  const flagged = quality.null_windows.reduce((sum, w) => sum + w.n_rejected, 0)
+  assert.equal(
+    flagged,
+    quality.rejects.by_reason.find((r) => r.reason === 'null_window').n,
+    'window counts do not add up to the null_window reject total',
+  )
+})
+
+let dailyFiles = 0
+let dailyRows = 0
+let hourlyFiles = 0
+let hourlyRows = 0
 function walk(dir) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry)
     if (statSync(full).isDirectory()) walk(full)
     else if (entry.endsWith('.csv')) {
       const rows = parseCsv(readFileSync(full, 'utf8'))
-      csvFiles += 1
-      totalRows += rows.length
-      for (const row of rows) {
-        assert.match(row.day, /^\d{4}-\d{2}-\d{2}$/, `${full}: bad day ${row.day}`)
-        assert.equal(row.ts_utc_day.slice(0, 10), row.day, `${full}: local/UTC day mismatch`)
+      const folder = full.split(/[\\/]/).at(-2)
+      if (folder === 'daily') {
+        dailyFiles += 1
+        dailyRows += rows.length
+        for (const row of rows) {
+          assert.match(row.day, /^\d{4}-\d{2}-\d{2}$/, `${full}: bad day ${row.day}`)
+          assert.equal(row.ts_utc_day.slice(0, 10), row.day, `${full}: local/UTC day mismatch`)
+        }
+      } else if (folder === 'hourly') {
+        hourlyFiles += 1
+        hourlyRows += rows.length
+        for (const row of rows) {
+          assert.match(
+            row.ts_utc,
+            /^\d{4}-\d{2}-\d{2}T\d{2}:00:00Z$/,
+            `${full}: bad ts_utc ${row.ts_utc}`,
+          )
+        }
+      } else {
+        assert.fail(`unexpected CSV folder: ${folder} in ${full}`)
       }
     }
   }
@@ -211,8 +338,48 @@ check('every daily CSV parses and its day matches its UTC day', () => {
   // because a silent change here means the site is showing a different amount
   // of data than the report claims. It was 1,127 before the 2020-06-17 schema
   // alignment fix and the aisvn (25) row exclusions.
-  assert.equal(csvFiles, 13, `expected 13 csv files, got ${csvFiles}`)
-  assert.equal(totalRows, 1124, `expected 1124 daily rows, got ${totalRows}`)
+  assert.equal(dailyFiles, 13, `expected 13 daily csv files, got ${dailyFiles}`)
+  assert.equal(dailyRows, 1124, `expected 1124 daily rows, got ${dailyRows}`)
+})
+
+check('the hourly rollups are published alongside the daily ones', () => {
+  // Same 13 station-years, 24,210 hourly buckets. This is the file the Hour
+  // view reads; if it silently stops being written the view 404s rather than
+  // degrading, so it is pinned here instead.
+  assert.equal(hourlyFiles, 13, `expected 13 hourly csv files, got ${hourlyFiles}`)
+  assert.equal(hourlyRows, 24210, `expected 24210 hourly rows, got ${hourlyRows}`)
+})
+
+check('the hourly rollups agree with the daily ones on the same days', () => {
+  // The daily row is derived from the hourly rows, so any day present in one
+  // must be present in the other. A mismatch means the aggregate stage or the
+  // export is bucketing differently, which is the bug the `ts_utc` vs `day`
+  // year split would cause.
+  for (const station of stations.filter((s) => s.published)) {
+    for (const year of station.years) {
+      const daily = parseCsv(
+        readFileSync(join(DATA, station.station_id, 'daily', `${year}.csv`), 'utf8'),
+      )
+      const hourly = parseCsv(
+        readFileSync(join(DATA, station.station_id, 'hourly', `${year}.csv`), 'utf8'),
+      )
+      const dailyDays = new Set(daily.map((r) => r.day))
+      const hourlyDays = new Set(hourly.map((r) => r.ts_utc.slice(0, 10)))
+      for (const day of dailyDays) {
+        assert.ok(
+          hourlyDays.has(day),
+          `${station.station_id} ${year}: daily row ${day} has no hourly rows`,
+        )
+      }
+      const dailySamples = daily.reduce((sum, r) => sum + num(r.n_samples), 0)
+      const hourlySamples = hourly.reduce((sum, r) => sum + num(r.n_samples), 0)
+      assert.equal(
+        dailySamples,
+        hourlySamples,
+        `${station.station_id} ${year}: daily and hourly sample counts differ`,
+      )
+    }
+  }
 })
 
 check('a day of genuine zeros is not confused with a day of NULLs', () => {
@@ -229,75 +396,172 @@ check('a day of genuine zeros is not confused with a day of NULLs', () => {
   assert.ok(withTemp.length > 200, `only ${withTemp.length} days with temperature`)
 })
 
-// ------------------------------------------------------------ spike detection
+// --------------------------------------------------------- flagged-value bands
 
-const median = (xs) => {
-  const s = [...xs].sort((a, b) => a - b)
-  const m = s.length >> 1
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+const bands = JSON.parse(readFileSync(join(DATA, 'metrics.json'), 'utf8')).bands
+
+/** CSV column -> canonical channel, the inverse of VALUE_COLUMNS in src/data.js. */
+const CHANNEL_OF = {
+  solar_v_avg: 'solar_v',
+  solar2_v_avg: 'solar2_v',
+  battery_v_avg: 'battery_v',
+  battery_v_min: 'battery_v',
+  battery2_v_min: 'battery2_v',
+  power_w_avg: 'power_w',
+  temp_c_avg: 'temp_c',
 }
 
-const SPIKE_MAD_MULTIPLIER = 6
-const SPIKE_RELATIVE_FLOOR = 0.35
-const MAX_TIGHTNESS = 0.2
-
-const mad = (xs, med) => median(xs.map((v) => Math.abs(v - med)))
-
-/** Mirrors of src/data.js, so the assertions exercise the same logic. */
-function robustStats(values) {
-  const clean = values.filter((v) => v !== null && v !== undefined)
-  if (clean.length === 0) return { median: null, mad: null }
-  return { median: median(clean), mad: mad(clean, median(clean)) }
+/** The metric keys, mirrored from src/data.js, in declaration order. */
+const METRIC_CHANNELS = {
+  solar: ['solar_v_avg', 'solar2_v_avg'],
+  battery: ['battery_v_min', 'battery2_v_min'],
+  power: ['power_w_avg'],
+  temp: ['temp_c_avg'],
+  energy: ['energy_wh'],
 }
 
-function spikeLimit(stats, unit) {
-  if (!stats || stats.median === null) return null
-  if (Math.abs(stats.mad) > Math.abs(stats.median) * MAX_TIGHTNESS) return null
-  const spread = stats.mad * 1.4826 * SPIKE_MAD_MULTIPLIER
-  const relative = Math.abs(stats.median) * SPIKE_RELATIVE_FLOOR
-  const absolute = unit === 'Wh' ? 5 : unit === 'W' ? 20 : 1.5
-  return Math.max(spread, relative, absolute)
+/** Mirrors availableMetricKeys in src/data.js: keys, in declaration order. */
+function availableMetricKeys(rows) {
+  return Object.keys(METRIC_CHANNELS).filter((key) =>
+    rows.some((row) => METRIC_CHANNELS[key].some((c) => num(row[c]) !== null)),
+  )
 }
 
-check('the ADC test-pattern day is a spike against its own series', () => {
+check('an available metric is selectable, because the picker is given keys', () => {
+  // Regression, and it was entirely silent. `availableMetrics()` returned metric
+  // *objects* while the picker tested `metrics.includes(metric.key)` against
+  // them, so every checkbox rendered disabled for every station -- no error, no
+  // empty chart, the default two channels still drawn. Nothing here imports
+  // src/data.js (it needs import.meta.env), so the contract is asserted against
+  // the real CSVs: the value has to be a string, and the picker's membership
+  // test has to succeed for a channel the station demonstrably has.
+  for (const station of stations.filter((s) => s.published)) {
+    for (const year of station.years) {
+      const rows = parseCsv(
+        readFileSync(join(DATA, station.station_id, 'daily', `${year}.csv`), 'utf8'),
+      )
+      const keys = availableMetricKeys(rows)
+      for (const key of keys) {
+        assert.equal(typeof key, 'string', `${station.station_id} ${year}: ${key} is not a string`)
+        assert.ok(keys.includes(key), `${station.station_id} ${year}: ${key} is not selectable`)
+      }
+      // And the selection the UI defaults to must be a subset of what is
+      // offered, or the chart is handed metrics it will not draw.
+      const defaultSelection = keys.slice(0, 2)
+      for (const key of defaultSelection) {
+        assert.ok(keys.includes(key), `${station.station_id} ${year}: default ${key} unavailable`)
+      }
+    }
+  }
+  // One station legitimately has nothing: `solar-2020-05` is a bench sheet whose
+  // rollup columns are all empty. Its picker is meant to be disabled.
+  const bench = parseCsv(readFileSync(join(DATA, 'solar-2020-05', 'daily', '2020.csv'), 'utf8'))
+  assert.deepEqual(availableMetricKeys(bench), [])
+})
+
+/** Mirrors isOutOfBand in src/data.js, so the assertion exercises that logic. */
+function isOutOfBand(channel, value) {
+  const band = bands[channel]
+  if (!band || band.lo === null || band.hi === null) return null
+  if (value === null || value === undefined) return null
+  return value >= band.lo && value <= band.hi ? null : band
+}
+
+/**
+ * Mirrors classifyRows: a bucket is flagged when a value being plotted is
+ * outside the band recorded for the channel that value came from.
+ */
+function flaggedDays(rows, columns) {
+  return rows.filter((row) =>
+    columns.some((column) => isOutOfBand(CHANNEL_OF[column], num(row[column]))),
+  )
+}
+
+check('the bands reach the browser verbatim from the ETL', () => {
+  // If these drift from etl/normalize/metrics.py the site is flagging values on
+  // a criterion the pipeline never applied, which is the one thing shipping the
+  // bands rather than retyping them was for.
+  assert.equal(bands.solar_v.lo, 0)
+  assert.equal(bands.solar_v.hi, 60)
+  assert.equal(bands.battery_v.lo, 9)
+  assert.equal(bands.battery_v.hi, 16)
+  assert.equal(bands.temp_c.lo, 5)
+  assert.equal(bands.temp_c.hi, 45)
+  assert.equal(bands.power_w.lo, -2000)
+  assert.equal(bands.power_w.hi, 2000)
+  // A channel with no band must say so rather than be missing, so the UI can
+  // answer "this one is never flagged" instead of inferring it.
+  assert.ok('wind_v' in bands)
+  assert.equal(bands.wind_v.lo, null)
+})
+
+check('the ADC test-pattern day is caught, by the band the pipeline records', () => {
   // The real case: aisvn 2020-10-01, a single reading of solar 123 V and
-  // battery 456 V between days that read 18 and 19.
-  const series = [18.45, 19.12, 18.9, 19.4, 18.7, 19.0, 18.8, 19.2, 18.6, 19.1]
-  const stats = robustStats(series)
-  const limit = spikeLimit(stats, 'V')
-  assert.ok(limit !== null, 'a tight series must yield a usable limit')
-  assert.ok(Math.abs(123 - stats.median) > limit, '123 V should be a spike')
-  assert.ok(Math.abs(456 - stats.median) > limit, '456 V should be a spike')
-  for (const v of series) {
-    assert.ok(Math.abs(v - stats.median) <= limit, `${v} should NOT be a spike`)
+  // battery 456 V, between days reading 18 and 19.
+  const rows = parseCsv(readFileSync(join(DATA, 'aisvn', 'daily', '2020.csv'), 'utf8'))
+  const flagged = flaggedDays(rows, [['solar_v_avg'], ['battery_v_min']])
+  const day = flagged.find((r) => r.day === '2020-10-01')
+  assert.ok(day, '2020-10-01 must be flagged')
+  assert.equal(num(day.solar_v_avg), 123)
+  assert.equal(num(day.battery_v_min), 456)
+})
+
+check('a band does not flag the real readings a distribution test used to drop', () => {
+  // The bug this replaced. A median/MAD spike test read aisvn's 24-hour means as
+  // a tight 6-9 V cluster and called the 17-19 V single-sample days and the 29 V
+  // post-reinstall days "spikes", dropping 16 real days out of 101. Every one of
+  // them is inside the 0-60 V band the channel is recorded with.
+  const rows = parseCsv(readFileSync(join(DATA, 'aisvn', 'daily', '2020.csv'), 'utf8'))
+  const mustSurvive = [
+    '2020-08-26', '2020-09-24', '2020-09-30', '2020-10-02', '2020-10-21',
+    '2020-10-23', '2020-10-24', '2020-10-25', '2020-11-27',
+  ]
+  const flagged = new Set(flaggedDays(rows, ['solar_v_avg']).map((r) => r.day))
+  for (const day of mustSurvive) {
+    assert.ok(!flagged.has(day), `${day} was wrongly flagged as out of band`)
+  }
+  // The four that really are out of band: the unconverted-millivolt commissioning
+  // window, and the test pattern.
+  assert.deepEqual(
+    [...flagged].sort(),
+    ['2020-06-15', '2020-06-16', '2020-06-17', '2020-10-01'],
+  )
+})
+
+check('a flag is not a verdict, and a 100% flag rate is treated as a bad band', () => {
+  // 23 of aisvn's 101 days in 2020 sit above the 9-16 V 3S LiPo band. They are
+  // drawn, ringed and listed. The site must not quietly present the 78 in-band
+  // days as the whole picture, and must not have deleted the other 23 either.
+  const rows = parseCsv(readFileSync(join(DATA, 'aisvn', 'daily', '2020.csv'), 'utf8'))
+  const flagged = flaggedDays(rows, ['battery_v_min'])
+  assert.equal(flagged.length, 23, `expected 23 battery-flagged days, got ${flagged.length}`)
+  assert.ok(flagged.length < rows.length, 'every day flagged means the band is wrong, not the data')
+})
+
+check('a millivolt channel is not wiped out once its confirmed scale is applied', () => {
+  // The failure mode an absolute band caused before the x0.001 regimes were
+  // confirmed: phumy2 logged 1441 for a 1.4 V panel and every day looked out of
+  // band. The aggregate applies the confirmed scale, so the exported value is
+  // already volts and the band has to pass it.
+  for (const [station, year, column] of [
+    ['phumy2', '2020', 'solar2_v_avg'],
+    ['phumy2', '2021', 'solar2_v_avg'],
+    ['phumy2', '2024', 'solar2_v_avg'],
+    ['aisvn-solar', '2020', 'solar_v_avg'],
+  ]) {
+    const rows = parseCsv(readFileSync(join(DATA, station, 'daily', `${year}.csv`), 'utf8'))
+    const values = rows.map((r) => num(r[column])).filter((v) => v !== null)
+    assert.ok(values.length > 0, `${station} ${year} ${column} has no values`)
+    const flagged = flaggedDays(rows, [column]).length
+    assert.equal(flagged, 0, `${station} ${year}: ${flagged} days flagged after scaling`)
   }
 })
 
-check('spike detection is scale-blind, so a millivolt channel is not wiped out', () => {
-  // The failure mode this replaced: an absolute plausibility band flagged every
-  // phumy2 reading (millivolts) and dropped 636 of 636 days.
-  const millivolts = [1441, 1520, 1390, 1610, 1475, 1555, 1430, 1580, 1490, 1560]
-  const limit = spikeLimit(robustStats(millivolts), 'V')
-  assert.ok(limit !== null)
-  const stats = robustStats(millivolts)
-  for (const v of millivolts) {
-    assert.ok(Math.abs(v - stats.median) <= limit, `${v} mV should not be a spike`)
-  }
-})
-
-check('a bimodal series disables spike detection instead of eating half of it', () => {
-  // phumy2.solar2_v steps from ~5000 mV to ~1200 mV when a bridge is fitted.
-  // Over a window holding both, the distribution is bimodal and either mode
-  // looks like a spike against the median of the other. Neither is an artefact,
-  // so the detector must decline rather than delete a real configuration change.
-  const bimodal = [...Array(30).fill(5000), ...Array(30).fill(1200)]
-  const limit = spikeLimit(robustStats(bimodal), 'V')
-  assert.equal(limit, null, 'a bimodal series must not be filtered')
-})
-
-check('an absent channel yields no limit rather than a wrong one', () => {
-  assert.equal(spikeLimit({ median: null, mad: null }, 'V'), null)
-  assert.equal(spikeLimit({ median: 0, mad: 0 }, 'V'), 1.5)
+check('a channel with no band is never flagged', () => {
+  assert.equal(isOutOfBand('wind_v', 1e9), null)
+  assert.equal(isOutOfBand('energy_wh', -500), null, 'energy is a derived integral, not banded')
+  assert.equal(isOutOfBand('solar_v', null), null, 'a gap is not a breach')
+  assert.equal(isOutOfBand('solar_v', 0), null, 'a genuine zero is inside the band')
 })
 
 check('an all-NULL metric column is reported, not drawn', () => {

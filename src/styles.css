@@ -4,6 +4,12 @@
   background: #f5f8fa;
   font-synthesis: none;
   line-height: 1.5;
+  /* The page width. Wide enough that the explorer's stat tiles stay on one row
+     beside the station name -- six value tiles plus the context tile need about
+     900px of the ~980px the explorer gets once the station rail and gutters are
+     taken out. Prose is capped separately (see .hero-copy, .prose) so widening
+     the page does not stretch a paragraph to an unreadable line length. */
+  --page-width: 1320px;
 }
 
 * { box-sizing: border-box; }
@@ -16,14 +22,14 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   justify-content: space-between;
   margin: 0 auto;
-  max-width: 1120px;
+  max-width: var(--page-width);
   padding: 28px 32px;
 }
 .brand { font-size: 1.1rem; font-weight: 800; letter-spacing: -.02em; }
 nav { display: flex; gap: 24px; font-size: .9rem; color: #627d98; }
 nav a:hover { color: #102a43; }
 
-main { margin: 0 auto; max-width: 1120px; padding: 0 32px 80px; }
+main { margin: 0 auto; max-width: var(--page-width); padding: 0 32px 80px; }
 .hero { max-width: 720px; padding: 92px 0 112px; }
 .eyebrow { color: #d97706; font-size: .72rem; font-weight: 800; letter-spacing: .14em; margin: 0 0 16px; text-transform: uppercase; }
 h1, h2, h3, p { margin-top: 0; }
@@ -172,7 +178,10 @@ nav a.active { color: #102a43; font-weight: 700; }
 .stat-tiles {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  /* auto-fit, not a fixed count: seven tiles at 120px need 900px, which the
+     widened page provides, and a narrower window reflows them to two rows
+     instead of squeezing the labels. */
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   margin-bottom: 18px;
 }
 .stat-tile {
@@ -189,12 +198,19 @@ nav a.active { color: #102a43; font-weight: 700; }
   font-size: .68rem;
   font-weight: 800;
   letter-spacing: .07em;
+  /* Labels are uppercase and narrow ("HOURS REPORTED"); wrapping beats
+     overflowing into the neighbouring tile now that all seven share a row. */
+  line-height: 1.25;
+  overflow-wrap: break-word;
   text-transform: uppercase;
 }
 .stat-value { font-size: 1.3rem; font-weight: 800; letter-spacing: -.02em; }
 .stat-value.small { font-size: .92rem; }
 .stat-value em { color: #829ab1; font-size: .72rem; font-style: normal; margin-left: 3px; }
 .stat-tile.context { justify-content: space-between; }
+/* The station tile is the odd one out: it names a thing rather than reporting a
+   number, so it gets the leftover width instead of a seventh equal column. */
+.stat-tile.context .stat-value { overflow-wrap: anywhere; }
 
 .chart-wrap { background: #fff; border: 1px solid #e5edf3; border-radius: 12px; padding: 12px 8px 8px; }
 .chart { display: block; height: auto; touch-action: none; width: 100%; }
@@ -203,6 +219,9 @@ nav a.active { color: #102a43; font-weight: 700; }
 .chart .axis-label { fill: #829ab1; font-size: 11px; }
 .chart .series-line { stroke-linejoin: round; stroke-linecap: round; stroke-width: 2; }
 .chart .crosshair { stroke: #bcccdc; stroke-dasharray: 3 3; stroke-width: 1; }
+/* A value outside its channel's recorded band. Drawn hollow on top of the line
+   so the point is still readable as a measurement, not replaced by a warning. */
+.chart .breach-marker { stroke-width: 2; }
 
 .chart-readout {
   align-items: center;
@@ -216,6 +235,12 @@ nav a.active { color: #102a43; font-weight: 700; }
 }
 .readout-item { align-items: center; display: flex; gap: 6px; }
 .readout-item i { border-radius: 2px; height: 9px; width: 9px; }
+.readout-item .breach {
+  color: #9b2c2c;
+  font-size: .78rem;
+  font-style: normal;
+  font-weight: 700;
+}
 
 .chart-note {
   background: #fffaf0;
@@ -231,6 +256,61 @@ nav a.active { color: #102a43; font-weight: 700; }
   background: #ebf8ff;
   border-color: #90cdf4;
   color: #2a4365;
+}
+
+.chart-note.flagged {
+  background: #fff5f5;
+  border-color: #feb2b2;
+  color: #742a2a;
+}
+
+.chart-note.muted {
+  background: #f7fafc;
+  border-color: #e5edf3;
+  color: #627d98;
+}
+
+/* The flagged-value list: the part of "marked, never dropped" a reader can cite. */
+.flagged-table {
+  border-top: 1px solid #edf2f7;
+  font-size: .82rem;
+  margin: 10px 12px 0;
+  padding-top: 8px;
+}
+.flagged-table summary { color: #9b2c2c; cursor: pointer; font-weight: 700; }
+.flagged-table table { border-collapse: collapse; margin-top: 10px; width: 100%; }
+.flagged-table th,
+.flagged-table td {
+  border-bottom: 1px solid #edf2f7;
+  font-size: .78rem;
+  padding: 5px 8px;
+  text-align: left;
+}
+.flagged-table th {
+  color: #627d98;
+  font-size: .68rem;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.flagged-table td code { font-size: .75rem; }
+
+.control-hint {
+  color: #829ab1;
+  font-size: .78rem;
+  line-height: 1.5;
+  margin: 12px 0 0;
+}
+.flag-toggle {
+  align-items: center;
+  color: #486581;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 600;
+  gap: 6px;
+}
+.preset-buttons button.active {
+  background: #d97706;
+  color: #fff;
 }
 
 .chart-empty {
@@ -302,6 +382,25 @@ nav a.active { color: #102a43; font-weight: 700; }
 .note-list { list-style: none; margin: 0; padding: 0; }
 .note-list li { border-bottom: 1px solid #edf2f7; padding: 12px 0; }
 .note-list p { margin: 4px 0 0; }
+
+/* One card per configured window: the decision, its span, and its sentence. */
+.window-card {
+  background: #fff;
+  border: 1px solid #e5edf3;
+  border-radius: 10px;
+  margin-top: 12px;
+  padding: 14px 16px;
+}
+.window-head { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.window-head strong { font-size: .95rem; }
+.window-head .badge { margin-left: auto; }
+.window-why { color: #243b53; line-height: 1.6; margin: 8px 0 4px; }
+.flag-chip {
+  background: #eaf2f7;
+  border-radius: 3px;
+  font-size: .75rem;
+  padding: 1px 5px;
+}
 
 .prose { max-width: 680px; }
 .prose p { color: #486581; line-height: 1.7; }
