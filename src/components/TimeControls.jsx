@@ -1,11 +1,21 @@
 import { GRANULARITIES, METRICS } from '../data.js'
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
 /**
- * Year, resolution, date range and metric selection.
+ * Year, resolution, month, date range and metric selection.
  *
  * The date inputs are constrained to the loaded year's bounds and to days that
  * actually have rows. Offering 2020-02-29 for phumy2, which starts in June,
  * would just produce an empty chart with no explanation.
+ *
+ * The month select is a shortcut over the same range, not an independent filter:
+ * it offers only the months that have data, and choosing one moves the From/To
+ * inputs to that month's bounds in the data. See `activeMonth` in
+ * `StationExplorer` for why it is derived rather than stored.
  *
  * The resolution switch changes the rollup, not the filter: `Day` reads
  * `readings_daily` (a mean over the day's hours) and `Hour` reads
@@ -25,6 +35,9 @@ export default function TimeControls({
   selected,
   onMetricToggle,
   onRangePreset,
+  months,
+  activeMonth,
+  onMonthChange,
   granularities,
   resolution,
   onResolutionChange,
@@ -65,6 +78,21 @@ export default function TimeControls({
             ))}
           </div>
         </div>
+
+        <label className="control">
+          <span>Month</span>
+          <select value={activeMonth} onChange={(e) => onMonthChange(e.target.value)}>
+            <option value="">All</option>
+            {months.map((key) => {
+              const [y, m] = key.split('-')
+              return (
+                <option key={key} value={key}>
+                  {MONTH_NAMES[Number(m) - 1]} {y}
+                </option>
+              )
+            })}
+          </select>
+        </label>
 
         <label className="control">
           <span>From</span>

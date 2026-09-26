@@ -4,6 +4,12 @@
   background: #f5f8fa;
   font-synthesis: none;
   line-height: 1.5;
+  /* The page width. Wide enough that the explorer's stat tiles stay on one row
+     beside the station name -- six value tiles plus the context tile need about
+     900px of the ~980px the explorer gets once the station rail and gutters are
+     taken out. Prose is capped separately (see .hero-copy, .prose) so widening
+     the page does not stretch a paragraph to an unreadable line length. */
+  --page-width: 1320px;
 }
 
 * { box-sizing: border-box; }
@@ -16,14 +22,14 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   justify-content: space-between;
   margin: 0 auto;
-  max-width: 1120px;
+  max-width: var(--page-width);
   padding: 28px 32px;
 }
 .brand { font-size: 1.1rem; font-weight: 800; letter-spacing: -.02em; }
 nav { display: flex; gap: 24px; font-size: .9rem; color: #627d98; }
 nav a:hover { color: #102a43; }
 
-main { margin: 0 auto; max-width: 1120px; padding: 0 32px 80px; }
+main { margin: 0 auto; max-width: var(--page-width); padding: 0 32px 80px; }
 .hero { max-width: 720px; padding: 92px 0 112px; }
 .eyebrow { color: #d97706; font-size: .72rem; font-weight: 800; letter-spacing: .14em; margin: 0 0 16px; text-transform: uppercase; }
 h1, h2, h3, p { margin-top: 0; }
@@ -172,7 +178,10 @@ nav a.active { color: #102a43; font-weight: 700; }
 .stat-tiles {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  /* auto-fit, not a fixed count: seven tiles at 120px need 900px, which the
+     widened page provides, and a narrower window reflows them to two rows
+     instead of squeezing the labels. */
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   margin-bottom: 18px;
 }
 .stat-tile {
@@ -189,12 +198,19 @@ nav a.active { color: #102a43; font-weight: 700; }
   font-size: .68rem;
   font-weight: 800;
   letter-spacing: .07em;
+  /* Labels are uppercase and narrow ("HOURS REPORTED"); wrapping beats
+     overflowing into the neighbouring tile now that all seven share a row. */
+  line-height: 1.25;
+  overflow-wrap: break-word;
   text-transform: uppercase;
 }
 .stat-value { font-size: 1.3rem; font-weight: 800; letter-spacing: -.02em; }
 .stat-value.small { font-size: .92rem; }
 .stat-value em { color: #829ab1; font-size: .72rem; font-style: normal; margin-left: 3px; }
 .stat-tile.context { justify-content: space-between; }
+/* The station tile is the odd one out: it names a thing rather than reporting a
+   number, so it gets the leftover width instead of a seventh equal column. */
+.stat-tile.context .stat-value { overflow-wrap: anywhere; }
 
 .chart-wrap { background: #fff; border: 1px solid #e5edf3; border-radius: 12px; padding: 12px 8px 8px; }
 .chart { display: block; height: auto; touch-action: none; width: 100%; }

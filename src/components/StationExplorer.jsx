@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   METRIC_BY_KEY,
   anyScaled,
-  availableMetrics,
+  availableMetricKeys,
+  availableMonths,
   classifyRows,
   filterByRange,
   loadBands,
@@ -102,7 +103,7 @@ export default function StationExplorer() {
         setRows(data)
         setFromDay('')
         setToDay('')
-        const available = availableMetrics(data)
+        const available = availableMetricKeys(data)
         setSelectionByView((current) => {
           const key = `${stationId}:${resolution}`
           const kept = (current[key] ?? []).filter((k) => available.includes(k))
@@ -110,7 +111,7 @@ export default function StationExplorer() {
             ...current,
             // First visit to this station and resolution: start on the first two
             // channels it has, in the order METRICS declares them.
-            [key]: kept.length > 0 ? kept : available.slice(0, 2).map((m) => m.key),
+            [key]: kept.length > 0 ? kept : available.slice(0, 2),
           }
         })
       })
@@ -123,7 +124,8 @@ export default function StationExplorer() {
   }, [stationId, year, resolution])
 
   const station = stations.find((s) => s.station_id === stationId) ?? null
-  const metrics = useMemo(() => availableMetrics(rows), [rows])
+  const metricKeys = useMemo(() => availableMetricKeys(rows), [rows])
+  const months = useMemo(() => availableMonths(rows), [rows])
   const inRange = useMemo(() => filterByRange(rows, fromDay, toDay), [rows, fromDay, toDay])
   const series = useMemo(
     () => selected.map((key) => METRIC_BY_KEY[key]).filter(Boolean),
@@ -176,6 +178,38 @@ export default function StationExplorer() {
     const from = new Date(last.date + days * 86400000).toISOString().slice(0, 10)
     setFromDay(from < rows[0].dateDay ? rows[0].dateDay : from)
     setToDay(last.dateDay)
+  }
+
+  /**
+   * The month select is a *view* over the range, not a second piece of state.
+   *
+   * It shows a month only when From and To are exactly that month's bounds, so
+   * the two controls cannot disagree about what is on screen — pick a month and
+   * the date inputs move with it; edit a date and the month drops back to "All".
+   * Holding the month separately was the obvious design and the wrong one: two
+   * sources of truth for one range, and a combination the UI could render but
+   * not explain.
+   */
+  const activeMonth = useMemo(() => {
+    if (!fromDay || !toDay) return ''
+    if (fromDay.slice(0, 7) !== toDay.slice(0, 7)) return ''
+    const key = fromDay.slice(0, 7)
+    return months.includes(key) ? key : ''
+  }, [fromDay, toDay, months])
+
+  function selectMonth(key) {
+    if (key === '') {
+      setFromDay('')
+      setToDay('')
+      return
+    }
+    // Bound the range by the data, not the calendar: a month a station reported
+    // only partly is bounded by the days it actually has, so choosing it never
+    // produces a range padded with empty days.
+    const inMonth = rows.filter((row) => row.nSamples > 0 && row.dateDay.slice(0, 7) === key)
+    if (inMonth.length === 0) return
+    setFromDay(inMonth[0].dateDay)
+    setToDay(inMonth[inMonth.length - 1].dateDay)
   }
 
   if (loading) return <p className="muted">Loading station list…</p>
@@ -246,9 +280,12 @@ export default function StationExplorer() {
                 setToDay(to)
               }}
               onRangePreset={applyPreset}
-              metrics={metrics}
+              metrics={metricKeys}
               selected={selected}
               onMetricToggle={toggleMetric}
+              months={months}
+              activeMonth={activeMonth}
+              onMonthChange={selectMonth}
               granularities={station.granularities ?? ['daily']}
               resolution={resolution}
               onResolutionChange={setResolution}

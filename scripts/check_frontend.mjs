@@ -320,6 +320,54 @@ const CHANNEL_OF = {
   temp_c_avg: 'temp_c',
 }
 
+/** The metric keys, mirrored from src/data.js, in declaration order. */
+const METRIC_CHANNELS = {
+  solar: ['solar_v_avg', 'solar2_v_avg'],
+  battery: ['battery_v_min', 'battery2_v_min'],
+  power: ['power_w_avg'],
+  temp: ['temp_c_avg'],
+  energy: ['energy_wh'],
+}
+
+/** Mirrors availableMetricKeys in src/data.js: keys, in declaration order. */
+function availableMetricKeys(rows) {
+  return Object.keys(METRIC_CHANNELS).filter((key) =>
+    rows.some((row) => METRIC_CHANNELS[key].some((c) => num(row[c]) !== null)),
+  )
+}
+
+check('an available metric is selectable, because the picker is given keys', () => {
+  // Regression, and it was entirely silent. `availableMetrics()` returned metric
+  // *objects* while the picker tested `metrics.includes(metric.key)` against
+  // them, so every checkbox rendered disabled for every station -- no error, no
+  // empty chart, the default two channels still drawn. Nothing here imports
+  // src/data.js (it needs import.meta.env), so the contract is asserted against
+  // the real CSVs: the value has to be a string, and the picker's membership
+  // test has to succeed for a channel the station demonstrably has.
+  for (const station of stations.filter((s) => s.published)) {
+    for (const year of station.years) {
+      const rows = parseCsv(
+        readFileSync(join(DATA, station.station_id, 'daily', `${year}.csv`), 'utf8'),
+      )
+      const keys = availableMetricKeys(rows)
+      for (const key of keys) {
+        assert.equal(typeof key, 'string', `${station.station_id} ${year}: ${key} is not a string`)
+        assert.ok(keys.includes(key), `${station.station_id} ${year}: ${key} is not selectable`)
+      }
+      // And the selection the UI defaults to must be a subset of what is
+      // offered, or the chart is handed metrics it will not draw.
+      const defaultSelection = keys.slice(0, 2)
+      for (const key of defaultSelection) {
+        assert.ok(keys.includes(key), `${station.station_id} ${year}: default ${key} unavailable`)
+      }
+    }
+  }
+  // One station legitimately has nothing: `solar-2020-05` is a bench sheet whose
+  // rollup columns are all empty. Its picker is meant to be disabled.
+  const bench = parseCsv(readFileSync(join(DATA, 'solar-2020-05', 'daily', '2020.csv'), 'utf8'))
+  assert.deepEqual(availableMetricKeys(bench), [])
+})
+
 /** Mirrors isOutOfBand in src/data.js, so the assertion exercises that logic. */
 function isOutOfBand(channel, value) {
   const band = bands[channel]
