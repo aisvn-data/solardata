@@ -29,12 +29,6 @@ permissions:
   pages: write
   id-token: write
 
-# Required by the official Pages deploy action; the environment has to exist
-# with the matching name.
-environment:
-  name: github-pages
-  url: ${{ steps.deployment.outputs.page_url }}
-
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -79,6 +73,13 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # `environment` belongs to the job, not the workflow: it is only valid at
+    # job level, and putting it at the top level makes Actions reject the whole
+    # file with "Unexpected value 'environment'". The environment has to exist
+    # with the matching name, which is what the official deploy action expects.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

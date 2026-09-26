@@ -68,11 +68,15 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Ruff lint
-        run: ruff check etl tests
+        run: ruff check etl tests scripts
 
       - name: Ruff format
-        run: ruff format --check etl tests
+        run: ruff format --check etl tests scripts
 
+      # Catches the "Invalid workflow file" class of error before it reaches
+      # Actions: yaml.safe_load only checks syntax, not the Actions schema, so a
+      # misplaced key like a workflow-level `environment` parses cleanly and is
+      # then rejected at runtime.
       - name: Pytest
         run: pytest tests
 
