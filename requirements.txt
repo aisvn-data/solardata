@@ -20,3 +20,9 @@ pyarrow>=14
 # Test and lint tooling.
 pytest>=8
 ruff>=0.6
+
+# Used by tests/test_workflows.py to validate the GitHub Actions workflow files.
+# Without it the test module fails at *collection*, which aborts the whole pytest
+# run rather than skipping one file -- so it has to be declared, and the test
+# guards with importorskip so a minimal environment still works.
+pyyaml>=6

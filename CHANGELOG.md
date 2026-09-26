@@ -40,6 +40,18 @@ Data corrections, all confirmed by the collector. Baseline re-recorded: **735,00
 
 ### Fixed
 
+- **`pyyaml` was used by the tests but never declared.** It worked locally only
+  because an unrelated earlier task happened to install it, and CI failed at
+  *collection* with `ModuleNotFoundError: No module named 'yaml'` — which aborts
+  the entire pytest run rather than skipping one file, so every other test result
+  was lost as well. Now declared in `requirements.txt`, and
+  `tests/test_workflows.py` imports it inside a `try`/`except` that skips at
+  module level so a minimal environment degrades instead of dying.
+- `tests/test_workflows.py` gained a check that walks the imports across the
+  whole test suite and asserts every third-party module is declared in
+  `requirements.txt`. A new import now fails locally instead of reaching CI.
+  Verified by removing `pyyaml` from the requirements: the suite fails with
+  *test_workflows.py imports 'yaml' but it is not in requirements.txt*.
 - **`release.yml` failed at the baseline check.** It ran only `etl ingest`, which
   rebuilds the database but does **not** populate `regimes` — that is a separate
   stage. The table came out empty and the guard correctly reported
