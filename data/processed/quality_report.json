@@ -87,9 +87,9 @@
       "applet": "IFTTT_test",
       "source_dirs": "[\"test\"]",
       "is_production": 0,
-      "first_ts_utc": "2020-06-12T15:22:00Z",
+      "first_ts_utc": "2020-07-05T04:40:00Z",
       "last_ts_utc": "2020-08-21T06:36:00Z",
-      "n_readings": 37371,
+      "n_readings": 33377,
       "notes": "NOT a solar station. Mixes at least three unrelated schemas (solar channels, a nix/temp/wifi probe, and a millis counter). Treat with suspicion; excluded from published exports by default."
     },
     {
@@ -107,9 +107,9 @@
     }
   ],
   "totals": {
-    "readings": 734908,
+    "readings": 730914,
     "stations": 8,
-    "days": 850,
+    "days": 849,
     "first_ts": "2020-05-16T15:52:00Z",
     "last_ts": "2024-02-01T20:18:00Z"
   },
@@ -224,19 +224,19 @@
         "station_id": "test",
         "files": 19,
         "with_header": 3,
-        "rows_ingested": 37371,
-        "duplicate_ts": 2162,
-        "rejected": 2165,
-        "first_ts": "2020-06-12T15:22:00Z",
+        "rows_ingested": 33377,
+        "duplicate_ts": 12,
+        "rejected": 12,
+        "first_ts": "2020-07-05T04:40:00Z",
         "last_ts": "2020-08-21T06:36:00Z"
       }
     ]
   },
   "quality_flags": {
-    "out_of_range": 384818,
+    "out_of_range": 380675,
     "out_of_range,no_signal:solar2_v": 220062,
-    "sentinel,out_of_range": 17105,
-    "out_of_range,sentinel": 13480,
+    "sentinel,out_of_range": 16060,
+    "out_of_range,sentinel": 12525,
     "out_of_range,bad_window:solar_v,bad_window:battery_v,bad_window:temp_c": 1609,
     "out_of_range,bad_window:temp_c": 1472,
     "out_of_range,sentinel,no_signal:solar2_v": 7,
@@ -245,23 +245,27 @@
     "out_of_range,sentinel,bad_window:solar_v,bad_window:battery_v,bad_window:temp_c": 1
   },
   "flag_totals": {
-    "out_of_range": 638555,
+    "out_of_range": 632412,
     "no_signal:solar2_v": 220069,
-    "sentinel": 30599,
+    "sentinel": 28599,
     "bad_window:temp_c": 3083,
     "bad_window:solar_v": 1610,
     "bad_window:battery_v": 1610
   },
   "rejects": {
-    "total": 224579,
+    "total": 228570,
     "by_reason": [
       {
         "reason": "null_window",
         "n": 220074
       },
       {
+        "reason": "station_setup",
+        "n": 6144
+      },
+      {
         "reason": "duplicate_ts",
-        "n": 4399
+        "n": 2249
       },
       {
         "reason": "pre_reinstall",
@@ -269,7 +273,7 @@
       },
       {
         "reason": "repeated header row",
-        "n": 6
+        "n": 3
       }
     ],
     "samples": [
@@ -993,133 +997,25 @@
     },
     {
       "station_id": "test",
-      "column": "battery_v",
-      "unit": "V",
-      "kind": "voltage",
-      "n": 6143,
-      "min": 0.0,
-      "max": 28538.0,
-      "mean": 4085.260888816539,
-      "band_lo": 9.0,
-      "band_hi": 16.0
-    },
-    {
-      "station_id": "test",
-      "column": "boot_count",
-      "unit": "count",
-      "kind": "count",
-      "n": 2008,
-      "min": 1,
-      "max": 6788,
-      "mean": 4233.089143426295,
-      "band_lo": null,
-      "band_hi": null
-    },
-    {
-      "station_id": "test",
-      "column": "current_a_chA",
-      "unit": "A",
-      "kind": "current",
-      "n": 6143,
-      "min": -855.0,
-      "max": 49600.0,
-      "mean": 4166.4643480384175,
-      "band_lo": -50.0,
-      "band_hi": 50.0
-    },
-    {
-      "station_id": "test",
-      "column": "current_a_chB",
-      "unit": "A",
-      "kind": "current",
-      "n": 2017,
-      "min": 3.0,
-      "max": 29200.0,
-      "mean": 1083.8087803668816,
-      "band_lo": -50.0,
-      "band_hi": 50.0
-    },
-    {
-      "station_id": "test",
-      "column": "dump_adc",
-      "unit": "count",
-      "kind": "raw",
-      "n": 2017,
-      "min": 1.0,
-      "max": 4831.0,
-      "mean": 3313.1533465542884,
-      "band_lo": null,
-      "band_hi": null
-    },
-    {
-      "station_id": "test",
-      "column": "lipo_v",
-      "unit": "V",
-      "kind": "voltage",
-      "n": 2010,
-      "min": 0.26,
-      "max": 4139.0,
-      "mean": 4030.0797313432836,
-      "band_lo": 2.5,
-      "band_hi": 4.35
-    },
-    {
-      "station_id": "test",
-      "column": "load_v",
-      "unit": "V",
-      "kind": "voltage",
-      "n": 145,
-      "min": 4.0,
-      "max": 29801.0,
-      "mean": 11473.218827586206,
-      "band_lo": 0.0,
-      "band_hi": 60.0
-    },
-    {
-      "station_id": "test",
       "column": "nix_raw",
       "unit": "count",
       "kind": "raw",
-      "n": 31228,
+      "n": 33377,
       "min": 70.0,
       "max": 102.0,
-      "mean": 90.19876392980659,
+      "mean": 90.22632351619379,
       "band_lo": null,
       "band_hi": null
-    },
-    {
-      "station_id": "test",
-      "column": "solar2_v",
-      "unit": "V",
-      "kind": "voltage",
-      "n": 2010,
-      "min": 0.0,
-      "max": 12875.0,
-      "mean": 3115.855223880597,
-      "band_lo": 0.0,
-      "band_hi": 60.0
-    },
-    {
-      "station_id": "test",
-      "column": "solar_v",
-      "unit": "V",
-      "kind": "voltage",
-      "n": 5098,
-      "min": -984.0,
-      "max": 28816.0,
-      "mean": 2124.8740153001177,
-      "band_lo": 0.0,
-      "band_hi": 60.0
     },
     {
       "station_id": "test",
       "column": "temp_c",
       "unit": "degC",
       "kind": "temperature",
-      "n": 31228,
+      "n": 33377,
       "min": 21.49,
       "max": 31.31,
-      "mean": 27.691257845523246,
+      "mean": 27.699676723492225,
       "band_lo": 5.0,
       "band_hi": 45.0
     },
@@ -1256,6 +1152,14 @@
     {
       "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
       "note": "Installed in the dark, let's start again!"
+    },
+    {
+      "rel_path": "test/IFTTT_test (1).xlsx",
+      "note": "collector: same 11-column solar layout. This file starts 2020-06-14 but its June rows duplicate IFTTT_test.xlsx, so everything it uniquely contributes is 4,120 readings dated 2020-07-01 to 07-08 -- after the probe had already begun, and still not measurements"
+    },
+    {
+      "rel_path": "test/IFTTT_test.xlsx",
+      "note": "collector: the test station's 11-column solar layout is system setup, not measurement. The station's readings are the 4-column probe that follows it"
     }
   ],
   "metric_defs": [
@@ -2274,136 +2178,6 @@
       "n_files": 17
     },
     {
-      "station_id": "test",
-      "source_dir": "test",
-      "n_columns": 11,
-      "col_index": 1,
-      "raw_name": "solar",
-      "canonical_col": "solar_v",
-      "unit": "V",
-      "confidence": "high",
-      "inferred": 0,
-      "reason": "exact header match",
-      "n_files": 2
-    },
-    {
-      "station_id": "test",
-      "source_dir": "test",
-      "n_columns": 11,
-      "col_index": 2,
-      "raw_name": "battery",
-      "canonical_col": "battery_v",
-      "unit": "V",
-      "confidence": "high",
-      "inferred": 0,
-      "reason": "exact header match",
-      "n_files": 2
-    },
-    {
-      "station_id": "test",
-      "source_dir": "test",
-      "n_columns": 11,
-      "col_index": 3,
-      "raw_name": "curA",
-      "canonical_col": "current_a_chA",
-      "unit": "A",
-      "confidence": "high",
-      "inferred": 0,
-      "reason": "exact header match",
-      "n_files": 2
-    },
-    {
-      "station_id": "test",
-      "source_dir": "test",
-      "n_columns": 11,
-      "col_index": 4,
-      "raw_name": "curB",
-      "canonical_col": "current_a_chB",
-      "unit": "A",
-      "confidence": "high",
-      "inferred": 0,
-      "reason": "exact header match",
-      "n_files": 2
-    },
-    {
-      "station_id": "test",
-      "source_dir": "test",
-      "n_columns": 11,
-      "col_index": 5,
-      "raw_name": "load",
-      "canonical_col": "load_v",
-      "unit": "V",
-      "confidence": "high",
-      "inferred": 0,
-      "reason": "exact header match",
-      "n_files": 2
-    },
-    {
-      "station_id": "test",
-      "source_dir": "test",
-      "n_columns": 11,
-      "col_index": 6,
-      "raw_name": "wind",
-      "canonical_col": "wind_v",
-      "unit": "V",
-      "confidence": "high",
-      "inferred": 0,
-      "reason": "exact header match",
-      "n_files": 2
-    },
-    {
-      "station_id": "test",
-      "source_dir": "test",
-      "n_columns": 11,
-      "col_index": 7,
-      "raw_name": "dump",
-      "canonical_col": "dump_adc",
-      "unit": "count",
-      "confidence": "high",
-      "inferred": 0,
-      "reason": "exact header match",
-      "n_files": 2
-    },
-    {
-      "station_id": "test",
-      "source_dir": "test",
-      "n_columns": 11,
-      "col_index": 8,
-      "raw_name": "solar2",
-      "canonical_col": "solar2_v",
-      "unit": "V",
-      "confidence": "high",
-      "inferred": 0,
-      "reason": "exact header match",
-      "n_files": 2
-    },
-    {
-      "station_id": "test",
-      "source_dir": "test",
-      "n_columns": 11,
-      "col_index": 9,
-      "raw_name": "LiPo",
-      "canonical_col": "lipo_v",
-      "unit": "V",
-      "confidence": "high",
-      "inferred": 0,
-      "reason": "exact header match",
-      "n_files": 2
-    },
-    {
-      "station_id": "test",
-      "source_dir": "test",
-      "n_columns": 11,
-      "col_index": 10,
-      "raw_name": "boot",
-      "canonical_col": "boot_count",
-      "unit": "count",
-      "confidence": "high",
-      "inferred": 0,
-      "reason": "exact header match",
-      "n_files": 2
-    },
-    {
       "station_id": "voltage-phumy",
       "source_dir": "Voltage_phumy",
       "n_columns": 4,
@@ -2450,96 +2224,96 @@
       "column": "battery_v",
       "unit": "V",
       "valid_from": "2020-06-15T06:10:00Z",
-      "valid_to": "2020-06-18T01:48:00Z",
+      "valid_to": "2020-06-17T08:20:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "low",
-      "notes": "median 12573.0 outside plausible [9.0, 16.0] V; scale 0.001 brings it to 12.573 (74% in range)"
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "high",
+      "notes": "collector: same recompile; row 1483 reads 13.54 V where row 1481 read 13814 mV"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "current_a",
+      "unit": "A",
+      "valid_from": "2020-06-15T06:10:00Z",
+      "valid_to": "2020-06-17T08:20:00Z",
+      "scale": 0.001,
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "high",
+      "notes": "collector: mA before the recompile, A after. Independently confirmed -- mean |current| after the recompile is 2.6233 A against 2.6231 A implied by power/voltage over the same samples"
     },
     {
       "station_id": "aisvn",
       "column": "lipo_v",
       "unit": "V",
       "valid_from": "2020-06-15T06:10:00Z",
-      "valid_to": "2020-06-18T01:48:00Z",
+      "valid_to": "2020-06-17T08:20:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "low",
-      "notes": "median 4020.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.02 (74% in range)"
-    },
-    {
-      "station_id": "aisvn",
-      "column": "lipo_v",
-      "unit": "V",
-      "valid_from": "2020-08-24T08:27:00Z",
-      "valid_to": "2020-10-25T19:17:00Z",
-      "scale": 10.0,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "low",
-      "notes": "median 0.34 outside plausible [2.5, 4.35] V; scale 10.0 brings it to 3.4 (75% in range)"
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "high",
+      "notes": "collector: same recompile; row 1483 reads 4.14 V where row 1481 read 4125 mV"
     },
     {
       "station_id": "aisvn",
       "column": "load_v",
       "unit": "V",
       "valid_from": "2020-06-15T06:10:00Z",
-      "valid_to": "2020-06-18T01:48:00Z",
+      "valid_to": "2020-06-17T08:20:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "high",
+      "notes": "collector: same recompile; load moved one column right and row 1483 reads 4.95 V where row 1481 read 0 mV"
     },
     {
       "station_id": "aisvn",
       "column": "solar2_v",
       "unit": "V",
       "valid_from": "2020-06-15T06:10:00Z",
-      "valid_to": "2020-06-18T01:48:00Z",
+      "valid_to": "2020-06-17T08:20:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 32.6 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0326 (100% in range)"
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "high",
+      "notes": "collector: same recompile; row 1483 reads 4.47 V where row 1481 read 4474 mV"
     },
     {
       "station_id": "aisvn",
       "column": "solar_v",
       "unit": "V",
       "valid_from": "2020-06-15T06:10:00Z",
-      "valid_to": "2020-06-18T01:48:00Z",
+      "valid_to": "2020-06-17T08:20:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 9.66 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0097 (100% in range)"
-    },
-    {
-      "station_id": "aisvn",
-      "column": "solar_v",
-      "unit": "V",
-      "valid_from": "2020-08-24T08:27:00Z",
-      "valid_to": "2020-10-25T19:17:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 29.03 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.029 (100% in range)"
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "high",
+      "notes": "collector: applet recompiled 2020-06-17 15:20 local; sheet row 1482 re-declares the header and the channel switches from mV to V"
     },
     {
       "station_id": "aisvn",
       "column": "temp_c",
       "unit": "degC",
-      "valid_from": "2020-06-15T06:10:00Z",
-      "valid_to": "2020-06-18T01:48:00Z",
+      "valid_from": "2020-06-17T04:12:00Z",
+      "valid_to": "2020-06-17T08:20:00Z",
       "scale": 0.1,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "low",
-      "notes": "median 200.0 outside plausible [5.0, 45.0] degC; scale 0.1 brings it to 20.0 (74% in range)"
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "high",
+      "notes": "collector: 200 is a placeholder until 11:12 local; the 114 readings from 11:14 to 15:18 are tenths of a degree (335 = 33.5), and the channel is plain degrees after the recompile"
+    },
+    {
+      "station_id": "aisvn",
+      "column": "wind_v",
+      "unit": "V",
+      "valid_from": "2020-06-15T06:10:00Z",
+      "valid_to": "2020-06-17T08:20:00Z",
+      "scale": 0.001,
+      "status": "confirmed",
+      "detected_by": "manual",
+      "confidence": "high",
+      "notes": "collector: same recompile; wind moved one column right and is 0 either side, so the scale is inferred from its neighbours rather than read"
     },
     {
       "station_id": "aisvn-solar",
@@ -2679,54 +2453,6 @@
       "unit": "V",
       "valid_from": "2020-05-16T15:52:00Z",
       "valid_to": "2020-06-16",
-      "scale": 0.001,
-      "status": "confirmed",
-      "detected_by": "manual",
-      "confidence": "high",
-      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
-    },
-    {
-      "station_id": "test",
-      "column": "battery_v",
-      "unit": "V",
-      "valid_from": "2020-06-12T15:22:00Z",
-      "valid_to": "2020-07-09",
-      "scale": 0.001,
-      "status": "confirmed",
-      "detected_by": "manual",
-      "confidence": "high",
-      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
-    },
-    {
-      "station_id": "test",
-      "column": "lipo_v",
-      "unit": "V",
-      "valid_from": "2020-06-12T15:22:00Z",
-      "valid_to": "2020-06-18",
-      "scale": 0.001,
-      "status": "confirmed",
-      "detected_by": "manual",
-      "confidence": "high",
-      "notes": "collector-confirmed: logged in millivolts as an integer for the whole record"
-    },
-    {
-      "station_id": "test",
-      "column": "solar2_v",
-      "unit": "V",
-      "valid_from": "2020-06-12T15:22:00Z",
-      "valid_to": "2020-06-14T01:57:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 735.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.735 (100% in range)"
-    },
-    {
-      "station_id": "test",
-      "column": "solar_v",
-      "unit": "V",
-      "valid_from": "2020-06-12T22:19:00Z",
-      "valid_to": "2020-07-09",
       "scale": 0.001,
       "status": "confirmed",
       "detected_by": "manual",
@@ -4003,57 +3729,52 @@
     {
       "station_id": "test",
       "interval_s": 119,
-      "n": 28254
+      "n": 26669
     },
     {
       "station_id": "test",
       "interval_s": 120,
-      "n": 6110
-    },
-    {
-      "station_id": "test",
-      "interval_s": 59,
-      "n": 2012
+      "n": 5759
     },
     {
       "station_id": "test",
       "interval_s": 179,
-      "n": 381
+      "n": 324
     },
     {
       "station_id": "test",
-      "interval_s": 60,
-      "n": 193
+      "interval_s": 59,
+      "n": 246
     },
     {
       "station_id": "test",
       "interval_s": 180,
-      "n": 139
+      "n": 123
     },
     {
       "station_id": "test",
       "interval_s": 239,
-      "n": 110
+      "n": 103
     },
     {
       "station_id": "test",
       "interval_s": 240,
-      "n": 63
+      "n": 60
+    },
+    {
+      "station_id": "test",
+      "interval_s": 60,
+      "n": 23
     },
     {
       "station_id": "test",
       "interval_s": 299,
-      "n": 28
+      "n": 19
     },
     {
       "station_id": "test",
       "interval_s": 300,
-      "n": 17
-    },
-    {
-      "station_id": "test",
-      "interval_s": 480,
-      "n": 12
+      "n": 13
     },
     {
       "station_id": "test",
@@ -4062,47 +3783,22 @@
     },
     {
       "station_id": "test",
+      "interval_s": 480,
+      "n": 10
+    },
+    {
+      "station_id": "test",
       "interval_s": 360,
-      "n": 8
+      "n": 6
     },
     {
       "station_id": "test",
       "interval_s": 419,
-      "n": 3
+      "n": 2
     },
     {
       "station_id": "test",
       "interval_s": 2940,
-      "n": 1
-    },
-    {
-      "station_id": "test",
-      "interval_s": 2759,
-      "n": 1
-    },
-    {
-      "station_id": "test",
-      "interval_s": 2219,
-      "n": 1
-    },
-    {
-      "station_id": "test",
-      "interval_s": 2160,
-      "n": 1
-    },
-    {
-      "station_id": "test",
-      "interval_s": 2039,
-      "n": 1
-    },
-    {
-      "station_id": "test",
-      "interval_s": 1680,
-      "n": 1
-    },
-    {
-      "station_id": "test",
-      "interval_s": 1620,
       "n": 1
     },
     {
@@ -4118,11 +3814,6 @@
     {
       "station_id": "test",
       "interval_s": 960,
-      "n": 1
-    },
-    {
-      "station_id": "test",
-      "interval_s": 779,
       "n": 1
     },
     {
@@ -4355,12 +4046,6 @@
       "gap_hours": 146.1
     },
     {
-      "station_id": "test",
-      "from_ts": "2020-06-23T14:57:00Z",
-      "to_ts": "2020-06-29T12:05:00Z",
-      "gap_hours": 141.1
-    },
-    {
       "station_id": "maker-webhooks",
       "from_ts": "2020-05-30T06:03:00Z",
       "to_ts": "2020-06-05T00:02:00Z",
@@ -4383,12 +4068,6 @@
       "from_ts": "2020-10-25T19:17:00Z",
       "to_ts": "2020-10-30T11:09:00Z",
       "gap_hours": 111.9
-    },
-    {
-      "station_id": "test",
-      "from_ts": "2020-06-17T07:26:00Z",
-      "to_ts": "2020-06-20T14:31:00Z",
-      "gap_hours": 79.1
     },
     {
       "station_id": "aisvn2",
@@ -4431,6 +4110,18 @@
       "from_ts": "2022-11-11T02:04:00Z",
       "to_ts": "2022-11-14T00:36:00Z",
       "gap_hours": 70.5
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-08-29T10:48:00Z",
+      "to_ts": "2020-09-01T07:58:00Z",
+      "gap_hours": 69.2
+    },
+    {
+      "station_id": "aisvn",
+      "from_ts": "2020-09-06T12:22:00Z",
+      "to_ts": "2020-09-09T06:42:00Z",
+      "gap_hours": 66.3
     }
   ],
   "channel_plausibility": [
@@ -4514,13 +4205,13 @@
     },
     {
       "station_id": "test",
-      "n_solar": 5098,
-      "solar_min": -984.0,
-      "solar_max": 28816.0,
-      "n_batt": 6143,
-      "batt_min": 0.0,
-      "batt_max": 28538.0,
-      "n_temp": 31228,
+      "n_solar": 0,
+      "solar_min": null,
+      "solar_max": null,
+      "n_batt": 0,
+      "batt_min": null,
+      "batt_max": null,
+      "n_temp": 33377,
       "temp_min": 21.49,
       "temp_max": 31.31,
       "n_power": 0

@@ -157,9 +157,9 @@
     ],
     "notes": "NOT a solar station. Mixes at least three unrelated schemas (solar channels, a nix/temp/wifi probe, and a millis counter). Treat with suspicion; excluded from published exports by default.",
     "is_production": 0,
-    "first_ts_utc": "2020-06-12T15:22:00Z",
+    "first_ts_utc": "2020-07-05T04:40:00Z",
     "last_ts_utc": "2020-08-21T06:36:00Z",
-    "n_readings": 37371,
+    "n_readings": 33377,
     "published": false,
     "granularities": [
       "daily",

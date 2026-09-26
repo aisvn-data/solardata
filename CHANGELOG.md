@@ -3,76 +3,95 @@
 All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
-
 ## [Unreleased]
+
+### Changed
+
+- **The `test` station is now probe-only.** The collector's account is that its
+  11-column solar layout was system setup rather than measurement, and that the
+  readings are the 4-column `nix`/`temp`/`wifi` probe that follows. `test` keeps
+  **33,377 readings**, 2020-07-05 to 2020-08-21, with no solar channel at all.
+
+  The exclusion is by **source file, not by date**, and it has to be.
+  `IFTTT_test (1).xlsx` *starts* on 2020-06-14, but its June rows duplicate
+  `IFTTT_test.xlsx` and were absorbed by the primary key, so everything it
+  uniquely contributes is **4,120 readings dated 2020-07-01 18:18 to 2020-07-08
+  12:12** — after the probe had already begun, and still not measurements. A
+  timestamp cut-off at 2020-07-01 would have kept all of them. Those two files
+  are the only 11-column files in the folder, so excluding them by name is both
+  simpler and correct where a date would not be.
+
+  | | before | after |
+  |---|---:|---:|
+  | `readings` | 734,908 | **730,914** |
+  | `duplicate_ts` | 4,399 | 2,249 |
+  | rejected cells | 220,180 | **226,321** |
+  | `notes` | 10 | 12 |
+  | `unconfirmed_regimes` | 3 | 2 |
+
+  The three numbers that look odd are all the same fact. Removing the two files
+  takes **3,994 readings** and a further **2,150 rows that were already
+  duplicates** of rows held in the other file — which is why `duplicate_ts` falls
+  by 2,150 while the recorded exclusion is **6,144 rows**. What left the readings
+  and what left the archive are different questions and both are in the baseline.
+
+  **Nothing vanished.** This is a whole-file exclusion, the coarsest decision the
+  pipeline makes, so `config.FILE_EXCLUSIONS` is a new mechanism rather than an
+  extension of `ROW_EXCLUSIONS`, and it records every data row into `rejects`
+  with `reason = 'station_setup'`, its sheet row and its timestamp. "We did not
+  ingest these two files" is only defensible if every row of them can still be
+  pointed at, and one rationale per file goes into `notes` so the reason is
+  readable without opening the config.
+
+  The 4,120 July readings were also the ones published 1000× too small by the
+  `test` scale regimes, so this removes that error at the same time and
+  `unconfirmed_regimes` falls to 2 because `test.solar2_v` no longer has data.
 
 ### Fixed
 
-- **An implausible reading could be averaged into a plausible-looking number, and
-  nothing downstream could tell.** `phumy2` 2020-11-27 16:00 UTC contains exactly
-  one sample reading `power_w = 19877` and `solar2_v = 160` where its neighbours
-  are 0 and 0. Average that with the 29 good zeros in the hour and you get
-  **662.57 W** — comfortably *inside* the ±2000 W band, so the value carries no
-  flag at all. The site was drawing it as a real reading.
+- **The `aisvn` applet was recompiled mid-record and the scale window said
+  otherwise.** The collector confirms the change at **2020-06-17 15:20 local**
+  (08:20Z), and the sheet proves it: `IFTTT_aisvn.xlsx` row 1481 reads 03:18PM
+  with ten columns and `solar 13964, battery 13814, current 398, temp 336`; row
+  **1482 is a second header row** reading `time, solar, battery, current, power,
+  load, wind, temp, solar2, LiPo`; and row 1483 reads 03:20PM with eleven columns
+  and `solar 13.61, battery 13.54, current 0.36, temp 31.3`. Five channels step
+  by ~1000x in the same two-minute sample, which is a firmware change and not
+  five coincidences.
 
-  The row-level `n_out_of_range` could not help either: it reads **30 of 30** for
-  that hour, because `current2_a` reads ~232 against a ±50 A band for the whole
-  period (it is milliamps and the scale is unconfirmed — see the open questions).
-  One flag for the row, every sample flagged, and the one sample that actually
-  broke something invisible.
+  The detector had proposed `valid_to = 2020-06-18T01:48:00Z` for four of them --
+  **17 h 28 min too late**. Everything after 08:20 was already in volts, so
+  confirming those windows as proposed would have scaled 17 hours of volts data a
+  thousand times too small. An unconfirmed regime is at least visibly
+  unconfirmed; a confirmed one with a boundary 17 hours wrong is worse than no
+  regime at all. Eight windows are now confirmed with explicit instant
+  boundaries and `unconfirmed_regimes` goes 11 -> 3.
 
-  Both rollups now carry `<channel>_n_oor`: how many samples in the bucket fell
-  outside *that channel's* band. The same hour reads `power_w_n_oor = 1`,
-  `solar2_v_n_oor = 1` and `current2_a_n_oor = 30`, which separates the real
-  finding from the chronic one. It is the only power bucket flagged in the whole
-  station-year.
+- **Two published days were in the wrong unit.** `aisvn` 2020-06-15 and
+  2020-06-16 are entirely inside the millivolt window, and the rollups were
+  publishing `4,570` and `6,539` in a column documented as volts -- a 4.6 V panel
+  and a 6.5 V panel rendered as 4.6 kW and 6.5 kW. They now read **4.570 V** and
+  **6.539 V**, which is where a panel sits. Two band checks changed as a
+  consequence and were updated with the reason rather than the number: days
+  flagged on `solar_v` go 4 -> 2, and on `battery_v_min` 23 -> 21, because the
+  scaled battery now lands at 12.385 V and 12.483 V where a 3S LiPo belongs. The
+  21 that remain are the real question -- a battery reading 29.6 V is a second
+  pack or an unconfirmed scale, and the band is what keeps that visible.
 
-- **The channel picker was a fixed list of six metrics, so a station's real
-  channels could not be shown.** `aisvn2` logs `solar3_v` and no `power_w` or
-  `temp_c` at all; `phumy2` logs `lipo2_v`; `aisvn-solar` logs `load1_v` and
-  `load2_v`; `maker-webhooks` logs `current_a_chA`/`chB`. All of it was in
-  `readings`, in the rollups and in the database the whole time, and none of it
-  had anywhere to appear — which is why selecting AISVN #2 offered greyed-out
-  controls and nothing that worked. Channels are now discovered from the rollup
-  the station actually ships, and every channel that has data is selectable.
-
-  The rollups were also missing those channels entirely, so they had to be added:
-  `solar3_v`, `load_v`, `load1_v`, `load2_v`, `wind_v`, `lipo_v`, `lipo2_v`,
-  `current_a_chA`, `current_a_chB`, `current2_a`, `voltage_adc`, `digital_adc`.
-  `solar-2020-05` went from one offerable channel to three, which is what a bench
-  sheet actually has.
-
-- **`metric_defs` could only describe one layout per folder, and the wrong one
-  won.** Its primary key was `(station_id, source_dir, col_index)`, so a folder
-  held exactly one meaning per column index and a second layout silently
-  overwrote the first. A folder is a chronological run of chunks from one applet
-  and the applet may change its columns partway through:
-
-  | station | folder | the change |
-  |---|---|---|
-  | `aisvn` | 39 files | 10 → 11 columns on 2020-06-17, a `power` channel added |
-  | `maker-webhooks` | 5 files | 10 → 11 columns, a `solar2` channel added |
-  | `test` | 19 files | two unrelated schemas: 4 columns of nix/temp/wifi probe for 16 files, 11 columns of solar channels for 2 |
-  | `phumy2` | 102 files | column 0 renamed `time` → `date`, 2020-11 onwards |
-
-  The recorded result was that `aisvn` column 4 was `load`/`load_v` for all 39
-  files, when it is `load` in one file and `power`/`power_w` in the other 38.
-  `test`'s 4-column probe schema was not recorded at all, despite `nix_raw` and
-  `wifi_raw` holding 31,228 rows between them.
-
-  **The ingest was never wrong.** Each file is mapped with its own width-matched
-  effective header, and `readings` is correct: `load_v` is populated and
-  `power_w` is NULL before 2020-06-17, the reverse after. This table is the one
-  the report and the channel-coverage tab present as the schema, so it was the
-  only place the archive's two layouts were conflated. `n_columns` is now part of
-  the key.
+- **A bucket that straddles a scale boundary is no longer scaled by either
+  side.** The 2020-06-17 hourly bucket at 08:00 holds 20 minutes of millivolts
+  and 40 of volts; the 2020-06-17 daily bucket holds both too. Scaling either
+  would publish a number no single unit describes, so both are left raw with an
+  empty `scaled_channels` and the site flags them. The containment test uses the
+  extent of the **data** in the bucket rather than the bucket's nominal edges,
+  which is why 2020-06-15 scales at all when its daily slot spans 24 hours but no
+  reading exists before 06:10.
 
 - **`rejects.reason` was a sentence, on 220,074 rows.** Rule 2 says to keep it a
   stable category, and the archive is where ignoring that shows: the
   `NULL_WINDOWS` path stored the collector's ~300-character note as the reason on
   every cell it nulled. That is **80.6 MiB of one paragraph, repeated**, and it
-  made `rejects` (96.1 MiB) as large as `readings` — in a database that is not
-  committed and that nobody downloads whole.
+  made `rejects` (96.1 MiB) as large as `readings`.
 
   | | before | after |
   |---|---:|---:|
@@ -81,92 +100,86 @@ versions follow [Semantic Versioning](https://semver.org/).
   | `solardata.db`, VACUUMed | 329.2 MiB | **166.7 MiB** |
   | gzipped, the Release asset | 20.0 MiB | 18.7 MiB |
 
-  **No data moved.** The counts are identical, so `python -m etl verify` matches
-  the baseline unchanged. What changed is where the sentence lives: once, in
-  `config.py`, republished to `quality.json` as `null_windows` and `bad_windows`
-  paired with the rows each explains, and shown on a dedicated **Windows** tab
-  where previously a reader saw the category with no reasoning attached.
+  **No data moved.** The counts are identical; only `unconfirmed_regimes` changed
+  in the baseline. The prose now lives once, in `config.py`, republished to
+  `quality.json` as `null_windows` and `bad_windows` paired with the rows each
+  explains, and shown on a dedicated **Windows** tab.
 
 - **`null_window` rejects had an empty `column_name`.** The code derived it by
   iterating `row_flags` for `no_signal:` prefixes, but `row_flags` is a merged
   *string*, so the loop walked its characters and matched nothing. All 220,074
-  rows said nothing about which channel they were about, and the window's
-  `n_rejected` in the report was silently 0.
+  rows said nothing about which channel they were about.
+
+- **`metric_defs` could only describe one layout per folder, and the wrong one
+  won.** Keyed on `(station_id, source_dir, col_index)`, a folder held one meaning
+  per column index and a second layout overwrote the first: `aisvn` column 4 was
+  recorded as `load`/`load_v` for all 39 files when it is `load` in one and
+  `power`/`power_w` in the other 38. **The ingest was never wrong** -- each file
+  maps with its own width-matched header -- but this is the table the report and
+  the channel-coverage tab present as the schema.
+
+- **An implausible reading could be averaged into a plausible number.** `phumy2`
+  2020-11-27 16:00 UTC holds one sample of `power_w = 19877` where its neighbours
+  are 0; averaged with 29 good zeros it becomes 662.57 W, *inside* the +/-2000 W
+  band. The row-level `n_out_of_range` reads 30 of 30 and cannot help, because
+  `current2_a` reads ~232 against a +/-50 A band for the whole period. Both
+  rollups now carry `<channel>_n_oor`: that hour reads `power_w_n_oor = 1`,
+  `solar2_v_n_oor = 1` and `current2_a_n_oor = 30`.
+
+- **The channel picker was a fixed list of six metrics.** `aisvn2` logs
+  `solar3_v` and no `power_w`; `phumy2` logs `lipo2_v`; `aisvn-solar` logs
+  `load1_v`/`load2_v`. All were in the rollups with nowhere to appear, which is
+  why selecting AISVN #2 offered nothing that worked. Channels are now discovered
+  from the rollup the station ships.
+
+- **`boot_count` was described as an uptime counter. It is not.** It is the
+  number of successful submissions since the last reboot: 667,040 of 680,672
+  consecutive pairs step by exactly +1 (98.0%), and the interval when they do is
+  121.9 s for `aisvn`, 120.3 s for `aisvn2`, 123.5 s for `phumy2`, and 62.3 s for
+  `maker-webhooks` and `test`, which really do submit twice as often. There are
+  ~650 resets and **no timestamp anywhere carries two different values**. An
+  earlier claim of "zero reboots" was wrong: it required a reset to follow a gap
+  in sampling, and 523 of `maker-webhooks`' 526 resets have no gap at all, which
+  is what a reboot looks like when the station keeps sampling.
+  `maker-webhooks` resets every 16 readings, which the archive does not explain.
 
 ### Added
 
-- **A per-station, per-channel range, beside the band.** `channel_ranges` in
-  `quality.json` reports, for every channel a station has actually recorded, the
-  min, max and count beside the band the pipeline expects. The band is one global
-  answer per column name and is not enough on its own:
-
-  | station | channel | observed | band |
-  |---|---|---|---|
-  | `phumy2` | `temp_c` | 15.5 … 80.6 °C | 5 … 45 |
-  | `phumy2` | `current2_a` | 155 … 1,996.8 A | −50 … 50 |
-  | `aisvn` | `battery_v` | −0.99 … 15,310 V | 9 … 16 |
-  | `aisvn2` | `solar3_v` | 0 … 23,860 V | 0 … 60 |
-  | `aisvn2` | `battery2_v` | 456 … 15,360 V | 9 … 16 |
-
-  Each row is either a second battery pack, an unconfirmed unit scale, or a band
-  wrong for the site it is installed in, and the archive cannot say which.
-  Reporting only the band hides the question; reporting only the range hides the
-  expectation. The Explorer shows both, and marks in orange the channels whose
-  readings fall outside their band.
-
-- **Three levels of "this number is not to be trusted", stated as counts rather
-  than verdicts.** `clean` — every sample in the bucket was in band. `partial` —
-  *some* were, so the aggregate blends measurements with flagged values and is
-  neither; this is the 662 W case. `contaminated` — *every* sample was out of
-  band, so the aggregate is not a summary of plausible values at all. Separately,
-  a value inside the band but outside what that station has ever recorded is
-  reported against the station's range and never called a flag. Nothing is
-  removed at any level.
-
-- **The uptime counter, `boot`, is a channel you can chart.** The logger's
-  monotonic read counter is in `readings` and in the Parquet export and in
-  *neither* rollup, so the site could not show it. It is aggregated as min and
-  max, never a mean. A bucket whose min is 1 restarted; the max is how long it
-  had been up.
-
-  | station | readings | boot | share | downward steps |
-  |---|---:|---:|---:|---:|
-  | `phumy2` | 415,117 | 415,091 | 100.0% | 33 |
-  | `aisvn` | 77,526 | 77,516 | 100.0% | 98 |
-  | `aisvn2` | 164,098 | 164,078 | 100.0% | 25 |
-  | `aisvn-solar` | 13,788 | 13,785 | 100.0% | 4 |
-  | `maker-webhooks` | 8,535 | 8,531 | 100.0% | **526** |
-  | `test` | 37,371 | 2,008 | 5.4% | 1 |
-  | `solar-2020-05` | 12,920 | 0 | 0% | — |
-  | `voltage-phumy` | 5,553 | 0 | 0% | — |
-
-  `maker-webhooks`' 526 resets across 8,535 readings does not look like ordinary
-  rebooting. It is recorded rather than explained: a flaky applet, or a counter
-  that is not a reboot counter for that firmware, and the archive cannot tell
-  them apart. It belongs in the open questions.
-
-- `check_frontend.mjs` asserts four invariants by name — *a contaminated
-  aggregate is distinguishable from a clean one*, *every channel a station
-  records is offered, not a fixed six*, *a folder that changed layout keeps both
-  layouts, not the last one*, and *a reject reason is a category, never a
-  sentence*. Each fails the build if its regression returns.
+- The **uplink duration** channel `wifi_tx_ms` -- the milliseconds the station
+  needs to connect to wifi and transmit -- previously mislabelled `wifi_raw` and
+  read as a counter.
+- `channel_ranges` in `quality.json`: what every channel a station actually
+  recorded, beside the band the pipeline expects. `phumy2.temp_c` reads
+  15.5-80.6 C against a 5-45 C band, and `aisvn.battery_v` up to 29.6 V against
+  9-16 V. Each is a second pack, an unconfirmed scale, or a band wrong for that
+  installation, and the archive cannot say which -- so both are reported and the
+  disagreement is the finding.
+- Three levels of "this number is not to be trusted", as counts rather than
+  verdicts: `clean`, `partial` (some samples flagged, so the aggregate is
+  neither), `contaminated` (every sample flagged). Separately, a value inside
+  the band but outside what that station has recorded is reported against the
+  station and never called a flag. Nothing is removed at any level.
+- `check_frontend.mjs` asserts six invariants by name, each failing the build if
+  its regression returns: *a contaminated aggregate is distinguishable from a
+  clean one*, *every channel a station records is offered, not a fixed six*, *a
+  folder that changed layout keeps both layouts, not the last one*, *a reject
+  reason is a category, never a sentence*, *a day the collector scaled is no
+  longer published in the wrong unit*, and *the uptime counter is published*.
 
 ### Changed
 
+- Confirmed scale windows can now carry an explicit instant boundary, so a
+  mid-day recompile is expressible. `CONFIRMED` still pins whole channels for the
+  collector's "logged in millivolts for the whole record" cases, which remains
+  the common one.
 - The rollup column list is declared once, in `etl/rollup_schema.py`, and
-  imported by the aggregate stage and the export stage. Three places need to agree
-  on it — schema, SQL, CSV header — and they had already drifted once: the daily
-  export listed `battery_v_min` while the table also carried `battery_v_avg`, and
-  the site had a special case for it. Both rollups now carry the same statistics.
-- The per-metric out-of-range counts are computed with the bands passed as SQL
-  parameters read from `METRIC_BY_COLUMN`, so the plausibility table has one home
-  and the site cannot drift from the criterion the ingest applied.
-- The channel-coverage tab shows the layout width, so the same column index in
-  two layouts reads as two rows rather than one.
+  imported by the aggregate stage and the export stage. Three places need to
+  agree on it -- schema, SQL, CSV header -- and they had already drifted once.
+- Per-metric out-of-range counts read their bounds from `METRIC_BY_COLUMN` as
+  bound SQL parameters, so the plausibility table has one home and the site
+  cannot drift from the criterion the ingest applied.
 - Size claims in `AGENTS.md`, `README.md`, `docs/data-dictionary.md` and
-  `docs/format-design.md` are updated to the measured figures. `CHANGELOG.md` is
-  deliberately not: its older numbers are records of releases where they were
-  true.
+  `docs/format-design.md` are updated to the measured figures.
 
 ## [0.7.1] — 2026-09-26
 

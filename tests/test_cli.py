@@ -285,21 +285,65 @@ class TestCommittedBaseline(unittest.TestCase):
         # These are the figures quoted in README.md and CHANGELOG.md.  If a
         # rebuild moves them, the documentation is wrong and this fails.
         counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
-        self.assertEqual(counts["readings"], 734908)
+        # Was 734,908 until the collector's account of the test station was
+        # applied: its 11-column solar layout is system setup, not measurement,
+        # so 3,994 readings left and 2,150 more were duplicates of rows already
+        # held in the other excluded file.
+        self.assertEqual(counts["readings"], 730914)
         self.assertEqual(counts["files"], 364)
         self.assertEqual(counts["stations"], 8)
-        self.assertEqual(counts["duplicate_ts"], 4399)
-        self.assertEqual(counts["notes"], 10)
-        self.assertEqual(counts["unconfirmed_regimes"], 11)
+        self.assertEqual(counts["duplicate_ts"], 2249)
+        self.assertEqual(counts["notes"], 12)
+        # Was 11 until the collector confirmed the aisvn recompile boundary and
+        # eight millivolt windows with it, then 3, then 2 once test.solar2_v
+        # lost its data. Every remaining one needs the firmware, not more data.
+        self.assertEqual(counts["unconfirmed_regimes"], 2)
         self.assertEqual(counts["headerless_without_donor"], 0)
 
     def test_malformed_rejects_cover_the_excluded_and_nulled_cells(self):
-        # 6 repeated header rows
-        # + 100 excluded pre-reinstall rows in aisvn/IFTTT_aisvn (25).xlsx
-        # + the phumy2.solar2_v stuck-at-zero window (2022-10 .. 2023-12)
-        # All three must stay visible rather than silently dropped.
+        # Four reasons, and all four must stay visible rather than be dropped:
+        #   220,074  the phumy2.solar2_v stuck-at-zero window (2022-10 .. 2023-12)
+        #     6,144  the test station's 11-column solar layout, excluded as setup
+        #       100  the pre-reinstall rows in aisvn/IFTTT_aisvn (25).xlsx
+        #         3  repeated header rows
+        # The station_setup rows are the reason this test exists in its current
+        # form: a whole-file exclusion is the coarsest decision the pipeline
+        # makes, and "we did not ingest these two files" is only defensible if
+        # every row of them can still be pointed at.
         counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
-        self.assertEqual(counts["malformed_rejects"], 220180)
+        self.assertEqual(counts["malformed_rejects"], 226321)
+
+    def test_the_excluded_test_files_are_recorded_row_by_row(self):
+        # `test` is the station whose solar layout the collector calls system
+        # setup. The two 11-column files are excluded; the 4-column probe is not.
+        # A date cut-off would not do: IFTTT_test (1).xlsx starts 2020-06-14 but
+        # uniquely contributes 4,120 readings dated after 2020-07-01, so the
+        # exclusion is by file.
+        db = Path(__file__).resolve().parent.parent / "data" / "processed" / "solardata.db"
+        if not db.exists():
+            self.skipTest("no built database; run `python -m etl ingest` first")
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            remaining = conn.execute(
+                "SELECT COUNT(*), MIN(ts_utc) FROM readings WHERE station_id = 'test'"
+            ).fetchone()
+            solar = conn.execute(
+                "SELECT COUNT(battery_v) + COUNT(solar_v) FROM readings WHERE station_id = 'test'"
+            ).fetchone()[0]
+            excluded = conn.execute(
+                "SELECT COUNT(*) FROM rejects r JOIN source_files f ON f.file_id = r.file_id"
+                " WHERE r.reason = 'station_setup'"
+            ).fetchone()[0]
+            files = conn.execute(
+                "SELECT COUNT(DISTINCT file_id) FROM rejects WHERE reason = 'station_setup'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(remaining[0], 33377, "test should keep only the probe readings")
+        self.assertGreaterEqual(remaining[1], "2020-07-01", "no solar readings may survive")
+        self.assertEqual(solar, 0, "the excluded layout's channels must be absent")
+        self.assertEqual(excluded, 6144, "every excluded row is individually recorded")
+        self.assertEqual(files, 2, "both 11-column files are excluded")
 
     def test_the_stuck_channel_window_is_not_silently_zero(self):
         # phumy2.solar2_v reads 0.0 at every hour of 2023, which is a

@@ -29,6 +29,10 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+
+from etl.normalize.metrics import METRIC_BY_COLUMN
+from etl.rollup_schema import CHANNELS, COUNTED, channel_column, oor_columns
 
 from etl.normalize.metrics import METRIC_BY_COLUMN
 from etl.rollup_schema import CHANNELS, COUNTED, channel_column, oor_columns
@@ -191,7 +195,7 @@ def build(conn: sqlite3.Connection, *, verbose: bool = True) -> tuple[int, int, 
 
 @dataclass
 class RegimeLookup:
-    """Confirmed scales, indexed by station and channel, for O(1) day lookups."""
+    """Confirmed scales, indexed by station and channel, for O(1) lookups."""
 
     windows: dict[tuple[str, str], list[tuple[str, str | None, float, int]]] = field(
         default_factory=dict
@@ -208,8 +212,8 @@ class RegimeLookup:
             key = (row["station_id"], row["column"])
             lookup.windows.setdefault(key, []).append(
                 (
-                    row["valid_from"][:10],
-                    row["valid_to"][:10] if row["valid_to"] else None,
+                    row["valid_from"],
+                    row["valid_to"],
                     row["scale"],
                     row["regime_id"],
                 )
@@ -218,24 +222,51 @@ class RegimeLookup:
             spans.sort()
         return lookup
 
-    def for_day(self, station_id: str, column: str, day: str):
-        """``(scale, regime_id)`` for a day, or ``(1.0, None)`` if none applies.
+    @staticmethod
+    def _instant(value: str) -> datetime:
+        """Parse a stored boundary, which may be a date or a full instant."""
+        text = value.replace("Z", "")
+        if len(text) <= 10:
+            return datetime.fromisoformat(text)
+        return datetime.fromisoformat(text)
 
-        A day straddling the end of one confirmed window and the start of
-        another returns ``(1.0, None)``: the day's mean is a mixture, and
-        scaling a mixture by either scale would invent a number.
+    def for_span(
+        self, station_id: str, column: str, start: datetime, end: datetime
+    ) -> tuple[float, int | None]:
+        """The scale for a half-open ``[start, end)`` bucket, or ``(1.0, None)``.
+
+        A bucket is scaled only when it lies **entirely** inside one confirmed
+        window. A bucket that straddles the boundary is left alone rather than
+        scaled by whichever side it mostly falls on.
+
+        That is not a nicety. The `aisvn` recompile is at 08:20:00Z, so the
+        08:00 hourly bucket holds 20 minutes of millivolts and 40 of volts, and
+        the 2020-06-17 daily bucket holds both too. Scaling either would publish
+        a number that no single unit describes. Leaving them raw keeps them
+        visibly wrong, which is the honest outcome, and the hourly buckets either
+        side of the boundary are scaled correctly.
         """
         spans = self.windows.get((station_id, column))
         if not spans:
             return 1.0, None
         matching = [
             (scale, regime_id)
-            for start, end, scale, regime_id in spans
-            if start <= day and (end is None or day < end)
+            for valid_from, valid_to, scale, regime_id in spans
+            if self._instant(valid_from) <= start
+            and (valid_to is None or end <= self._instant(valid_to))
         ]
         if len(matching) == 1:
             return matching[0]
         return 1.0, None
+
+    def for_day(self, station_id: str, column: str, day: str):
+        """``(scale, regime_id)`` for a calendar day, or ``(1.0, None)``.
+
+        A day is one bucket, so this is :meth:`for_span` over the whole day and
+        inherits the same refusal to scale a straddling day.
+        """
+        start = datetime.fromisoformat(day[:10])
+        return self.for_span(station_id, column, start, start + timedelta(days=1))
 
 
 def _scale_rows(conn: sqlite3.Connection, table: str, key: str, lookup: RegimeLookup) -> int:
@@ -254,12 +285,41 @@ def _scale_rows(conn: sqlite3.Connection, table: str, key: str, lookup: RegimeLo
     present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
 
     stations_with_regimes = {station for station, _ in lookup.windows}
+    # The extent of the *data* in each bucket, not the bucket's nominal edges.
+    #
+    # A rollup bucket is a fixed-width slot, but the readings inside it are not:
+    # `aisvn`'s first day starts at 06:10Z, so the 2020-06-15 daily bucket
+    # nominally spans 24 hours while every reading in it falls after the start of
+    # the confirmed millivolt window. Testing the bucket's edges would refuse to
+    # scale a day that is entirely inside the window.
+    #
+    # This is what makes the straddle test correct rather than merely strict: the
+    # question is never "does the slot cross the boundary", it is "is any reading
+    # in this bucket on the wrong side of it".
+    extent_sql = (
+        f"SELECT station_id, substr(ts_utc, 1, {13 if key == 'ts_utc' else 10}) AS bucket,"
+        f" MIN(ts_utc) AS lo, MAX(ts_utc) AS hi FROM readings GROUP BY station_id, bucket"
+    )
+    extents = {
+        (r["station_id"], r["bucket"]): (
+            datetime.fromisoformat(r["lo"].replace("Z", "")),
+            # +1s so a reading landing exactly on an inclusive bound is inside.
+            datetime.fromisoformat(r["hi"].replace("Z", "")) + timedelta(seconds=1),
+        )
+        for r in conn.execute(extent_sql)
+    }
+
     rows = conn.execute(f"SELECT station_id, {key} AS day FROM {table}").fetchall()
     touched = 0
     for row in rows:
         if row["station_id"] not in stations_with_regimes:
             continue
-        day = row["day"][:10]
+        stamp = row["day"].replace("Z", "")
+        bucket = stamp[:13] if key == "ts_utc" else stamp[:10]
+        span = extents.get((row["station_id"], bucket))
+        if span is None:
+            continue
+        start, end = span
         assignments: list[str] = []
         params: list = []
         scaled_channels: list[str] = []
@@ -267,7 +327,7 @@ def _scale_rows(conn: sqlite3.Connection, table: str, key: str, lookup: RegimeLo
         for (station_id, column), _ in lookup.windows.items():
             if station_id != row["station_id"]:
                 continue
-            scale, regime_id = lookup.for_day(station_id, column, day)
+            scale, regime_id = lookup.for_span(station_id, column, start, end)
             if scale == 1.0 or regime_id is None:
                 continue
             touched_any = False

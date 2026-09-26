@@ -167,9 +167,9 @@ A change that silently alters the reading count is a bug even if every test
 passes, so treat the report as the acceptance test for data changes — and let
 `verify` enforce it, because it is the only check that sees the real archive.
 
-Current baseline, for comparison: **734,908 readings** across 8 stations from
-364 files, 4,399 duplicate timestamps absorbed, 106 rejected cells, 10
-recovered notes, 14 unconfirmed scale regimes.
+Current baseline, for comparison: **730,914 readings** across 8 stations from
+364 files, 2,249 duplicate timestamps absorbed, 226,321 rejected cells, 12
+recovered notes, 2 unconfirmed scale regimes.
 
 ### When the numbers *should* move
 
@@ -319,33 +319,58 @@ instead of publishing a site full of errors.
 
 These are recorded, not solved. Do not quietly decide them in code.
 
-1. **The 14 remaining unconfirmed scale regimes.** 13 are confirmed
-   (millivolts as integers, collector-verified, including `phumy2.solar2_v` and
-   `phumy2.lipo2_v`). What is left needs the firmware. The weakest are the
-   `aisvn` ×0.001 windows either side of 2020-06-17, which are only three days
-   each and sit in the commissioning period.
-2. **The `phumy2` bridge ratio.** `solar2_v` is confirmed as millivolts, but the
+1. **The 3 remaining unconfirmed scale regimes**, and the 8 `aisvn` windows that
+   were confirmed this release. Confirmed: millivolts as integers for the whole
+   record, plus the `aisvn` recompile at 2020-06-17 15:20 local, where the sheet
+   re-declares its own header at row 1482 and five channels step ~1000× in the
+   same two-minute sample. Still open: `aisvn2.lipo2_v` ×0.01 over 2020-06-18 to
+   06-23, and ×0.001 for `maker-webhooks.solar2_v` and `test.solar2_v` — both of
+   which land squarely inside their recorded bands when scaled, so the evidence is
+   good and only the firmware is missing. The collector has also confirmed ten
+   further channels as millivolts/milliamps that the detector never proposed:
+   `aisvn2.solar3_v` and `current_a_chA`/`chB`, `aisvn.load_v` and `solar2_v`
+   after the recompile, `phumy2.current2_a`, `aisvn-solar.load1_v`/`load2_v`, and
+   `maker-webhooks.current_a_chA`/`chB`. These are recorded in
+   `build_regimes.CONFIRMED_WINDOWS` once the raw store lands.
+2. **`aisvn-solar.solar_v` maxes at 3,532 mV.** A photovoltaic panel should reach
+   15–20 V open circuit, so either that input is not a panel or the station never
+   saw a real panel voltage. It flags nothing today, because 3.5 V is inside a
+   0–60 V band. The collector is asked.
+3. **`phumy2.power_w` is not a power measurement.** The hardware was never
+   implemented and the ESP32 pin reads what the collector describes as phantasy
+   values: 415,112 of 415,117 readings are exactly 0 and the remaining five are
+   13,810–19,877 W, all flagged. Stored as milliwatts and kept, as instructed,
+   with no useful band.
+4. **`maker-webhooks` resets its submission counter every 16 readings** — 526
+   resets in 8,535 readings, 523 of them with no gap in sampling. A genuine
+   reboot looks like that when the station keeps sampling, but a counter that
+   moves that fast may be something else. Unexplained.
+5. **The `phumy2` bridge ratio.** `solar2_v` is confirmed as millivolts, but the
    level steps from ~5000 mV to ~1200 mV when a bridge and load were fitted, so
    the stored value is a divider output rather than the panel voltage. Without
    the ratio, `solar2_v` after the bridge is not a panel voltage and should not
    be charted as one.
-3. **`aisvn.load_v` behaviour change.** The collector reports the load rail as
+6. **`aisvn.load_v` behaviour change.** The collector reports the load rail as
    10–12 V when a load is switched on and 0 when none is present. The 0 state
    works up to 2020-07-10 and persists sporadically until 2020-10-30
    (28,192 readings: 80% of June, 78% of July, 19% of August, 0% from November
    onwards, where the channel is 9.5–24.7 V and never 0). What changed, and
    whether the 0 readings after July are genuine or a stuck pin, is unknown.
-4. **The `aisvn` gaps.** No readings between 2020-10-25 and 2020-11-04, and
+7. **The `aisvn` gaps.** No readings between 2020-10-25 and 2020-11-04, and
    September 2020 has only 12 readings. **Confirmed by the collector: the
    collector was down, no data was lost in the Sheets export.** No action
    needed; recorded so nobody goes looking for a bug.
-5. **Non-production stations** stay excluded from published exports. `test` is
-   a WiFi probe mixed with solar channels, and its temperature channel peaks at
-   21:00, consistent with being indoors. `voltage-phumy` is an ADC calibration
-   sheet.
-6. **`phumy2.current2_a`.** Reads 155–1997 against a ±50 A band, so it is
-   milliamps, and is flagged `out_of_range` on all 415,117 rows. The scale is not
-   confirmed.
+8. **Non-production stations** stay excluded from published exports.
+   `test` is now probe-only: its 11-column solar layout is in two source files
+   and the collector regards that stretch as system setup rather than
+   measurement, so both files are excluded by `config.FILE_EXCLUSIONS` and every
+   row of them is recorded in `rejects` with reason `station_setup`. What remains
+   is 33,377 readings from the 4-column `nix`/`temp`/`wifi` probe, 2020-07-05 to
+   2020-08-21. `voltage-phumy` is an ADC calibration sheet.
+9. **`aisvn.temp_c` is in tenths before 2020-06-17 15:20 local and degrees
+   after.** 1,359 readings are the placeholder `200`, 114 are tenths (335 =
+   33.5 °C), and 55,261 after the recompile are plain degrees. The rollup will
+   store tenths throughout; until then the two are mixed in one column.
 
 ## Conventions
 

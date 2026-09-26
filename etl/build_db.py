@@ -23,11 +23,13 @@ from pathlib import Path
 from etl import __version__, stations
 from etl.config import (
     BAD_WINDOWS,
+    FILE_EXCLUSIONS,
     FLAG_DUPLICATE_TS,
     FLAG_MISALIGNED,
     NULL_WINDOWS,
     REASON_NO_SIGNAL,
     REASON_ROW_FLOOR,
+    REASON_SETUP,
     ROW_EXCLUSIONS,
     Settings,
 )
@@ -384,6 +386,19 @@ def _null_windows(
     return tuple(flags), reasons, columns
 
 
+def _file_exclusion_reason(rel_path: str) -> str | None:
+    """The reason this source file is excluded, or ``None`` to ingest it.
+
+    Matched on the path with either separator so the same tuple works whatever
+    the platform produced. A suffix match is enough because the archive has no
+    two files whose paths differ only in a leading directory.
+    """
+    for suffix, why in FILE_EXCLUSIONS:
+        if rel_path.endswith(suffix.replace("/", "\\")) or rel_path.endswith(suffix):
+            return why
+    return None
+
+
 def _insert_file(
     conn: sqlite3.Connection,
     run_id: int,
@@ -391,6 +406,7 @@ def _insert_file(
     source_dir: str,
     scan: FileScan,
     digest: str,
+    verbose: bool = True,
 ) -> FileOutcome:
     path = scan.path
     block = detect_block(path)
@@ -421,6 +437,46 @@ def _insert_file(
         ),
     )
     file_id = int(cur.lastrowid)
+
+    # A whole-file exclusion decided by the collector. The `source_files` row is
+    # already written, so the file is still on record with its digest and width;
+    # what is skipped is turning its rows into readings.
+    #
+    # Every data row is counted into `rejects` with its sheet row, so the loss is
+    # individually inspectable. That is rule 2 applied to a decision this coarse:
+    # "we did not ingest this file" is not a defensible thing to leave as a
+    # sentence in a config file, because nobody can then tell which 6,143
+    # readings went missing or check them against the raw sheet.
+    excluded = _file_exclusion_reason(scan.rel_path)
+    if excluded:
+        outcome = FileOutcome(
+            file_id=file_id,
+            rel_path=scan.rel_path,
+            station_id=station.station_id,
+            has_header=block.header is not None,
+        )
+        for sheet_row, cells in iter_cells(path, block):
+            if not cells or not cells[0] or looks_like_header(cells[0]):
+                continue
+            outcome.rejected += 1
+            conn.execute(
+                "INSERT INTO rejects"
+                " (run_id, file_id, station_id, sheet_row, column_name, raw_value, reason)"
+                " VALUES (?, ?, ?, ?, 'time', ?, ?)",
+                (run_id, file_id, station.station_id, sheet_row, cells[0], REASON_SETUP),
+            )
+        if verbose:
+            print(
+                f"    - {path.name}: excluded by the collector "
+                f"({outcome.rejected} rows -> rejects.station_setup)"
+            )
+        conn.execute(
+            "INSERT INTO notes (run_id, station_id, file_id, ts_utc, column_name, note)"
+            " VALUES (?, ?, ?, NULL, NULL, ?)",
+            (run_id, station.station_id, file_id, excluded),
+        )
+        outcome.notes += 1
+        return outcome
 
     # A donor header can be wider or narrower than the file it describes; only
     # the columns the file actually has are meaningful.
@@ -686,7 +742,7 @@ def ingest(settings: Settings, *, verbose: bool = True) -> RunSummary:
         for scan in scans:
             digest = file_digest(scan.path)
             try:
-                outcome = _insert_file(conn, run_id, station, raw_dir.name, scan, digest)
+                outcome = _insert_file(conn, run_id, station, raw_dir.name, scan, digest, verbose)
             except Exception as exc:
                 # One malformed file must not abandon the other 363.  The
                 # failure is counted and printed, and the quality report shows

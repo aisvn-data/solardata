@@ -59,6 +59,111 @@ CONFIRMED: tuple[tuple[str, str, float], ...] = (
     ("phumy2", "lipo2_v", 0.001),
 )
 
+#: Regimes the collector has confirmed *with an explicit window*, as
+#: (station_id, column, scale, valid_from, valid_to, why).
+#:
+#: These are the channels whose scale changes partway through the record, which
+#: :data:`CONFIRMED` cannot express: it deliberately pins a whole channel, on the
+#: collector's word that the unit is constant. For `aisvn` it is not.
+#:
+#: The collector recompiled the applet on 2020-06-17 and the sheet *re-declares
+#: its own header mid-file* to say so. ``IFTTT_aisvn.xlsx`` row 1481 reads
+#: 03:18PM with ten columns and ``solar 13964, battery 13814, current 398,
+#: temp 336``; row 1482 is a second header row reading
+#: ``time, solar, battery, current, power, load, wind, temp, solar2, LiPo``; and
+#: row 1483 reads 03:20PM with eleven columns and ``solar 13.61, battery 13.54,
+#: current 0.36, temp 31.3``. Five channels step by ~1000x in the same
+#: two-minute sample, which is a firmware change and not four coincidences.
+#:
+#: So for these channels the first stretch is millivolts and everything after is
+#: volts, and the boundary is an *instant*:
+#:
+#:     2020-06-17T08:18:00Z  last millivolt sample  (03:18PM local)
+#:     2020-06-17T08:20:00Z  first volt sample      (03:20PM local)
+#:
+#: The detector had proposed ``valid_to = 2020-06-18T01:48:00Z`` for four of
+#: these, which is 17h28m too late: everything after 08:20 was already in volts
+#: and would have been scaled a thousand times too small. Confirming a window
+#: that is 17 hours wrong is worse than leaving it unconfirmed, because an
+#: unconfirmed regime is visibly unconfirmed.
+#:
+#: `current_a` is here for the same reason (milliamps before, amperes after)
+#: even though it has no rollup column, so it changes no published value today;
+#: the unit is the collector's statement and belongs recorded next to the others.
+CONFIRMED_WINDOWS: tuple[tuple[str, str, float, str, str, str], ...] = (
+    (
+        "aisvn",
+        "solar_v",
+        0.001,
+        "2020-06-15T06:10:00Z",
+        "2020-06-17T08:20:00Z",
+        "collector: applet recompiled 2020-06-17 15:20 local; sheet row 1482 "
+        "re-declares the header and the channel switches from mV to V",
+    ),
+    (
+        "aisvn",
+        "solar2_v",
+        0.001,
+        "2020-06-15T06:10:00Z",
+        "2020-06-17T08:20:00Z",
+        "collector: same recompile; row 1483 reads 4.47 V where row 1481 read 4474 mV",
+    ),
+    (
+        "aisvn",
+        "battery_v",
+        0.001,
+        "2020-06-15T06:10:00Z",
+        "2020-06-17T08:20:00Z",
+        "collector: same recompile; row 1483 reads 13.54 V where row 1481 read 13814 mV",
+    ),
+    (
+        "aisvn",
+        "lipo_v",
+        0.001,
+        "2020-06-15T06:10:00Z",
+        "2020-06-17T08:20:00Z",
+        "collector: same recompile; row 1483 reads 4.14 V where row 1481 read 4125 mV",
+    ),
+    (
+        "aisvn",
+        "load_v",
+        0.001,
+        "2020-06-15T06:10:00Z",
+        "2020-06-17T08:20:00Z",
+        "collector: same recompile; load moved one column right and row 1483 "
+        "reads 4.95 V where row 1481 read 0 mV",
+    ),
+    (
+        "aisvn",
+        "wind_v",
+        0.001,
+        "2020-06-15T06:10:00Z",
+        "2020-06-17T08:20:00Z",
+        "collector: same recompile; wind moved one column right and is 0 either "
+        "side, so the scale is inferred from its neighbours rather than read",
+    ),
+    (
+        "aisvn",
+        "current_a",
+        0.001,
+        "2020-06-15T06:10:00Z",
+        "2020-06-17T08:20:00Z",
+        "collector: mA before the recompile, A after. Independently confirmed -- "
+        "mean |current| after the recompile is 2.6233 A against 2.6231 A implied "
+        "by power/voltage over the same samples",
+    ),
+    (
+        "aisvn",
+        "temp_c",
+        0.1,
+        "2020-06-17T04:12:00Z",
+        "2020-06-17T08:20:00Z",
+        "collector: 200 is a placeholder until 11:12 local; the 114 readings "
+        "from 11:14 to 15:18 are tenths of a degree (335 = 33.5), and the "
+        "channel is plain degrees after the recompile",
+    ),
+)
+
 
 def _channel_extent(conn, station_id: str, column: str) -> tuple[str | None, str | None]:
     """First and last instant a channel has any value at all."""
@@ -108,6 +213,38 @@ def apply_confirmed(conn) -> int:
                     {
                         "scale": scale,
                         "source": "collector confirmation, window from channel extent",
+                        "confirmed_against_firmware": True,
+                    }
+                ),
+            ),
+        )
+        written += 1
+    for station_id, column, scale, valid_from, valid_to, why in CONFIRMED_WINDOWS:
+        # A windowed confirmation speaks for the whole channel: the collector
+        # has said what the unit is and when it changed, so any proposal for the
+        # same channel is superseded, including proposals for stretches the
+        # detector thought were unscaled.
+        conn.execute(
+            "DELETE FROM regimes WHERE station_id = ? AND column = ?   AND status = 'unconfirmed'",
+            (station_id, column),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO regimes"
+            " (station_id, column, unit, valid_from, valid_to, scale, status,"
+            "  detected_by, confidence, notes, evidence)"
+            " VALUES (?, ?, ?, ?, ?, ?, 'confirmed', 'manual', 'high', ?, ?)",
+            (
+                station_id,
+                column,
+                METRIC_BY_COLUMN[column].unit if column in METRIC_BY_COLUMN else None,
+                valid_from,
+                valid_to,
+                scale,
+                why,
+                json.dumps(
+                    {
+                        "scale": scale,
+                        "source": "collector confirmation, explicit window",
                         "confirmed_against_firmware": True,
                     }
                 ),

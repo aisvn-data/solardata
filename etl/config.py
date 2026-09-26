@@ -51,8 +51,51 @@ FLAG_MISALIGNED = "schema_misaligned"
 #: groups by this column, so a sentence here turns a count into a singleton.
 #: The reasoning behind a window belongs in ``NULL_WINDOWS``/``BAD_WINDOWS``
 #: below, which is version-controlled prose stored exactly once.
+REASON_SETUP = "station_setup"
 REASON_NO_SIGNAL = "null_window"
 REASON_ROW_FLOOR = "pre_reinstall"
+
+#: Whole source files excluded from ``readings``, as (rel_path, why).
+#:
+#: Wider than :data:`ROW_EXCLUSIONS`, which drops rows *before* a sheet row in a
+#: file that is otherwise ingested. This drops the file: every data row in it is
+#: counted into ``rejects`` with :data:`REASON_SETUP` and its sheet row recorded,
+#: so the loss is individually inspectable rather than a number in a report.
+#:
+#: Both entries are the ``test`` station's 11-column *solar* layout. The
+#: collector's account of the station is that the solar stretch was system setup
+#: rather than measurement, and that the measurements are the 4-column probe
+#: (``time, nix, temp, wifi``) from 2020-07-05 onwards.
+#:
+#: The exclusion is by file rather than by date because the archive does not
+#: respect the date. ``IFTTT_test (1).xlsx`` *starts* on 2020-06-14 but every
+#: row it uniquely contributes is dated 2020-07-01 18:18 to 2020-07-08 12:12 --
+#: its June rows duplicate ``IFTTT_test.xlsx`` and were absorbed by the primary
+#: key. A timestamp cut-off at 2020-07-01 would therefore have kept 4,120 solar
+#: readings from July, which the collector does not consider measurements.
+#:
+#: What remains is 33,377 readings from the 4-column probe files, spanning
+#: 2020-07-05 to 2020-08-21, with no solar channel at all. Excluding the two
+#: files removes 3,994 readings outright and a further 2,150 rows that were
+#: already duplicates of rows held in the other file -- which is why
+#: `duplicate_ts` falls by 2,150 and the recorded exclusion is 6,144 rows
+#: rather than 3,994. The two numbers are both correct and they answer different
+#: questions: what left the readings, and what left the archive.
+FILE_EXCLUSIONS: tuple[tuple[str, str], ...] = (
+    (
+        "test/IFTTT_test.xlsx",
+        "collector: the test station's 11-column solar layout is system setup, "
+        "not measurement. The station's readings are the 4-column probe that "
+        "follows it",
+    ),
+    (
+        "test/IFTTT_test (1).xlsx",
+        "collector: same 11-column solar layout. This file starts 2020-06-14 but "
+        "its June rows duplicate IFTTT_test.xlsx, so everything it uniquely "
+        "contributes is 4,120 readings dated 2020-07-01 to 07-08 -- after the "
+        "probe had already begun, and still not measurements",
+    ),
+)
 
 # ---------------------------------------------------------------------------
 # Row-level exclusions, decided by the person who collected the data.
