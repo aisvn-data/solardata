@@ -283,15 +283,32 @@ class TestIngest(unittest.TestCase):
         conn.close()
 
     def test_aggregates_are_built(self):
+        # The rollups are a separate stage now: they need the regimes table, so
+        # they are built after the detector rather than inside the ingest.
         ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        hourly = conn.execute("SELECT * FROM readings_hourly").fetchone()
-        daily = conn.execute("SELECT * FROM readings_daily").fetchone()
+        conn = connect(self.settings.db_path)
+        try:
+            from etl.build_aggregate import build
+
+            build(conn, verbose=False)
+            hourly = conn.execute("SELECT * FROM readings_hourly").fetchone()
+            daily = conn.execute("SELECT * FROM readings_daily").fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(hourly, "no hourly rollup was built")
         self.assertEqual(hourly["n_samples"], 10)
         self.assertEqual(daily["n_samples"], 10)
         self.assertEqual(daily["day"], "2020-07-14")
         self.assertAlmostEqual(daily["energy_wh"], hourly["energy_wh"], places=6)
+
+    def test_ingest_alone_does_not_build_rollups(self):
+        """The ordering is load-bearing: scaling needs the regimes table, so
+        rolling up during the ingest would silently produce unscaled values."""
+        ingest(self.settings, verbose=False)
+        conn = connect(self.settings.db_path, read_only=True)
+        count = conn.execute("SELECT COUNT(*) FROM readings_daily").fetchone()[0]
         conn.close()
+        self.assertEqual(count, 0, "ingest must not populate the rollups")
 
     def test_station_coverage_is_filled_in(self):
         ingest(self.settings, verbose=False)

@@ -583,76 +583,6 @@ def _insert_file(
     return outcome
 
 
-def build_aggregates(conn: sqlite3.Connection) -> tuple[int, int]:
-    """Materialise the hourly and daily rollups the website reads.
-
-    Daily energy is derived from the hourly table rather than from ``readings``,
-    because averaging then summing in one pass over per-sample rows would
-    weight partial hours the same as full ones.
-    """
-    conn.execute("DELETE FROM readings_hourly")
-    hourly = conn.execute(
-        """
-        INSERT INTO readings_hourly
-            (station_id, ts_utc, n_samples, n_out_of_range,
-             solar_v_avg, solar_v_max, solar_v_min,
-             solar2_v_avg, solar2_v_max,
-             battery_v_avg, battery_v_min, battery_v_max,
-             battery2_v_min, battery2_v_max,
-             power_w_avg, power_w_max,
-             temp_c_avg, temp_c_min, temp_c_max,
-             current_a_avg, energy_wh)
-        SELECT
-            station_id,
-            substr(ts_utc, 1, 13) || ':00:00Z' AS hour,
-            COUNT(*),
-            SUM(quality_flags LIKE '%out_of_range%'),
-            AVG(solar_v),   MAX(solar_v),   MIN(solar_v),
-            AVG(solar2_v),  MAX(solar2_v),
-            AVG(battery_v), MIN(battery_v), MAX(battery_v),
-            MIN(battery2_v), MAX(battery2_v),
-            AVG(power_w),   MAX(power_w),
-            AVG(temp_c),    MIN(temp_c),    MAX(temp_c),
-            AVG(current_a),
-            AVG(power_w) * (COUNT(*) * 2.0 / 3600.0)   -- 2-minute nominal cadence
-        FROM readings
-        GROUP BY station_id, hour
-        """
-    ).rowcount
-
-    conn.execute("DELETE FROM readings_daily")
-    daily = conn.execute(
-        """
-        INSERT INTO readings_daily
-            (station_id, day, ts_utc_day, n_samples, n_out_of_range, n_hours,
-             solar_v_avg, solar_v_max,
-             solar2_v_avg, solar2_v_max,
-             battery_v_min, battery_v_max,
-             battery2_v_min, battery2_v_max,
-             power_w_avg, power_w_max, energy_wh,
-             temp_c_min, temp_c_avg, temp_c_max)
-        SELECT
-            h.station_id,
-            substr(h.ts_utc, 1, 10)                       AS day,
-            substr(h.ts_utc, 1, 11) || '00:00:00Z'        AS day_start,
-            SUM(h.n_samples),
-            SUM(h.n_out_of_range),
-            COUNT(*),
-            AVG(h.solar_v_avg),   MAX(h.solar_v_max),
-            AVG(h.solar2_v_avg),  MAX(h.solar2_v_max),
-            MIN(h.battery_v_min), MAX(h.battery_v_max),
-            MIN(h.battery2_v_min), MAX(h.battery2_v_max),
-            AVG(h.power_w_avg),   MAX(h.power_w_max),
-            SUM(h.energy_wh),
-            MIN(h.temp_c_min),    AVG(h.temp_c_avg),    MAX(h.temp_c_max)
-        FROM readings_hourly h
-        GROUP BY h.station_id, day
-        """
-    ).rowcount
-    conn.commit()
-    return hourly, daily
-
-
 def _update_station_ranges(conn: sqlite3.Connection) -> None:
     """Store each station's actual observed coverage on the stations row."""
     conn.execute(
@@ -745,14 +675,15 @@ def ingest(settings: Settings, *, verbose: bool = True) -> RunSummary:
                 f"   dup {summary.rows_duplicate:>6}   reject {summary.rows_rejected:>5}"
             )
 
-    if verbose:
-        print("\nbuilding hourly/daily aggregates ...")
-    hourly, daily = build_aggregates(conn)
+    # The rollups are built by the `aggregate` stage, not here. Rolling up now
+    # would mean the daily table was built before the regime detector ran, so
+    # the collector-confirmed unit corrections could not be applied. See
+    # etl/build_aggregate.py.
 
     notes = (
         f"{summary.files} files; {summary.rows_ingested} rows; "
         f"{summary.rows_duplicate} duplicate timestamps absorbed; "
-        f"{summary.rows_rejected} rejected; {hourly} hourly / {daily} daily buckets"
+        f"{summary.rows_rejected} rejected"
     )
     finish_run(conn, run_id, notes)
     log_build(

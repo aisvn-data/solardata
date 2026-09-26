@@ -47,15 +47,17 @@ jobs:
         run: pip install -r requirements.txt
 
       # Every stage the baseline depends on has to run before `verify`, and the
-      # set is not obvious: `ingest` rebuilds the database from scratch but does
-      # NOT populate `regimes` -- that is a separate stage. Skipping it left the
-      # table empty and the guard correctly reported `unconfirmed_regimes: 14 ->
-      # 0`. `report` is here for the same reason: the quality report is uploaded
-      # as a release asset and must be regenerated, not copied from the commit.
+      # set is not obvious: `ingest` rebuilds the database but does NOT populate
+      # `regimes` or the rollups -- those are separate stages. Skipping them
+      # left the tables empty and the guard correctly reported
+      # `unconfirmed_regimes: 14 -> 0`. `report` is here for the same reason: the
+      # quality report is uploaded as a release asset and must be regenerated,
+      # not copied from the commit.
       - name: Build the database
         run: |
           python -m etl ingest --quiet
           python -m etl regimes
+          python -m etl aggregate
           python -m etl report
 
       # Never publish a database that does not match the recorded baseline. An

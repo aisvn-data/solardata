@@ -124,7 +124,17 @@ function decorateRow(row) {
     tempMin: num(row.temp_c_min),
     tempAvg: num(row.temp_c_avg),
     tempMax: num(row.temp_c_max),
+    // Comma-separated channels that had a collector-confirmed scale applied to
+    // this day's aggregate, e.g. 'solar2_v,lipo2_v'. Empty means the value is
+    // exactly what the sensor reported, which for a confirmed millivolt channel
+    // would mean the chart is about to show 1000x too much.
+    scaledChannels: row.scaled_channels || '',
   }
+}
+
+/** True when any row in this set had a confirmed unit correction applied. */
+export function anyScaled(rows) {
+  return rows.some((row) => row.scaledChannels)
 }
 
 /** Empty CSV cell -> null. Never 0: see the note at the top of this file. */

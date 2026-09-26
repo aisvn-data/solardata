@@ -333,4 +333,57 @@ check('daily rollups carry the out-of-range count for the inspector', () => {
   assert.ok(flagged.length > 0, 'expected at least one flagged day')
 })
 
+check('confirmed millivolt channels are converted, so the axis is in volts', () => {
+  // Before the fix aisvn-solar plotted a solar axis of ~4570 for a ~4.6 V panel,
+  // and phumy2 ~1384. The confirmed x0.001 regimes are applied in the aggregate
+  // stage, so the exported values must already be volts.
+  for (const [station, year, column, ceiling] of [
+    ['aisvn-solar', '2020', 'solar_v_avg', 6],
+    ['phumy2', '2020', 'solar2_v_avg', 6],
+    ['phumy2', '2021', 'solar2_v_avg', 6],
+    ['aisvn2', '2020', 'battery2_v_min', 20],
+  ]) {
+    const rows = parseCsv(
+      readFileSync(join(DATA, station, 'daily', `${year}.csv`), 'utf8'),
+    )
+    const values = rows.map((r) => num(r[column])).filter((v) => v !== null)
+    assert.ok(values.length > 0, `${station} ${column} has no values`)
+    const max = Math.max(...values)
+    assert.ok(max <= ceiling, `${station} ${year} ${column} max ${max} exceeds ${ceiling} V`)
+  }
+})
+
+check('every converted day says which channels were converted', () => {
+  // An unexplained 1000x correction is indistinguishable from a bug. The
+  // channel differs per station -- aisvn2 has battery2_v but no solar channel
+  // at all -- so each is named explicitly rather than guessed.
+  for (const [station, year, channel] of [
+    ['aisvn-solar', '2020', 'solar_v_avg'],
+    ['phumy2', '2020', 'solar2_v_avg'],
+    ['aisvn2', '2020', 'battery2_v_min'],
+  ]) {
+    const rows = parseCsv(readFileSync(join(DATA, station, 'daily', `${year}.csv`), 'utf8'))
+    assert.ok('scaled_channels' in rows[0], `${station} has no scaled_channels column`)
+    const converted = rows.filter((r) => num(r[channel]) !== null)
+    assert.ok(converted.length > 0, `${station} has no ${channel} values to check`)
+    for (const row of converted) {
+      assert.ok(
+        row.scaled_channels !== '',
+        `${station} ${row.day} has a ${channel} value but records no conversion`,
+      )
+    }
+  }
+})
+
+check('the last day of a channel is inside its confirmed window', () => {
+  // Regression. valid_to is the *exclusive* end, so writing the last day's own
+  // date dropped it from the half-open window -- aisvn-solar kept a raw 601 V on
+  // 2020-06-12 and phumy2 a raw 1384 V on 2024-02-01.
+  const rows = parseCsv(readFileSync(join(DATA, 'aisvn-solar', 'daily', '2020.csv'), 'utf8'))
+  const last = rows[rows.length - 1]
+  const value = num(last.solar_v_avg)
+  assert.ok(value !== null, 'the final day has no solar value')
+  assert.ok(value < 50, `final day still unscaled: ${value}`)
+})
+
 console.log(`\n${passed} checks passed`)

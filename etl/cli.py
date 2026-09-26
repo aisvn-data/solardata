@@ -10,7 +10,7 @@ from pathlib import Path
 from etl import __version__
 from etl.config import Settings, settings_from_env
 
-STAGES = ("db", "regimes", "parquet", "export", "report", "verify")
+STAGES = ("db", "regimes", "aggregate", "parquet", "export", "report", "verify")
 
 
 #: Optional flags and their defaults.  The shared parent parser is built with
@@ -196,9 +196,31 @@ def cmd_report(args) -> int:
     return 0
 
 
-STAGE_ORDER = ("regimes", "parquet", "export", "report")
+def cmd_aggregate(args) -> int:
+    from etl.build_aggregate import build
+    from etl.db import connect, log_build
+
+    settings = _settings(args)
+    if not settings.db_path.exists():
+        print(f"no database at {settings.db_path}; run `ingest` first", file=sys.stderr)
+        return 1
+    conn = connect(settings.db_path)
+    try:
+        if not args.quiet:
+            print("building hourly/daily rollups ...")
+        hourly, daily, scaled = build(conn, verbose=not args.quiet)
+        log_build(conn, None, "aggregate", "readings_hourly,readings_daily", hourly + daily, 0)
+        if not args.quiet:
+            print(f"  {hourly} hourly / {daily} daily buckets, {scaled} scaled")
+    finally:
+        conn.close()
+    return 0
+
+
+STAGE_ORDER = ("regimes", "aggregate", "parquet", "export", "report")
 STAGE_FUNCS = {
     "regimes": cmd_regimes,
+    "aggregate": cmd_aggregate,
     "parquet": cmd_parquet,
     "export": cmd_export,
     "report": cmd_report,
@@ -333,6 +355,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     regimes = sub.add_parser("regimes", parents=[common], help="detect unit-scale changes")
     regimes.set_defaults(func=cmd_regimes)
+
+    aggregate = sub.add_parser(
+        "aggregate",
+        parents=[common],
+        help="build the hourly/daily rollups, applying confirmed scales",
+    )
+    aggregate.set_defaults(func=cmd_aggregate)
 
     parquet = sub.add_parser("parquet", parents=[common], help="SQLite -> partitioned Parquet")
     parquet.set_defaults(func=cmd_parquet)
