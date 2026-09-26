@@ -153,26 +153,42 @@ spreadsheet column it came from. Currently 10 rows; see `CHANGELOG.md` F4.
 
 Pre-aggregated so the website never scans the raw table. `readings_daily` is
 derived from `readings_hourly`, so the two cannot disagree — `check_frontend.mjs`
-asserts that every day and every sample count matches across the pair.
+checks that every day and every sample count matches across the pair.
+
+Which columns exist, and which statistic each one holds, is declared **once**, in
+`etl/rollup_schema.py`, and imported by both the aggregate stage and the export
+stage. Three places need to agree on that list — the schema, the SQL and the CSV
+header — and they already had drifted once.
 
 - `day` is the **local** calendar day; `ts_utc_day` is the UTC midnight of that
   local day. They are not the same instant and both are provided.
-- `n_out_of_range` counts samples in the bucket that carried the flag on **any**
-  channel. It is a row-level count, so a day can be flagged because of a channel
-  the chart is not drawing; the site therefore applies the band per drawn value
-  rather than trusting this count to identify which value is suspect.
-- `energy_wh` assumes a 2-minute nominal cadence
-  (`avg_power * n_samples * 2 / 3600`), which matches 357 of 364 files.
+- `<channel>_<stat>` is `avg`, `min` or `max`, chosen per channel: a LiPo pack's
+  health is its lowest reading, a power spike is a peak.
+- `<channel>_n_oor` counts the samples in the bucket whose value fell outside the
+  channel's band in `etl/normalize/metrics.py`, applied one channel at a time.
+  This exists because the row-level `n_out_of_range` cannot say *which* channel
+  broke: for `phumy2` every sample of every hour is flagged (`current2_a` reads
+  ~232 against a ±50 A band), so 30-of-30 carries no information — while the same
+  hour's `power_w_n_oor` of 1 is the entire finding. That hour averages one
+  sample of 19,877 W into 29 zeros and lands on 662.57 W, inside the ±2000 W
+  band, so the value alone says nothing is wrong.
 - `boot_count_min` / `boot_count_max` carry the logger's own monotonic read
   counter, which resets on reboot. Min and max, never a mean: a mean across a
   reboot averages two boot sessions into a number that never happened. A bucket
   whose min is 1 restarted; the max is how long it had been up. This is the only
   channel recording the hardware's view of its own uptime, and it is absent for
   `solar-2020-05` and `voltage-phumy`, whose sheets have no such column.
-- The two tables do not carry the same statistics. `readings_hourly` has
-  `battery_v_avg` and `readings_daily` does not, so the daily battery column is
-  `battery_v_min` — the day's lowest. The site names the statistic in its
-  readout, because both appear under one "Battery" label.
+- `energy_wh` assumes a 2-minute nominal cadence
+  (`avg_power * n_samples * 2 / 3600`), which matches 357 of 364 files.
+
+### `channel_ranges` (in `quality.json`, not a table)
+
+What each channel actually recorded, per station, beside what it is banded to.
+The band is one global answer per column name and is not enough on its own:
+`battery_v` is banded 9–16 V for a 3S LiPo and `aisvn` reads up to 29.6 V. That is
+either a second pack, an unconfirmed scale, or a band wrong for the site it is
+installed in, and the archive cannot say which — so both are reported and the
+disagreement is the finding.
 
 ## Artefacts
 

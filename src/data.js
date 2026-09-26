@@ -77,12 +77,42 @@ export function loadQuality() {
  */
 export function loadBands() {
   if (!cache.has('bands')) {
-    cache.set(
-      'bands',
-      fetchJson('metrics.json').then((payload) => payload.bands ?? {}),
-    )
+    cache.set('bands', fetchJson('metrics.json').then((payload) => payload.bands ?? {}))
   }
   return cache.get('bands')
+}
+
+/**
+ * What each channel actually did, per station, from `quality.json`.
+ *
+ * The band in `metrics.json` answers "what should this hardware produce" and is
+ * one global answer per column name. That is not enough here: `battery_v` is
+ * banded 9-16 V for a 3S LiPo and `aisvn` reads 17.6-29.6 V on 23 of its 101 days
+ * in 2020. Either that is a second pack, an unconfirmed scale, or a band wrong
+ * for the site it is installed in, and the archive cannot say which. So the
+ * observed range is reported beside the band, never instead of it, and the two
+ * disagreeing is the finding rather than a nuisance to be smoothed over.
+ */
+export function loadChannelRanges() {
+  if (!cache.has('ranges')) {
+    cache.set(
+      'ranges',
+      loadQuality().then((q) => {
+        const byStation = new Map()
+        for (const row of q.channel_ranges ?? []) {
+          if (!byStation.has(row.station_id)) byStation.set(row.station_id, new Map())
+          byStation.get(row.station_id).set(row.column, row)
+        }
+        return byStation
+      }),
+    )
+  }
+  return cache.get('ranges')
+}
+
+/** The per-station ranges for one station, or an empty Map. */
+export function rangesFor(stationId) {
+  return loadChannelRanges().then((all) => all.get(stationId) ?? new Map())
 }
 
 /** The two resolutions the exporter publishes, in the order the UI offers them. */
@@ -141,23 +171,56 @@ const VALUE_COLUMNS = {
   daily: {
     solar_v: ['solar_v_avg', 'mean'],
     solar2_v: ['solar2_v_avg', 'mean'],
-    battery_v: ['battery_v_min', 'min'],
-    battery2_v: ['battery2_v_min', 'min'],
+    solar3_v: ['solar3_v_avg', 'mean'],
+    battery_v: ['battery_v_avg', 'mean'],
+    battery2_v: ['battery2_v_avg', 'mean'],
+    lipo_v: ['lipo_v_avg', 'mean'],
+    lipo2_v: ['lipo2_v_avg', 'mean'],
+    current_a: ['current_a_avg', 'mean'],
+    current_a_chA: ['current_a_chA_avg', 'mean'],
+    current_a_chB: ['current_a_chB_avg', 'mean'],
+    current2_a: ['current2_a_avg', 'mean'],
     power_w: ['power_w_avg', 'mean'],
+    load_v: ['load_v_avg', 'mean'],
+    load1_v: ['load1_v_avg', 'mean'],
+    load2_v: ['load2_v_avg', 'mean'],
+    wind_v: ['wind_v_avg', 'mean'],
     temp_c: ['temp_c_avg', 'mean'],
-    energy_wh: ['energy_wh', 'total'],
-    boot_count_max: ['boot_count_max', 'max'],
+    voltage_adc: ['voltage_adc_avg', 'mean'],
+    digital_adc: ['digital_adc_avg', 'mean'],
   },
   hourly: {
     solar_v: ['solar_v_avg', 'mean'],
     solar2_v: ['solar2_v_avg', 'mean'],
+    solar3_v: ['solar3_v_avg', 'mean'],
     battery_v: ['battery_v_avg', 'mean'],
-    battery2_v: ['battery2_v_min', 'min'],
+    battery2_v: ['battery2_v_avg', 'mean'],
+    lipo_v: ['lipo_v_avg', 'mean'],
+    lipo2_v: ['lipo2_v_avg', 'mean'],
+    current_a: ['current_a_avg', 'mean'],
+    current_a_chA: ['current_a_chA_avg', 'mean'],
+    current_a_chB: ['current_a_chB_avg', 'mean'],
+    current2_a: ['current2_a_avg', 'mean'],
     power_w: ['power_w_avg', 'mean'],
+    load_v: ['load_v_avg', 'mean'],
+    load1_v: ['load1_v_avg', 'mean'],
+    load2_v: ['load2_v_avg', 'mean'],
+    wind_v: ['wind_v_avg', 'mean'],
     temp_c: ['temp_c_avg', 'mean'],
-    energy_wh: ['energy_wh', 'total'],
-    boot_count_max: ['boot_count_max', 'max'],
+    voltage_adc: ['voltage_adc_avg', 'mean'],
+    digital_adc: ['digital_adc_avg', 'mean'],
   },
+}
+
+/** `energy_wh` and the uptime counter are not in VALUE_COLUMNS: they are derived
+ *  quantities rather than a channel's mean, and the bootstrap counter is a max. */
+function valueColumns(folder) {
+  const base = VALUE_COLUMNS[folder]
+  return {
+    ...base,
+    energy_wh: ['energy_wh', 'total'],
+    boot_count_max: ['boot_count_max', 'peak'],
+  }
 }
 
 function decorateRow(raw, folder) {
@@ -167,12 +230,22 @@ function decorateRow(raw, folder) {
   // is therefore not the start of the local day. The two differ by 7 hours in
   // Asia/Ho_Chi_Minh, which is why the label and the instant are kept apart.
   const instant = hourly ? raw.ts_utc : `${raw.day}T00:00:00Z`
-  const columns = VALUE_COLUMNS[folder]
+  const columns = valueColumns(folder)
   const values = {}
   const stats = {}
   for (const [channel, [column, stat]] of Object.entries(columns)) {
     values[channel] = num(raw[column])
     stats[channel] = stat
+  }
+  // Per-metric out-of-range counts, kept per channel rather than summarised into
+  // the row-level `n_out_of_range`, because the row-level count cannot say which
+  // channel broke. Every sample of every phumy2 hour is flagged (current2_a reads
+  // ~232 against a +/-50 A band), so 30-of-30 tells you nothing; the same hour's
+  // `power_w_n_oor` of 1 is the whole finding.
+  const oor = {}
+  for (const channel of Object.keys(columns)) {
+    const n = num(raw[`${channel}_n_oor`])
+    if (n !== null) oor[channel] = n
   }
   return {
     // The row's own identifier, kept verbatim so a value on screen can be found
@@ -196,6 +269,7 @@ function decorateRow(raw, folder) {
     nOutOfRange: num(raw.n_out_of_range) ?? 0,
     values,
     stats,
+    oor,
     // Comma-separated channels that had a collector-confirmed scale applied to
     // this bucket's aggregate, e.g. 'solar2_v,lipo2_v'. Empty means the value is
     // exactly what the sensor reported, which for a confirmed millivolt channel
@@ -216,65 +290,103 @@ function num(value) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-export const METRICS = [
-  {
-    key: 'solar',
-    label: 'Solar voltage',
-    unit: 'V',
-    colour: '#d97706',
-    // The stations number their second panel input `solar2`, so "the solar
-    // voltage of this station" is whichever member of the family it logs.
-    channels: ['solar_v', 'solar2_v'],
-    decimals: 2,
-  },
-  {
-    key: 'battery',
-    label: 'Battery',
-    unit: 'V',
-    colour: '#2f855a',
-    channels: ['battery_v', 'battery2_v'],
-    decimals: 2,
-  },
-  {
-    key: 'power',
-    label: 'Power',
-    unit: 'W',
-    colour: '#805ad5',
-    channels: ['power_w'],
-    decimals: 1,
-  },
-  {
-    key: 'temp',
-    label: 'Temperature',
-    unit: '°C',
-    colour: '#2b6cb0',
-    channels: ['temp_c'],
-    decimals: 1,
-  },
-  {
-    key: 'energy',
-    label: 'Energy',
-    unit: 'Wh',
-    colour: '#b7791f',
-    channels: ['energy_wh'],
-    decimals: 1,
-  },
-  {
-    key: 'boot',
-    // The logger's own monotonic counter, which resets when it reboots. Shown
-    // because it is the only channel that records the hardware's view of its own
-    // uptime: a line that climbs and drops to 1 is the station restarting, which
-    // is also where the gaps in the other channels come from. It is a count, not
-    // a measurement, so it has no plausibility band and is never flagged.
-    label: 'Uptime counter',
-    unit: 'reads',
-    colour: '#4c51bf',
-    channels: ['boot_count_max'],
-    decimals: 0,
-  },
+export const METRICS = []
+
+/** Shown when a channel has no recorded plausibility band. */
+const NO_BAND = { unit: '', lo: null, hi: null }
+
+/**
+ * Every channel the loaded rollup actually has data for, in a stable order.
+ *
+ * Discovered, not declared. A fixed list of six hand-picked metrics is a claim
+ * about the archive that stopped being true: `aisvn2` logs `solar3_v` and no
+ * `power_w` or `temp_c` at all, `phumy2` logs `lipo2_v`, and neither fact could
+ * be expressed when the picker iterated a hardcoded `METRICS`. `solar3_v` was in
+ * `readings`, in the rollups and in the database the whole time, and simply had
+ * nowhere to appear -- so selecting AISVN #2 offered nothing that worked.
+ *
+ * Order is by kind then name, so the picker groups the way a reader thinks:
+ * voltages, then currents, then power, then temperature, then the derived
+ * quantities. The same channel is one entry regardless of which numbered variant
+ * of it a station uses, because a station that logs `solar2` has exactly one
+ * "Solar 2" channel and pretending otherwise would be a second naming scheme.
+ */
+export async function discoverChannels(rows, bands, ranges) {
+  if (!rows || rows.length === 0) return []
+  const columns = valueColumns('daily') // the union; membership is what matters
+  const present = Object.keys(columns).filter((channel) =>
+    rows.some((row) => row.values[channel] !== null),
+  )
+  const KIND_ORDER = { voltage: 0, current: 1, power: 2, temperature: 3, count: 4, raw: 5 }
+  return present
+    .map((channel, index) => {
+      const band = bands?.[channel] ?? NO_BAND
+      // `energy_wh` is a derived integral and `boot_count_max` a rollup column
+      // rather than a channel, so neither has a band or a range row of its own.
+      // Both are described by the channel they are computed from.
+      const source = RANGE_SOURCE[channel] ?? channel
+      const range = ranges?.get(source) ?? null
+      const meta = band.unit ? band : (range ?? NO_BAND)
+      return {
+        key: channel,
+        channel,
+        label: channelLabel(channel, band),
+        unit: meta.unit ?? '',
+        colour: PALETTE[index % PALETTE.length],
+        decimals: band.kind === 'count' || channel === 'boot_count_max' ? 0 : 3,
+        kind: band.kind ?? 'raw',
+        band,
+        range,
+      }
+    })
+    .sort((a, b) => {
+      const ka = KIND_ORDER[a.kind] ?? 9
+      const kb = KIND_ORDER[b.kind] ?? 9
+      if (ka !== kb) return ka - kb
+      return a.channel.localeCompare(b.channel)
+    })
+}
+
+/** Rollup-only columns, and the `readings` channel whose behaviour they describe. */
+const RANGE_SOURCE = {
+  energy_wh: 'power_w',
+  boot_count_max: 'boot_count',
+}
+
+/** `solar2_v` -> `Solar 2`, `power_w` -> `Power`, `temp_c` -> `Temperature`. */
+function channelLabel(channel, band) {
+  if (band?.description) {
+    // The ETL writes "Solar panel / collector voltage"; trim the unit word off the
+    // end so the picker does not read "Solar panel / collector voltage" next to a
+    // separate "V" chip.
+    return band.description.replace(/\s+(voltage|current|power|temperature|count)$/i, '')
+  }
+  return channel
+    .replace(/_ch[AB]$/, ' ${&}')
+    .replace(/(\d+)_v$/, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/^./, (c) => c.toUpperCase())
+}
+
+const PALETTE = [
+  '#d97706',
+  '#2f855a',
+  '#805ad5',
+  '#2b6cb0',
+  '#b7791f',
+  '#4c51bf',
+  '#2c7a7b',
+  '#9b2c2c',
+  '#975a16',
+  '#276749',
 ]
 
-export const METRIC_BY_KEY = Object.fromEntries(METRICS.map((m) => [m.key, m]))
+export const METRIC_BY_KEY = Object.fromEntries([])
+
+/** Look a channel up in whatever the picker is currently offering. */
+export function seriesFor(keys, channels) {
+  return keys.map((key) => channels.find((c) => c.key === key)).filter(Boolean)
+}
 
 /**
  * Which channel a row actually has, and what it says.
@@ -284,13 +396,11 @@ export const METRIC_BY_KEY = Object.fromEntries(METRICS.map((m) => [m.key, m]))
  * to know which numbered variant it is.
  */
 export function pick(row, metric) {
-  for (const channel of metric.channels) {
-    const value = row.values[channel]
-    if (value !== null && value !== undefined) {
-      return { channel, value, stat: row.stats[channel] }
-    }
+  const value = row.values[metric.channel]
+  if (value === null || value === undefined) {
+    return { channel: null, value: null, stat: null }
   }
-  return { channel: null, value: null, stat: null }
+  return { channel: metric.channel, value, stat: row.stats[metric.channel] }
 }
 
 /** The plotted value for a metric, or null. A null is a gap, not a zero. */
@@ -325,13 +435,6 @@ export function statLabel(stat) {
  * for every station, with no error anywhere and the chart still drawing the
  * default two channels. `check_frontend.mjs` has a regression check by name.
  */
-export function availableMetricKeys(rows) {
-  if (!rows || rows.length === 0) return []
-  return METRICS.filter((metric) => rows.some((row) => get(row, metric) !== null)).map(
-    (metric) => metric.key,
-  )
-}
-
 /**
  * The months that have data in the loaded rollup, as `YYYY-MM`.
  *
@@ -357,61 +460,68 @@ export function filterByRange(rows, fromDay, toDay) {
 }
 
 /** The band for a channel, or null if it has none or was never flagged. */
-function bandFor(bands, channel) {
-  if (!bands || !channel) return null
-  const band = bands[channel]
-  if (!band || band.lo === null || band.hi === null) return null
-  return band
-}
-
-export function isOutOfBand(bands, channel, value) {
-  const band = bandFor(bands, channel)
-  if (!band || value === null || value === undefined) return null
-  return value >= band.lo && value <= band.hi ? null : band
-}
-
 /**
- * Decide what the chart draws, and say what it is uneasy about.
+ * What to make of a plotted value. Three levels, and they are not the same thing.
  *
- * A row is *unplottable* only when it holds no samples at all: there is nothing
- * to draw, and a straight line across the hole would invent one.
+ * `clean`
+ *     Every sample in the bucket was inside the channel's recorded band.
+ * `partial`
+ *     *Some* samples were not. The aggregate is a blend of measurements and
+ *     flagged values, so it is neither. This is the case that a band test on the
+ *     aggregate alone cannot see: `phumy2` 2020-11-27 16:00 UTC averages one
+ *     sample of 19,877 W into 29 zeros and lands on 662.57 W, which is inside
+ *     the +/-2000 W band, so nothing about the number says anything is wrong.
+ *     The count beside it says 1 of 30, which does.
+ * `contaminated`
+ *     *Every* sample was out of band, so the aggregate is not a summary of
+ *     plausible values at all -- it is an average of things the hardware should
+ *     not have produced. This is as close to "corrupt" as the data can support
+ *     saying, and it is stated as a count rather than a verdict.
  *
- * A row is *flagged* when a value being plotted falls outside the band the
- * pipeline records for that channel -- the same band that raised `out_of_range`
- * on the underlying cell. Flagged rows are **kept and drawn**, with a marker and
- * a stated reason. Nothing is removed, because a value being implausible is not
- * the same as a value being wrong, and only a human can adjudicate that here:
- * the `aisvn` battery band of 9-16 V is a 3S LiPo, and 23 of its 101 days in
- * 2020 sit above it, which may be a second battery pack or a scale nobody has
- * confirmed. Deleting those days would have hidden the question.
- *
- * What this replaced
- * ------------------
- * A median/MAD "spike" test that compared each value against its own series'
- * spread. It was removed because it was measuring sampling coverage rather than
- * plausibility. A panel's 24-hour mean is dominated by night, so a fully covered
- * day averages 6-9 V while a single afternoon sample averages 17-19 V; the test
- * read that as 8 real days being "spikes" and dropped them, along with the 4
- * post-reinstall days at 29 V. It also made the answer depend on which metrics
- * happened to be selected, so the 123 V ADC test pattern was filtered under one
- * selection and drawn under another. A band is scale-explicit, selection-local
- * and the same one the data pipeline uses.
+ * Separately, a value can sit *inside* the band and still be unlike anything that
+ * station has ever recorded, which is a fact about the station rather than about
+ * the hardware's plausibility. That is reported as `range` and never as a flag:
+ * the band is the pipeline's judgement, the range is an observation, and the two
+ * disagreeing is the finding.
  */
-export function classifyRows(rows, series, bands) {
+export function classify(row, series) {
+  const n = row.nSamples ?? 0
+  const found = []
+  for (const item of series) {
+    const { channel, value } = pick(row, item)
+    const oor = row.oor?.[channel] ?? 0
+    const band = item.band
+    const hasBand = band && band.lo !== null && band.hi !== null
+    const outsideBand = hasBand && value !== null && (value < band.lo || value > band.hi)
+    let level = 'clean'
+    if (n > 0 && oor >= n) level = 'contaminated'
+    else if (oor > 0) level = 'partial'
+    if (level === 'clean' && outsideBand) level = 'contaminated'
+    const range = item.range
+    const outsideRange =
+      level === 'clean' && range && value !== null && (value < range.min || value > range.max)
+    if (level === 'clean' && !outsideBand && !outsideRange) continue
+    found.push({
+      metric: item.key,
+      channel,
+      value,
+      level,
+      band,
+      oor,
+      n,
+      range: outsideRange ? range : null,
+    })
+  }
+  return found
+}
+
+export function classifyRows(rows, series) {
   const plottable = []
   const flaggedRows = []
   const unplottable = []
   let breaches = 0
   for (const row of rows) {
-    const found = []
-    for (const metric of series) {
-      const { channel, value } = pick(row, metric)
-      const band = isOutOfBand(bands, channel, value)
-      if (band) {
-        found.push({ metric: metric.key, channel, value, band })
-        breaches += 1
-      }
-    }
+    const found = classify(row, series)
     const annotated = { ...row, breaches: found }
     if ((row.nSamples ?? 0) === 0) {
       unplottable.push(annotated)
@@ -419,6 +529,7 @@ export function classifyRows(rows, series, bands) {
     }
     if (found.length > 0) flaggedRows.push(annotated)
     plottable.push(annotated)
+    breaches += found.length
   }
   return { plottable, flaggedRows, unplottable, breaches }
 }
