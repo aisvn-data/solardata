@@ -49,7 +49,13 @@ from etl.readers.times import (
     parse_local,
     to_utc,
 )
-from etl.readers.xlsx import detect_block, file_digest, iter_all_cells, iter_cells
+from etl.readers.xlsx import (
+    clear_read_cache,
+    detect_block,
+    file_digest,
+    iter_all_cells,
+    iter_cells,
+)
 
 _INSERT_COLUMNS = (
     "station_id",
@@ -630,6 +636,10 @@ def ingest(settings: Settings, *, verbose: bool = True) -> RunSummary:
                 print(f"  ! skipping unknown folder {raw_dir.name!r} (not in the station registry)")
             continue
 
+        # Bound the sheet cache to one folder: it is the only thing that keeps
+        # the redundancy down, and holding all 364 sheets at once is needless
+        # memory once the folder is ingested.
+        clear_read_cache()
         scans = _scan_folder(raw_dir)
         _resolve_donors(scans)
         n_inferred = sum(1 for s in scans if s.inferred)

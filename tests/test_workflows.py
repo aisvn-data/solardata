@@ -210,7 +210,67 @@ class TestWorkflowFiles(unittest.TestCase):
                 if "actions/checkout" in step.get("uses", ""):
                     self.assertNotIn("ref", step.get("with", {}))
 
-    def test_workflows_that_verify_run_every_stage_verify_depends_on(self):
+    def test_the_expensive_build_only_runs_when_its_inputs_change(self):
+        """The data build reads only `data/raw`, `etl/` and the baseline.
+
+        It must not run for a pull request that touches only the frontend, which
+        cannot change a reading -- and must still run when the extraction
+        pipeline itself changes, which absolutely can.
+        """
+        doc = load("data.yml")
+        triggers = doc.get(True, doc.get("on"))
+        for event in ("push", "pull_request"):
+            self.assertIn(event, triggers, f"data.yml lost its {event} trigger")
+            paths = triggers[event].get("paths")
+            self.assertTrue(paths, f"{event} has no path filter, so the build always runs")
+        paths = set(triggers["push"]["paths"])
+        self.assertEqual(
+            paths,
+            set(triggers["pull_request"]["paths"]),
+            "push and pull_request must be gated on the same paths",
+        )
+        for required in ("data/raw/**", "etl/**", "data/baseline.json", "requirements.txt"):
+            self.assertIn(required, paths, f"data.yml must run when {required} changes")
+        # The frontend and the data are separate concerns now; a src/ change
+        # must not drag the data build in.
+        self.assertNotIn("src/**", paths)
+        self.assertNotIn("public/data/**", paths)
+
+    def test_the_data_build_has_a_scheduled_sweep(self):
+        # A path filter can only see the paths GitHub tells it about. The weekly
+        # run is the backstop for anything that slipped through.
+        doc = load("data.yml")
+        triggers = doc.get(True, doc.get("on"))
+        self.assertIn("schedule", triggers, "data.yml needs a schedule")
+        self.assertTrue(triggers["schedule"], "the schedule is empty")
+        self.assertIn("workflow_dispatch", triggers, "data.yml needs a manual trigger")
+
+    def test_the_fast_workflow_still_runs_unconditionally(self):
+        # The cheap checks are the required gate. If they were path-gated too,
+        # a docs-only change would show no CI at all.
+        doc = load("ci.yml")
+        triggers = doc.get(True, doc.get("on"))
+        for event in ("push", "pull_request"):
+            self.assertIn(event, triggers)
+            # `pull_request:` with no value parses as None; a gate would be a dict.
+            config = triggers[event] or {}
+            self.assertIsNone(
+                config.get("paths"),
+                f"ci.yml must not gate its {event} trigger",
+            )
+        self.assertEqual(sorted(doc["jobs"]), ["frontend", "lint-and-test"])
+
+    def test_the_expensive_build_is_not_a_second_gate_on_every_push(self):
+        # `ci.yml` must not depend on the build, or a frontend change would sit
+        # behind a 4-minute job.
+        doc = load("ci.yml")
+        for job_name, job in doc["jobs"].items():
+            for dependency in job.get("needs") or []:
+                self.assertNotEqual(
+                    dependency, "build", f"ci.yml/{job_name} waits on the data build"
+                )
+
+    def test_every_workflow_that_verifies_runs_every_stage_verify_needs(self):
         """Regression. `ingest` rebuilds the database but does not populate
         `regimes` -- that is a separate stage. A workflow that ran only `ingest`
         and then `verify` reported `unconfirmed_regimes: 14 -> 0` and failed,
