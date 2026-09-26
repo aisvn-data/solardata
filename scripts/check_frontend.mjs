@@ -206,6 +206,40 @@ check('quality.json carries the counts the UI displays', () => {
   assert.ok(quality.notes.length >= 10)
 })
 
+check('a reject reason is a category, never a sentence', () => {
+  // Rule 2, and the archive is where ignoring it cost 80.6 MiB: storing the
+  // NULL_WINDOWS prose as `rejects.reason` put one ~300-character sentence on
+  // 220,074 rows and made `rejects` as large as `readings`. The prose now lives
+  // once, in etl/config.py, and is republished here -- so this asserts the
+  // category is short AND that the sentence is still reachable by a reader.
+  for (const row of quality.rejects.by_reason) {
+    assert.ok(
+      row.reason.length <= 40,
+      `rejects.reason is ${row.reason.length} chars: ${row.reason.slice(0, 60)}`,
+    )
+    assert.ok(!/\s\s|;/.test(row.reason), `rejects.reason reads as prose: ${row.reason}`)
+  }
+  assert.ok(
+    quality.rejects.by_reason.some((r) => r.reason === 'null_window'),
+    'the null_window category is missing from by_reason',
+  )
+  // And the explanation has to still be published, or the category is a shrug.
+  assert.ok(Array.isArray(quality.null_windows), 'quality.json has no null_windows')
+  assert.ok(quality.null_windows.length > 0, 'null_windows is empty')
+  const window = quality.null_windows.find((w) => w.n_rejected > 1000)
+  assert.ok(window, 'no window explains a significant number of cells')
+  assert.ok(window.why.length > 40, 'the window has no explanation')
+  assert.ok(Array.isArray(window.columns) && window.columns.length > 0)
+  assert.ok(window.valid_from && window.valid_to)
+  // Every column the window names should be accounted for in the count.
+  const flagged = quality.null_windows.reduce((sum, w) => sum + w.n_rejected, 0)
+  assert.equal(
+    flagged,
+    quality.rejects.by_reason.find((r) => r.reason === 'null_window').n,
+    'window counts do not add up to the null_window reject total',
+  )
+})
+
 let dailyFiles = 0
 let dailyRows = 0
 let hourlyFiles = 0

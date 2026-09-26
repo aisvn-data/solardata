@@ -4,6 +4,63 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`rejects.reason` was a sentence, on 220,074 rows.** Rule 2 says to keep it
+  a stable category, and the archive is where ignoring that shows: the
+  `NULL_WINDOWS` path stored the collector's ~300-character note as the reason on
+  every cell it nulled. That is **80.6 MiB of one paragraph, repeated**, and it
+  made `rejects` (96.1 MiB) as large as `readings` — in a database that is not
+  committed and that nobody downloads whole.
+
+  | | before | after |
+  |---|---:|---:|
+  | `rejects.reason` for those rows | 300 chars | `null_window`, 11 chars |
+  | `rejects` table | 96.1 MiB | **15.8 MiB** |
+  | `solardata.db`, VACUUMed | 329.2 MiB | **166.7 MiB** |
+  | gzipped, the Release asset | 20.0 MiB | 18.7 MiB |
+
+  **No data moved.** The counts are identical — 734,908 readings, 224,579
+  rejected cells, 220,074 of them nulled in the same window — so
+  `python -m etl verify` matches the baseline unchanged and no re-record was
+  needed. What changed is where the sentence lives: once, in `config.py`, which
+  is version-controlled and human-readable. `report.collect` republishes it to
+  `quality.json` as `null_windows` and `bad_windows`, paired with the number of
+  rows each explains, so the site can still explain every flagged cell — and now
+  says so on a dedicated **Windows** tab, where previously a reader saw the
+  category with no reasoning attached. The same fix applies to
+  `pre-reinstall window; collector confirmed rows from here on are usable`,
+  which is now `pre_reinstall`.
+
+- **`null_window` rejects had an empty `column_name`.** The code derived it by
+  iterating `row_flags` for `no_signal:` prefixes, but `row_flags` is a merged
+  *string*, so the loop walked its characters and matched nothing. Every one of
+  the 220,074 rows said nothing about which channel it was about. `_null_windows`
+  now returns the columns it nulled. Worth 1.6 MiB and, more to the point, the
+  window's `n_rejected` in the report was silently 0.
+
+### Added
+
+- A **Windows** tab in the data-quality inspector, rendering each configured
+  window once: station, channels, span, row count, and the reasoning in full.
+  `rejects.by_reason` also gained a Meaning column, so a category is never a
+  shrug.
+- `check_frontend.mjs` asserts the invariant by name — *a reject reason is a
+  category, never a sentence* — checking that every `reason` is at most 40
+  characters, that `null_window` is present as a groupable category, and that
+  the window counts add up to the reject total. It fails the build if the prose
+  ever creeps back.
+
+### Changed
+
+- The size claims in `AGENTS.md`, `README.md`, `docs/data-dictionary.md` and
+  `docs/format-design.md` are updated to the measured figures. `CHANGELOG.md` is
+  deliberately not: its older numbers are records of releases where they were
+  true, and rewriting a changelog to match today's build is how a changelog
+  stops being a changelog.
+
 ## [0.7.1] — 2026-09-26
 
 A patch, and the interesting part is the bug. The reading of the archive is

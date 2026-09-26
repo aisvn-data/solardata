@@ -256,7 +256,7 @@
     "total": 224579,
     "by_reason": [
       {
-        "reason": "solar2_v reads 0.0 at every hour of the day for the whole of 2023, including noon; a working panel is 100% zero at night and ~2% at midday (see 2020). The input was disconnected, so 0.0 is a false reading rather than a measurement. The channel recovers in 2024-01. Collector's note: the reading only appears when the sun is on the panel, and drops after a bridge and load were fitted.",
+        "reason": "null_window",
         "n": 220074
       },
       {
@@ -264,7 +264,7 @@
         "n": 4399
       },
       {
-        "reason": "pre-reinstall window; collector confirmed rows from here on are usable",
+        "reason": "pre_reinstall",
         "n": 100
       },
       {
@@ -397,59 +397,103 @@
         "sheet_row": 2,
         "column_name": "time",
         "raw_value": "October 26, 2020 at 02:19AM",
-        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
+        "reason": "pre_reinstall"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
         "sheet_row": 3,
         "column_name": "time",
         "raw_value": "October 26, 2020 at 02:21AM",
-        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
+        "reason": "pre_reinstall"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
         "sheet_row": 4,
         "column_name": "time",
         "raw_value": "October 26, 2020 at 02:23AM",
-        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
+        "reason": "pre_reinstall"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
         "sheet_row": 5,
         "column_name": "time",
         "raw_value": "October 27, 2020 at 04:03PM",
-        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
+        "reason": "pre_reinstall"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
         "sheet_row": 6,
         "column_name": "time",
         "raw_value": "October 27, 2020 at 04:05PM",
-        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
+        "reason": "pre_reinstall"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
         "sheet_row": 7,
         "column_name": "time",
         "raw_value": "October 27, 2020 at 04:07PM",
-        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
+        "reason": "pre_reinstall"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
         "sheet_row": 8,
         "column_name": "time",
         "raw_value": "October 27, 2020 at 04:09PM",
-        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
+        "reason": "pre_reinstall"
       },
       {
         "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
         "sheet_row": 9,
         "column_name": "time",
         "raw_value": "October 27, 2020 at 08:05PM",
-        "reason": "pre-reinstall window; collector confirmed rows from here on are usable"
+        "reason": "pre_reinstall"
       }
     ]
   },
+  "null_windows": [
+    {
+      "station_id": "phumy2",
+      "valid_from": "2022-10-01T00:00:00Z",
+      "valid_to": "2024-01-01T00:00:00Z",
+      "columns": [
+        "solar2_v"
+      ],
+      "why": "solar2_v reads 0.0 at every hour of the day for the whole of 2023, including noon; a working panel is 100% zero at night and ~2% at midday (see 2020). The input was disconnected, so 0.0 is a false reading rather than a measurement. The channel recovers in 2024-01. Collector's note: the reading only appears when the sun is on the panel, and drops after a bridge and load were fitted.",
+      "n_rejected": 220074
+    }
+  ],
+  "row_exclusions": [
+    {
+      "rel_path": "aisvn/IFTTT_aisvn (25).xlsx",
+      "first_usable_sheet_row": 102,
+      "why": "pre-reinstall window; collector confirmed rows from here on are usable",
+      "n_rejected": 100
+    }
+  ],
+  "bad_windows": [
+    {
+      "station_id": "aisvn",
+      "valid_from": "2020-06-15T00:00:00Z",
+      "valid_to": "2020-06-17T08:20:00Z",
+      "columns": [
+        "temp_c"
+      ],
+      "why": "commissioning placeholder: the channel reports exactly 200.0 for every one of the first 1,359 readings (2020-06-15 13:10 local onward), then 342.1 for a 4-hour block, and only becomes real after 2020-06-17 15:20 local -- which is the same moment the applet changed its column layout. 90% of all out-of-range temperatures on this station are in this window.",
+      "n_flagged": 1473
+    },
+    {
+      "station_id": "aisvn",
+      "valid_from": "2020-10-23T00:00:00Z",
+      "valid_to": "2020-10-30T00:00:00Z",
+      "columns": [
+        "solar_v",
+        "battery_v",
+        "temp_c"
+      ],
+      "why": "solar and battery stop being plausible on 2020-10-23 (collector-confirmed, as is the temperature on the 23rd); the system was reinstalled on 2020-10-30 ('installed in the dark'), after which all three channels are normal. Measured: temperature median 16.1 degC in the window vs 32.3 degC from 2020-10-30.",
+      "n_flagged": 1610
+    }
+  ],
   "notes": [
     {
       "rel_path": "Voltage_phumy/Voltage_phumy (2).xlsx",

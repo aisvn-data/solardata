@@ -58,10 +58,31 @@ metric's plausible band, which is how calibration changes get noticed.
 
 224579 cells were not turned into readings.
 
-- `solar2_v reads 0.0 at every hour of the day for the whole of 2023, including noon; a working panel is 100% zero at night and ~2% at midday (see 2020). The input was disconnected, so 0.0 is a false reading rather than a measurement. The channel recovers in 2024-01. Collector's note: the reading only appears when the sun is on the panel, and drops after a bridge and load were fitted.`: 220,074
+`reason` is a stable category, not a sentence, so the counts below group.
+The reasoning behind `null_window` is in the next section.
+
+- `null_window`: 220,074
 - `duplicate_ts`: 4,399
-- `pre-reinstall window; collector confirmed rows from here on are usable`: 100
+- `pre_reinstall`: 100
 - `repeated header row`: 6
+
+## Windows where a value was nulled or distrusted
+
+Stated once here, from `etl/config.py`, which is where they are defined. The
+database records only the category on each row, so these sentences are not
+repeated per cell.
+
+**`phumy2` · `solar2_v` · 2022-10-01T00:00:00Z -> 2024-01-01T00:00:00Z** — 220,074 cells nulled.
+
+> solar2_v reads 0.0 at every hour of the day for the whole of 2023, including noon; a working panel is 100% zero at night and ~2% at midday (see 2020). The input was disconnected, so 0.0 is a false reading rather than a measurement. The channel recovers in 2024-01. Collector's note: the reading only appears when the sun is on the panel, and drops after a bridge and load were fitted.
+
+**`aisvn` · `temp_c` · 2020-06-15T00:00:00Z -> 2020-06-17T08:20:00Z** — 1,473 readings flagged, value kept.
+
+> commissioning placeholder: the channel reports exactly 200.0 for every one of the first 1,359 readings (2020-06-15 13:10 local onward), then 342.1 for a 4-hour block, and only becomes real after 2020-06-17 15:20 local -- which is the same moment the applet changed its column layout. 90% of all out-of-range temperatures on this station are in this window.
+
+**`aisvn` · `solar_v`, `battery_v`, `temp_c` · 2020-10-23T00:00:00Z -> 2020-10-30T00:00:00Z** — 1,610 readings flagged, value kept.
+
+> solar and battery stop being plausible on 2020-10-23 (collector-confirmed, as is the temperature on the 23rd); the system was reinstalled on 2020-10-30 ('installed in the dark'), after which all three channels are normal. Measured: temperature median 16.1 degC in the window vs 32.3 degC from 2020-10-30.
 
 ## Free-text notes recovered from data cells
 

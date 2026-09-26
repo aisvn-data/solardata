@@ -13,6 +13,7 @@ from collections import Counter
 from pathlib import Path
 
 from etl import __version__
+from etl.config import BAD_WINDOWS, NULL_WINDOWS, ROW_EXCLUSIONS
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params=()) -> list[dict]:
@@ -96,6 +97,68 @@ def collect(conn: sqlite3.Connection) -> dict:
             " FROM rejects r JOIN source_files f ON f.file_id = r.file_id LIMIT 25",
         ),
     }
+
+    # The reasoning behind a windowed decision, read from `config.py` and paired
+    # with the number of rows it explains.  `rejects.reason` holds a stable
+    # category -- `null_window` -- because the report groups by it, and storing
+    # the prose there put one ~300-character sentence on 220,074 rows and made
+    # `rejects` as large as `readings`.  The prose is version-controlled in
+    # `config.py` and published here instead, so the site can explain the
+    # category without the database repeating the sentence 220,074 times.
+    nulled = _rows(
+        conn,
+        "SELECT station_id, column_name, COUNT(*) AS n FROM rejects"
+        " WHERE reason = 'null_window' AND column_name IS NOT NULL"
+        " GROUP BY station_id, column_name ORDER BY n DESC",
+    )
+    counted = {(r["station_id"], r["column_name"]): r["n"] for r in nulled}
+    report["null_windows"] = [
+        {
+            "station_id": station_id,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+            "columns": [c.strip() for c in columns.split(",") if c.strip()],
+            "why": why,
+            "n_rejected": sum(counted.get((station_id, c.strip()), 0) for c in columns.split(",")),
+        }
+        for station_id, valid_from, valid_to, columns, why in NULL_WINDOWS
+    ]
+    report["row_exclusions"] = [
+        {
+            "rel_path": rel_path,
+            "first_usable_sheet_row": first_row,
+            "why": why,
+            "n_rejected": _rows(
+                conn,
+                "SELECT COUNT(*) AS n FROM rejects r JOIN source_files f"
+                " ON f.file_id = r.file_id WHERE f.rel_path LIKE ? AND r.reason = 'pre_reinstall'",
+                (f"%{Path(rel_path).name}",),
+            )[0]["n"],
+        }
+        for rel_path, first_row, why in ROW_EXCLUSIONS
+    ]
+    report["bad_windows"] = [
+        {
+            "station_id": station_id,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+            "columns": [c.strip() for c in columns.split(",") if c.strip()],
+            "why": why,
+            "n_flagged": _rows(
+                conn,
+                f"SELECT COUNT(*) AS n FROM readings WHERE station_id = ?"
+                f" AND ts_utc >= ? AND ts_utc < ?"
+                f" AND ({' OR '.join('quality_flags LIKE ?' for _ in columns.split(','))})",
+                (
+                    station_id,
+                    valid_from,
+                    valid_to,
+                    *[f"%bad_window:{c.strip()}%" for c in columns.split(",")],
+                ),
+            )[0]["n"],
+        }
+        for station_id, valid_from, valid_to, columns, why in BAD_WINDOWS
+    ]
 
     report["notes"] = _rows(
         conn,
@@ -246,9 +309,38 @@ def render_markdown(report: dict) -> str:
         add("")
         add(f"{report['rejects']['total']} cells were not turned into readings.")
         add("")
+        add("`reason` is a stable category, not a sentence, so the counts below group.")
+        add("The reasoning behind `null_window` is in the next section.")
+        add("")
         for row in report["rejects"]["by_reason"][:10]:
             add(f"- `{row['reason']}`: {row['n']:,}")
         add("")
+
+    if report["null_windows"] or report["bad_windows"]:
+        add("## Windows where a value was nulled or distrusted")
+        add("")
+        add("Stated once here, from `etl/config.py`, which is where they are defined. The")
+        add("database records only the category on each row, so these sentences are not")
+        add("repeated per cell.")
+        add("")
+        for w in report["null_windows"]:
+            cols = ", ".join(f"`{c}`" for c in w["columns"])
+            add(
+                f"**`{w['station_id']}` · {cols} · {w['valid_from']} -> {w['valid_to']}** "
+                f"— {w['n_rejected']:,} cells nulled."
+            )
+            add("")
+            add(f"> {w['why']}")
+            add("")
+        for w in report["bad_windows"]:
+            cols = ", ".join(f"`{c}`" for c in w["columns"])
+            add(
+                f"**`{w['station_id']}` · {cols} · {w['valid_from']} -> {w['valid_to']}** "
+                f"— {w['n_flagged']:,} readings flagged, value kept."
+            )
+            add("")
+            add(f"> {w['why']}")
+            add("")
 
     if report["notes"]:
         add("## Free-text notes recovered from data cells")
