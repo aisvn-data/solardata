@@ -4,6 +4,51 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] — 2026-09-26
+
+A patch, and the interesting part is the bug. The reading of the archive is
+unchanged again: `python -m etl verify` reports the same 734,908 readings across
+364 files.
+
+### Fixed
+
+- **Every metric checkbox was disabled, for every station.** 0.7.0 changed
+  `availableMetrics()` to pass the metric list straight through to
+  `TimeControls`, but it returns metric *objects* while the picker tests
+  `metrics.includes(metric.key)` — a string. So `available` was false for every
+  metric and all five rendered `disabled`.
+
+  It was silent in the worst way: no error, no empty chart, and the default two
+  channels still drew from the selection the load effect had already stored, so
+  the chart looked correct while offering no way to change it. The two shapes are
+  interchangeable at a glance, which is the actual defect — the function is now
+  `availableMetricKeys()` and returns keys as its only form, so there is nothing
+  to mismatch. `check_frontend.mjs` has a regression check by name that walks
+  every published station-year and asserts each key is a string and selectable,
+  and pins `solar-2020-05` as the one station whose disabled picker is correct.
+
+### Added
+
+- **A month selector.** Sits between Year and From, and offers only the months
+  that actually have data — `aisvn` 2020 gets seven options, not thirteen. It is
+  derived from the range rather than stored separately: it shows a month only
+  when From and To are exactly that month's bounds, so the two controls cannot
+  disagree. Choosing one moves the date inputs to that month; editing a date
+  drops it back to "All". The bounds come from the data rather than the calendar,
+  so a partly-reported month is not padded with empty days.
+
+### Changed
+
+- **The page is wider** — 1120px to 1320px, via a `--page-width` custom property
+  so the header and body cannot drift apart again. Seven stat tiles need about
+  900px and the explorer now has roughly 980px once the station rail and gutters
+  are taken out, so the six value tiles and the station tile sit on one row
+  instead of the station name wrapping below them. Below about 1240px the grid
+  reflows to two rows rather than squeezing the uppercase labels, and a label
+  now wraps rather than overflowing into its neighbour. Prose is capped
+  separately (`.hero-copy`, `.prose`), so a wider page does not stretch a
+  paragraph to an unreadable line length.
+
 ## [0.7.0] — 2026-09-26
 
 A reading of the archive does not change in this release: `python -m etl verify`

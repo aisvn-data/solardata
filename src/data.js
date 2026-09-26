@@ -295,16 +295,40 @@ export function statLabel(stat) {
 }
 
 /**
- * Which metrics actually have data for this station.
+ * Which metrics actually have data for this station, as keys.
  *
  * Derived from the rows rather than hardcoded: `phumy2` has no `solar_v` or
  * `battery_v` at all (it logs `solar2` and has no battery channel), and
  * `aisvn2` uses `battery2` with no solar channel whatsoever. A fixed list would
  * offer controls that draw a flat empty axis.
+ *
+ * **Keys, not metric objects, and there is deliberately only one form.** The
+ * selection state and the picker both hold keys, and the two shapes are
+ * interchangeable at a glance: returning objects from here while the picker
+ * tested `metrics.includes(metric.key)` made every checkbox render `disabled`
+ * for every station, with no error anywhere and the chart still drawing the
+ * default two channels. `check_frontend.mjs` has a regression check by name.
  */
-export function availableMetrics(rows) {
+export function availableMetricKeys(rows) {
   if (!rows || rows.length === 0) return []
-  return METRICS.filter((metric) => rows.some((row) => get(row, metric) !== null))
+  return METRICS.filter((metric) => rows.some((row) => get(row, metric) !== null)).map(
+    (metric) => metric.key,
+  )
+}
+
+/**
+ * The months that have data in the loaded rollup, as `YYYY-MM`.
+ *
+ * Computed from the rows rather than from the calendar, so a station that only
+ * reported in June and July is offered two months instead of twelve, and picking
+ * one cannot select a range with nothing in it.
+ */
+export function availableMonths(rows) {
+  const seen = new Set()
+  for (const row of rows ?? []) {
+    if (row.nSamples > 0) seen.add(row.dateDay.slice(0, 7))
+  }
+  return [...seen].sort()
 }
 
 export function filterByRange(rows, fromDay, toDay) {
