@@ -48,6 +48,14 @@ CONFIRMED: tuple[tuple[str, str, str, float], ...] = (
     ("test", "battery_v", "2020-06-12", 0.001),
     ("test", "lipo_v", "2020-06-12", 0.001),
     ("aisvn2", "battery2_v", "2020-06-18", 0.001),
+    # phumy2.solar2_v is a small ~5 V panel behind a bridge and load, logged in
+    # millivolts. The collector confirms the unit. Note that the *level* still
+    # moves when the bridge was fitted -- roughly 5000 mV before, ~1200 mV
+    # after -- so the stored millivolt value is a divider output, not always the
+    # panel voltage. Recovering true panel voltage needs the bridge ratio.
+    ("phumy2", "solar2_v", "2020-06-15", 0.001),
+    # phumy2.lipo2_v reads 1980-4196 throughout, which is mV of a 3S pack.
+    ("phumy2", "lipo2_v", "2020-06-15", 0.001),
 )
 
 

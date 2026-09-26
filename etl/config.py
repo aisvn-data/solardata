@@ -70,6 +70,36 @@ ROW_EXCLUSIONS: tuple[tuple[str, int, str], ...] = (
     ),
 )
 
+#: Windows in which a channel reports a *constant* value that is affirmatively
+#: wrong, so it is nulled rather than merely flagged.
+#:
+#: Distinct from BAD_WINDOWS, which flags but keeps. Here the stored number
+#: makes a false claim: 0.0 V from a photovoltaic panel says "the panel produced
+#: nothing", when the truth is "the wire was disconnected". Charting a year of
+#: that as a flat line at zero would be a wrong answer, not an ugly one.
+#:
+#: (station_id, valid_from_utc, valid_to_utc, columns, reason)
+#:
+#: The 2023 `phumy2.solar2_v` window is identified by its hour-of-day profile.
+#: A working panel reads 0.0 at night and non-zero around midday: in 2020 the
+#: channel is 100% zero from 18:00 to 05:00 and 2% at noon. Across 2023 it is
+#: 100% zero at *every* hour including 12:00, which is a disconnected input
+#: rather than a dark panel. It recovers in 2024-01.
+NULL_WINDOWS: tuple[tuple[str, str, str, str, str], ...] = (
+    (
+        "phumy2",
+        "2022-10-01T00:00:00Z",
+        "2024-01-01T00:00:00Z",
+        "solar2_v",
+        "solar2_v reads 0.0 at every hour of the day for the whole of 2023, "
+        "including noon; a working panel is 100% zero at night and ~2% at "
+        "midday (see 2020). The input was disconnected, so 0.0 is a false "
+        "reading rather than a measurement. The channel recovers in 2024-01. "
+        "Collector's note: the reading only appears when the sun is on the "
+        "panel, and drops after a bridge and load were fitted.",
+    ),
+)
+
 #: Windows in which specific channels are known bad, decided by the collector.
 #: (station_id, valid_from_utc, valid_to_utc, comma-separated columns, why)
 #: Half-open: the good window starts at valid_to.

@@ -66,15 +66,29 @@ Data corrections, all confirmed by the collector. Baseline re-recorded: **735,00
 
 ### Changed
 
+- **`phumy2.solar2_v` and `phumy2.lipo2_v` promoted to `confirmed` at ×0.001.**
+  The collector confirms `solar2_v` is millivolts from a small ~5 V panel, and
+  `lipo2_v` reads 1980–4196 throughout, which is mV of a 3S pack. Note that the
+  *level* still moves when a bridge and load were fitted — roughly 5000 mV
+  before, ~1200 mV after — so the stored millivolt value is a divider output,
+  not always the panel voltage. Recovering true panel voltage needs the bridge
+  ratio, which is not in the archive.
+- **New `NULL_WINDOWS` mechanism, and the first window in it.** Distinct from
+  `BAD_WINDOWS`, which flags but keeps: a window where the stored number makes
+  an *affirmatively false* claim is nulled and every affected cell written to
+  `rejects`.
+  - `phumy2.solar2_v`, 2022-10 → 2023-12: the channel reads 0.0 V at **every
+    hour of the day** for the whole of 2023, including noon. A working panel is
+    100% zero from 18:00 to 05:00 and 2% at midday — that is exactly the
+    profile `solar2_v` shows in 2020. Zero all day is a disconnected input, not a
+    dark panel, and 169,789 readings charting as a flat line at zero would be a
+    wrong answer rather than an ugly one. The channel recovers in 2024-01.
+  - 14 regimes remain unconfirmed, down from 20.
 - **Timezone is now a fact, not an assumption.** Confirmed as `Asia/Ho_Chi_Minh`
   (UTC+07:00) by the diurnal temperature cycle: the daily minimum lands at 05:00
   local for both `phumy2` (415k rows) and `aisvn`, which is sunrise in Ho Chi
   City. An offset wrong by 5 or 7 hours would put that minimum at 22:00 or
   midnight. `TestTimezoneIsHoChiMinh` asserts it.
-- **11 scale regimes promoted to `status = 'confirmed'`.** The collector
-  reports these stations log millivolts as integers throughout their records:
-  `aisvn-solar`, `maker-webhooks`, `solar-2020-05`, `test` (×0.001) and
-  `aisvn2.battery2_v`. 20 regimes remain unconfirmed.
 - **2020-06-15 → 2020-06-17 15:20 local flagged as a bad window** for
   `aisvn.temp_c`. Not scattered read errors: the channel reports **exactly
   200.0 for every one of its first 1,359 readings**, then `342.1` for a 4-hour
@@ -99,14 +113,15 @@ Data corrections, all confirmed by the collector. Baseline re-recorded: **735,00
 |---|---:|---:|
 | Readings | 735,004 | **734,908** |
 | Duplicate timestamps | 4,403 | 4,399 |
-| Malformed rejects | 6 | 106 |
-| Unconfirmed regimes | 23 | **20** |
+| Malformed rejects | 6 | 220,180 |
+| Unconfirmed regimes | 23 | **14** |
 | Hourly / daily buckets | 25,662 / 1,197 | 25,649 / 1,194 |
 
 The −96 readings are the 100 excluded `aisvn (25)` rows less 4 duplicate
-timestamps they previously absorbed. The 106 malformed rejects are 6 header
-repeats plus the 100 excluded rows, which are now recorded rather than
-silently dropped.
+timestamps they previously absorbed. The 220,180 malformed rejects are the 6
+repeated header rows, the 100 excluded rows, and the 220,074 cells nulled by a
+`NULL_WINDOW` — every one recorded rather than silently dropped or, worse,
+silently kept as a false zero. 102 tests, 12 frontend checks.
 
 ---
 

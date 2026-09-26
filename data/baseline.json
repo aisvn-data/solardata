@@ -5,17 +5,17 @@
     "files": 364,
     "stations": 8,
     "duplicate_ts": 4399,
-    "malformed_rejects": 106,
+    "malformed_rejects": 220180,
     "notes": 10,
-    "unconfirmed_regimes": 20,
+    "unconfirmed_regimes": 14,
     "headerless_without_donor": 0,
     "hourly_buckets": 25649,
     "daily_buckets": 1194
   },
   "recorded": {
-    "tool_version": "0.4.0",
-    "run_started_at": "2026-09-25T18:48:23Z",
-    "ingest_notes": "364 files; 734908 rows; 4399 duplicate timestamps absorbed; 4505 rejected; 25649 hourly / 1194 daily buckets",
-    "reason": "fix schema-donor column-width matching: 23 aisvn files (11 cols) inherited a 10-col header, mislabelling 45986 readings; add 342.1/342.0 adc-rail sentinel; exclude 100 pre-reinstall rows in aisvn (25); flag 2020-10-23..30 bad window"
+    "tool_version": "0.5.0",
+    "run_started_at": "2026-09-25T19:34:18Z",
+    "ingest_notes": "364 files; 734908 rows; 4399 duplicate timestamps absorbed; 224579 rejected; 25649 hourly / 1194 daily buckets",
+    "reason": "null the phumy2.solar2_v stuck-at-zero window 2022-10..2023 (0.0 at every hour incl. noon, vs a working panel's 2% at noon); confirm solar2_v and lipo2_v as millivolts per collector"
   }
 }

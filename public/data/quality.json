@@ -193,7 +193,7 @@
         "with_header": 21,
         "rows_ingested": 209652,
         "duplicate_ts": 58,
-        "rejected": 58,
+        "rejected": 23325,
         "first_ts": "2020-06-15T02:29:00Z",
         "last_ts": "2022-11-21T21:45:00Z"
       },
@@ -204,7 +204,7 @@
         "with_header": 2,
         "rows_ingested": 199514,
         "duplicate_ts": 4,
-        "rejected": 4,
+        "rejected": 196811,
         "first_ts": "2022-11-21T21:49:00Z",
         "last_ts": "2024-01-16T05:34:00Z"
       },
@@ -233,25 +233,32 @@
     ]
   },
   "quality_flags": {
-    "out_of_range": 604880,
+    "out_of_range": 384818,
+    "out_of_range,no_signal:solar2_v": 220062,
     "sentinel,out_of_range": 17105,
-    "out_of_range,sentinel": 13487,
+    "out_of_range,sentinel": 13480,
     "out_of_range,bad_window:solar_v,bad_window:battery_v,bad_window:temp_c": 1609,
     "out_of_range,bad_window:temp_c": 1472,
+    "out_of_range,sentinel,no_signal:solar2_v": 7,
     "sentinel": 5,
     "out_of_range,sentinel,bad_window:temp_c": 1,
     "out_of_range,sentinel,bad_window:solar_v,bad_window:battery_v,bad_window:temp_c": 1
   },
   "flag_totals": {
     "out_of_range": 638555,
+    "no_signal:solar2_v": 220069,
     "sentinel": 30599,
     "bad_window:temp_c": 3083,
     "bad_window:solar_v": 1610,
     "bad_window:battery_v": 1610
   },
   "rejects": {
-    "total": 4505,
+    "total": 224579,
     "by_reason": [
+      {
+        "reason": "solar2_v reads 0.0 at every hour of the day for the whole of 2023, including noon; a working panel is 100% zero at night and ~2% at midday (see 2020). The input was disconnected, so 0.0 is a false reading rather than a measurement. The channel recovers in 2024-01. Collector's note: the reading only appears when the sun is on the panel, and drops after a bridge and load were fitted.",
+        "n": 220074
+      },
       {
         "reason": "duplicate_ts",
         "n": 4399
@@ -1552,8 +1559,8 @@
       "valid_from": "2020-06-15T02:29:00Z",
       "valid_to": "2024-02-01T20:18:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
+      "status": "confirmed",
+      "detected_by": "manual",
       "confidence": "medium",
       "notes": "median 4092.0 outside plausible [2.5, 4.35] V; scale 0.001 brings it to 4.092 (100% in range)"
     },
@@ -1564,8 +1571,8 @@
       "valid_from": "2020-06-15T02:29:00Z",
       "valid_to": "2021-04-09T15:19:00Z",
       "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
+      "status": "confirmed",
+      "detected_by": "manual",
       "confidence": "medium",
       "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
     },
@@ -1575,54 +1582,6 @@
       "unit": "V",
       "valid_from": "2021-04-15T08:20:00Z",
       "valid_to": "2022-10-17T20:15:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
-    },
-    {
-      "station_id": "phumy2",
-      "column": "solar2_v",
-      "unit": "V",
-      "valid_from": "2022-10-20T17:47:00Z",
-      "valid_to": "2022-10-23T15:43:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
-    },
-    {
-      "station_id": "phumy2",
-      "column": "solar2_v",
-      "unit": "V",
-      "valid_from": "2022-11-16T01:49:00Z",
-      "valid_to": "2022-11-18T23:16:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
-    },
-    {
-      "station_id": "phumy2",
-      "column": "solar2_v",
-      "unit": "V",
-      "valid_from": "2022-11-21T21:49:00Z",
-      "valid_to": "2022-11-27T20:09:00Z",
-      "scale": 0.001,
-      "status": "unconfirmed",
-      "detected_by": "range",
-      "confidence": "medium",
-      "notes": "median 0.0 outside plausible [0.0, 60.0] V; scale 0.001 brings it to 0.0 (100% in range)"
-    },
-    {
-      "station_id": "phumy2",
-      "column": "solar2_v",
-      "unit": "V",
-      "valid_from": "2022-12-03T15:13:00Z",
-      "valid_to": "2022-12-18T05:46:00Z",
       "scale": 0.001,
       "status": "unconfirmed",
       "detected_by": "range",
