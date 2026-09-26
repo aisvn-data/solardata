@@ -187,19 +187,43 @@ is the record of what the data is, and CI failing is the point.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request:
+Four workflows, split by cost and by what they actually read.
 
-1. `ruff check`, `ruff format --check`, `pytest` — fast, no data.
-2. A full `python -m etl all` against the real 364-file archive, then
-   `python -m etl verify`. **Any baseline drift fails the job.**
-3. A Parquet freshness check: the committed `data/processed/parquet/` layout is
-   snapshotted before the build and compared after, because the build
-   overwrites it. Run it locally with
-   `scripts/parquet_manifest.py write` / `check`.
-4. The report is written to `$GITHUB_STEP_SUMMARY` and uploaded as an artefact.
+| Workflow | When | Cost |
+|---|---|---|
+| `ci.yml` | every push and pull request | ~1 min |
+| `data.yml` | only when `data/raw/**`, `etl/**`, `data/baseline.json` or `requirements.txt` change; plus Mondays 03:17 UTC and on demand | ~1 min |
+| `pages.yml` | push to `main`, or manually | ~30 s |
+| `release.yml` | `v*` tag, or manually | ~2 min |
 
-`.github/workflows/release.yml` attaches a `VACUUM`ed, gzipped `solardata.db`
-to a tag's GitHub Release, verified against the baseline first.
+**`ci.yml`** is the required gate: `ruff check`, `ruff format --check`,
+`pytest`, the frontend checks and `npm run build`. It is deliberately *not*
+path-gated — a docs-only change must still show a CI run.
+
+**`data.yml`** runs the full pipeline over all 364 raw files and then
+`python -m etl verify`. Any baseline drift fails the job. It is gated because a
+pull request that touches only `src/` cannot change a reading: the data comes
+from `data/raw` through `etl/`, and both are committed. Rebuilding proves
+nothing and costs minutes.
+
+Two things to know before changing the gate:
+
+- **It is deliberately not a required status check.** A path-gated workflow
+  produces *no run at all* when the paths do not match, and a required check
+  that never appears leaves a pull request waiting forever.
+- **The weekly schedule is the backstop.** A path filter only sees the paths
+  GitHub reports, so anything it misses is caught on Monday. Keep it.
+
+`tests/test_workflows.py` asserts the split: that `data.yml` is gated on the
+right paths and includes a schedule, that `ci.yml` is not gated and does not
+depend on the build, and that any workflow calling `verify` runs every stage
+the baseline depends on.
+
+The build is roughly a minute rather than three because the reader caches
+parsed sheets: profiling showed `_read_rows` called 1,820 times for 364 files,
+since each file was parsed once to scan it, again in `detect_block`, and again
+in `iter_cells`. Reading a sheet is 86% of the build, so removing the
+redundancy is the whole win. `tests/test_ingest.py::TestReadCache` covers it.
 
 ### Why `solardata.db` is not committed
 

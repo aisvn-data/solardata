@@ -769,5 +769,89 @@ class TestTimezoneIsHoChiMinh(unittest.TestCase):
         self.assertEqual(winter.utcoffset(), timedelta(hours=7))
 
 
+class TestReadCache(unittest.TestCase):
+    """Every sheet must be parsed once, not three times.
+
+    The ingest reads each file to scan it, again in `detect_block`, and again in
+    `iter_cells`. Profiling 364 files showed 1820 calls to `_read_rows` -- 86% of
+    the build's runtime spent re-reading the same XML -- so the reader caches by
+    path.
+    """
+
+    def setUp(self):
+        from etl.readers.xlsx import clear_read_cache
+
+        clear_read_cache()
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        from etl.readers.xlsx import clear_read_cache
+
+        clear_read_cache()
+
+    def test_reading_the_same_sheet_twice_reuses_the_cache(self):
+        from etl.readers import xlsx
+
+        path = self.tmp / "a.xlsx"
+        write_xlsx(path, [HEADER_ROW, data_row(10), data_row(12)])
+
+        block = xlsx.detect_block(path)
+        self.assertEqual(len(xlsx._read_cache), 1)
+        rows_a = list(xlsx.iter_cells(path, block))
+        rows_b = list(xlsx.iter_cells(path, block))
+        self.assertEqual(len(xlsx._read_cache), 1, "the sheet was re-parsed")
+        self.assertEqual(rows_a, rows_b)
+
+    def test_cache_is_dropped_on_request(self):
+        from etl.readers import xlsx
+
+        path = self.tmp / "a.xlsx"
+        write_xlsx(path, [HEADER_ROW, data_row(10)])
+        xlsx.detect_block(path)
+        self.assertEqual(len(xlsx._read_cache), 1)
+        xlsx.clear_read_cache()
+        self.assertEqual(len(xlsx._read_cache), 0)
+
+    def test_cache_does_not_serve_a_file_that_changed_size(self):
+        from etl.readers import xlsx
+
+        path = self.tmp / "a.xlsx"
+        write_xlsx(path, [HEADER_ROW, data_row(10)])
+        xlsx.detect_block(path)
+        first = len(list(xlsx.iter_cells(path)))
+        # Rewrite with a different number of rows, so the file size changes.
+        write_xlsx(path, [HEADER_ROW, data_row(10), data_row(12), data_row(14)])
+        self.assertEqual(len(list(xlsx.iter_cells(path))), 3)
+        self.assertEqual(first, 1)
+
+    def test_ingest_populates_rollups_only_via_the_aggregate_stage(self):
+        # Guards the CI split as well: a frontend-only change must not need the
+        # data build, which is only true if this build is cheap.
+        from etl.build_aggregate import build
+
+        settings = Settings(
+            raw_dir=self.tmp / "raw",
+            out_dir=self.tmp / "out",
+            db_path=self.tmp / "out" / "solardata.db",
+            parquet_dir=self.tmp / "out" / "pq",
+            export_dir=self.tmp / "ex",
+            report_json=self.tmp / "out" / "q.json",
+            report_md=self.tmp / "out" / "q.md",
+        )
+        folder = settings.raw_dir / "phumy2"
+        write_xlsx(folder / "IFTTT_phumy2.xlsx", [HEADER_ROW, data_row(10), data_row(12)])
+        write_xlsx(folder / "IFTTT_phumy2 (1).xlsx", [data_row(14), data_row(16)])
+        summary = ingest(settings, verbose=False)
+        self.assertEqual(summary.rows_ingested, 4)
+        conn = connect(settings.db_path)
+        try:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM readings_daily").fetchone()[0], 0)
+            hourly, daily, _scaled = build(conn, verbose=False)
+            self.assertEqual(hourly, 1)
+            self.assertEqual(daily, 1)
+        finally:
+            conn.close()
+
+
 if __name__ == "__main__":
     unittest.main()
