@@ -16,8 +16,8 @@ stations**, forwarded to Google Sheets by IFTTT and exported as 364 XLSX files.
 |---|---|
 | Raw archive | 364 files, 30.4 MiB, committed and immutable |
 | ETL pipeline | `etl/`, `make build`, ~3 min, 89 tests |
-| Canonical store | `data/processed/solardata.db` (SQLite, 158 MiB — see below) |
-| Interchange | `data/processed/parquet/` (7.4 MiB, **committed**) |
+| Canonical store | `data/processed/solardata.db` (SQLite, 167 MiB / 19 MiB gzipped — see below) |
+| Interchange | `data/processed/parquet/` (7.5 MiB, **committed**) |
 | Site data | `public/data/` (1887 KB, **committed**) |
 | Quality report | `data/processed/quality_report.md` (**committed**) |
 | Baseline guard | `data/baseline.json` (**committed**), enforced by CI |
@@ -31,8 +31,9 @@ different things at different times, and `-992` is a disconnected-sensor
 sentinel rather than a number. All of that is catalogued in
 [`CHANGELOG.md`](CHANGELOG.md) and handled explicitly by the pipeline.
 
-**`solardata.db` is not committed** — at 158 MiB it is over GitHub's 100 MiB
-per-file limit. (It is actually *smaller* than the raw XML: the archive is
+**`solardata.db` is not committed** — at 167 MiB it is over GitHub's 100 MiB
+per-file limit. `release.yml` VACUUMs it and gzips it to a **19 MiB** Release
+asset, which is the form worth downloading. (It is actually *smaller* than the raw XML: the archive is
 30.4 MiB only because XLSX is deflate-compressed, at 251 MiB uncompressed. See
 [`docs/format-design.md`](docs/format-design.md#why-the-sqlite-file-is-larger-than-the-raw-archive).)
 The Parquet output, the site data and the quality report *are* committed, so a

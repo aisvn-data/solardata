@@ -47,12 +47,25 @@ FLAG_NON_MONOTONIC = "non_monotonic"
 FLAG_FREE_TEXT = "free_text"
 FLAG_MISALIGNED = "schema_misaligned"
 
+#: ``rejects.reason`` categories.  Deliberately short and stable: the report
+#: groups by this column, so a sentence here turns a count into a singleton.
+#: The reasoning behind a window belongs in ``NULL_WINDOWS``/``BAD_WINDOWS``
+#: below, which is version-controlled prose stored exactly once.
+REASON_NO_SIGNAL = "null_window"
+REASON_ROW_FLOOR = "pre_reinstall"
+
 # ---------------------------------------------------------------------------
 # Row-level exclusions, decided by the person who collected the data.
 #
 # Each entry is (rel_path_suffix, first_usable_sheet_row, why).  Rows before the
 # boundary are not ingested; they are counted in `rejects` so the loss stays
-# visible, and the reason is recorded verbatim rather than paraphrased.
+# visible.
+#
+# `rejects.reason` gets the *category* from `REASON_*`, never `why`.  Rule 2 in
+# `AGENTS.md` asks for that and the archive is where ignoring it shows: the
+# `NULL_WINDOWS` prose was once stored on 220,074 rows, costing 80.6 MiB and
+# turning a grouped count into a singleton.  `why` is read once per entry by
+# `report.collect`, which publishes it to `quality.json` next to the count.
 # ---------------------------------------------------------------------------
 ROW_EXCLUSIONS: tuple[tuple[str, int, str], ...] = (
     (

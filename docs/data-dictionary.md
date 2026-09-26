@@ -94,17 +94,27 @@ is why a flat lookup is not enough to explain every flagged row.
 
 ### `metric_defs`
 
-What each raw column of each folder means, and how confident we are. One row per
-`(station_id, source_dir, col_index)`.
+What each raw column of each station means, and how confident we are. One row per
+`(station_id, source_dir, n_columns, col_index)`.
 
 | Column | Meaning |
 |---|---|
+| `n_columns` | Width of the raw layout this row describes |
 | `col_index` | 0-based index in the raw sheet |
 | `raw_name` | Header text, `''` when the file had no header |
 | `canonical_col` | Target column in `readings`, NULL when unmapped |
 | `confidence` | `high` for an exact header match, else lower |
 | `inferred` | 1 when the names were borrowed from a donor file |
 | `reason` | Why it mapped, or why it did not |
+| `n_files` | Files in the folder using this layout |
+
+`n_columns` is part of the key because a folder is a chronological run of chunks
+from one applet and the applet may change its columns partway through. `aisvn`
+went from 10 columns to 11 on 2020-06-17 when a `power` channel was added, so
+column 4 is `load` in one file and `power` in the other 38; `test` holds two
+unrelated schemas (4 columns of nix/temp/wifi probe for 16 of its 19 files, 11
+columns of solar channels for 2). Keyed on the column index alone, a folder can
+hold only one meaning per index and the second layout overwrites the first.
 
 `confidence` is the column to filter on before trusting an automatic analysis.
 
@@ -153,6 +163,12 @@ asserts that every day and every sample count matches across the pair.
   rather than trusting this count to identify which value is suspect.
 - `energy_wh` assumes a 2-minute nominal cadence
   (`avg_power * n_samples * 2 / 3600`), which matches 357 of 364 files.
+- `boot_count_min` / `boot_count_max` carry the logger's own monotonic read
+  counter, which resets on reboot. Min and max, never a mean: a mean across a
+  reboot averages two boot sessions into a number that never happened. A bucket
+  whose min is 1 restarted; the max is how long it had been up. This is the only
+  channel recording the hardware's view of its own uptime, and it is absent for
+  `solar-2020-05` and `voltage-phumy`, whose sheets have no such column.
 - The two tables do not carry the same statistics. `readings_hourly` has
   `battery_v_avg` and `readings_daily` does not, so the daily battery column is
   `battery_v_min` — the day's lowest. The site names the statistic in its
@@ -162,8 +178,8 @@ asserts that every day and every sample count matches across the pair.
 
 | Path | Format | Size | In git? | Purpose |
 |---|---|---|---|---|
-| `data/processed/solardata.db` | SQLite | 158 MiB | no | Canonical store, query in place |
-| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 7.4 MiB | **yes** | Interchange; pandas/duckdb/dask. All 734,908 readings at the native 119 s cadence |
+| `data/processed/solardata.db` | SQLite | 167 MiB | no | Canonical store, query in place. 19 MiB gzipped as a Release asset |
+| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 7.5 MiB | **yes** | Interchange; pandas/duckdb/dask. All 734,908 readings at the native 119 s cadence |
 | `public/data/{station}/daily/{year}.csv` | CSV | 0.1 MiB | **yes** | Daily rollups the site's Day view fetches |
 | `public/data/{station}/hourly/{year}.csv` | CSV | 1.7 MiB | **yes** | Hourly rollups the site's Hour view fetches |
 | `public/data/stations.json` | JSON | 5 KB | **yes** | Station metadata, coverage, which rollups exist |
@@ -175,7 +191,10 @@ asserts that every day and every sample count matches across the pair.
 
 `public/data/` is committed because the site is static: GitHub Pages serves the
 files straight from a clone, and a frontend-only change must not need the ingest.
-`solardata.db` is gitignored — it is over GitHub's 100 MiB per-file limit.
+`solardata.db` is gitignored — at 167 MiB it is over GitHub's 100 MiB
+per-file limit. `release.yml` ships it VACUUMed and gzipped (19 MiB); the
+committed Parquet is 7.5 MiB for the same 734,908 rows and needs no download
+at all.
 Everything is rebuilt with `make build`; the database is also distributed as a
 Release asset.
 

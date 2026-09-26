@@ -4,6 +4,115 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`metric_defs` could only describe one layout per folder, and the wrong one
+  won.** Its primary key was `(station_id, source_dir, col_index)`, so a folder
+  held exactly one meaning per column index and a second layout silently
+  overwrote the first. A folder is a chronological run of chunks from one
+  applet, and the applet is allowed to change its columns partway through:
+
+  | station | folder | the change |
+  |---|---|---|
+  | `aisvn` | 39 files | 10 → 11 columns on 2020-06-17, a `power` channel added |
+  | `maker-webhooks` | 5 files | 10 → 11 columns, a `solar2` channel added |
+  | `test` | 19 files | two unrelated schemas: 4 columns of nix/temp/wifi probe for 16 files, 11 columns of solar channels for 2 |
+  | `phumy2` | 102 files | column 0 renamed `time` → `date`, 2020-11 onwards |
+
+  The recorded result was that `aisvn` column 4 was `load`/`load_v` for all 39
+  files, when it is `load` in one file and `power`/`power_w` in the other 38.
+  `test`'s 4-column probe schema was not recorded at all, despite `nix_raw` and
+  `wifi_raw` holding 31,228 rows between them.
+
+  **The ingest was never wrong.** Each file is mapped with its own
+  width-matched effective header, and `readings` is correct: `load_v` is
+  populated and `power_w` is NULL before 2020-06-17, the reverse after. This
+  table is the one the report and the channel-coverage tab present as the
+  schema, so it was the only place the archive's two layouts were conflated.
+  `n_columns` is now part of the key.
+
+- **`rejects.reason` was a sentence, on 220,074 rows.** Rule 2 says to keep it
+  a stable category, and the archive is where ignoring that shows: the
+  `NULL_WINDOWS` path stored the collector's ~300-character note as the reason on
+  every cell it nulled. That is **80.6 MiB of one paragraph, repeated**, and it
+  made `rejects` (96.1 MiB) as large as `readings` — in a database that is not
+  committed and that nobody downloads whole.
+
+  | | before | after |
+  |---|---:|---:|
+  | `rejects.reason` for those rows | 300 chars | `null_window`, 11 chars |
+  | `rejects` table | 96.1 MiB | **15.8 MiB** |
+  | `solardata.db`, VACUUMed | 329.2 MiB | **166.7 MiB** |
+  | gzipped, the Release asset | 20.0 MiB | 18.7 MiB |
+
+  **No data moved.** The counts are identical — 734,908 readings, 224,579
+  rejected cells, 220,074 of them nulled in the same window — so
+  `python -m etl verify` matches the baseline unchanged and no re-record was
+  needed. What changed is where the sentence lives: once, in `config.py`, which
+  is version-controlled and human-readable. `report.collect` republishes it to
+  `quality.json` as `null_windows` and `bad_windows`, paired with the number of
+  rows each explains, so the site can still explain every flagged cell — and now
+  says so on a dedicated **Windows** tab, where previously a reader saw the
+  category with no reasoning attached. The same fix applies to
+  `pre-reinstall window; collector confirmed rows from here on are usable`,
+  which is now `pre_reinstall`.
+
+- **`null_window` rejects had an empty `column_name`.** The code derived it by
+  iterating `row_flags` for `no_signal:` prefixes, but `row_flags` is a merged
+  *string*, so the loop walked its characters and matched nothing. Every one of
+  the 220,074 rows said nothing about which channel it was about, and the
+  window's `n_rejected` in the report was silently 0. `_null_windows` now returns
+  the columns it nulled.
+
+### Added
+
+- **The uptime counter, `boot`, is now a channel you can chart.** The logger
+  writes a monotonic read counter that resets on reboot. It is the only record
+  that the hardware restarted, and the gaps in every other channel begin where it
+  drops — but it was in `readings` and in the Parquet export and in *neither*
+  rollup, so the site could not show it. It is aggregated as min and max, never a
+  mean: a mean across a reboot averages two boot sessions into a number that
+  never happened. A day whose `boot_count_min` is 1 restarted; `boot_count_max` is
+  how long it had been up. Coverage is 100% for `aisvn`, `aisvn2`, `aisvn-solar`,
+  `maker-webhooks` and `phumy2`, and genuinely absent for `solar-2020-05` and
+  `voltage-phumy`, whose sheets have no such column.
+
+  | station | readings | boot | share | downward steps |
+  |---|---:|---:|---:|---:|
+  | `phumy2` | 415,117 | 415,091 | 100.0% | 33 |
+  | `aisvn` | 77,526 | 77,516 | 100.0% | 98 |
+  | `aisvn2` | 164,098 | 164,078 | 100.0% | 25 |
+  | `aisvn-solar` | 13,788 | 13,785 | 100.0% | 4 |
+  | `maker-webhooks` | 8,535 | 8,531 | 100.0% | **526** |
+  | `test` | 37,371 | 2,008 | 5.4% | 1 |
+  | `solar-2020-05` | 12,920 | 0 | 0% | — |
+  | `voltage-phumy` | 5,553 | 0 | 0% | — |
+
+  `maker-webhooks`' 526 resets across 8,535 readings is the one figure here that
+  does not look like ordinary rebooting, and it is recorded rather than explained.
+  It may be a genuinely flaky applet or a counter that is not a reboot counter
+  for that firmware; there is no way to tell from the archive alone.
+- A **Windows** tab in the data-quality inspector, rendering each configured
+  window once: station, channels, span, row count, and the reasoning in full.
+  `rejects.by_reason` also gained a Meaning column, so a category is never a
+  shrug.
+- `check_frontend.mjs` asserts two invariants by name — *a reject reason is a
+  category, never a sentence* and *a folder that changed layout keeps both
+  layouts, not the last one* — plus *the uptime counter is published, since it is
+  the only reboot evidence*. They fail the build if either regresses.
+
+### Changed
+
+- The channel-coverage tab shows the layout width, so the same column index in two
+  layouts is visible as two rows rather than one.
+- The size claims in `AGENTS.md`, `README.md`, `docs/data-dictionary.md` and
+  `docs/format-design.md` are updated to the measured figures. `CHANGELOG.md` is
+  deliberately not: its older numbers are records of releases where they were
+  true, and rewriting a changelog to match today's build is how a changelog
+  stops being a changelog.
+
 ## [0.7.1] — 2026-09-26
 
 A patch, and the interesting part is the bug. The reading of the archive is

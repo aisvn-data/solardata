@@ -146,6 +146,7 @@ const VALUE_COLUMNS = {
     power_w: ['power_w_avg', 'mean'],
     temp_c: ['temp_c_avg', 'mean'],
     energy_wh: ['energy_wh', 'total'],
+    boot_count_max: ['boot_count_max', 'max'],
   },
   hourly: {
     solar_v: ['solar_v_avg', 'mean'],
@@ -155,6 +156,7 @@ const VALUE_COLUMNS = {
     power_w: ['power_w_avg', 'mean'],
     temp_c: ['temp_c_avg', 'mean'],
     energy_wh: ['energy_wh', 'total'],
+    boot_count_max: ['boot_count_max', 'max'],
   },
 }
 
@@ -257,6 +259,19 @@ export const METRICS = [
     channels: ['energy_wh'],
     decimals: 1,
   },
+  {
+    key: 'boot',
+    // The logger's own monotonic counter, which resets when it reboots. Shown
+    // because it is the only channel that records the hardware's view of its own
+    // uptime: a line that climbs and drops to 1 is the station restarting, which
+    // is also where the gaps in the other channels come from. It is a count, not
+    // a measurement, so it has no plausibility band and is never flagged.
+    label: 'Uptime counter',
+    unit: 'reads',
+    colour: '#4c51bf',
+    channels: ['boot_count_max'],
+    decimals: 0,
+  },
 ]
 
 export const METRIC_BY_KEY = Object.fromEntries(METRICS.map((m) => [m.key, m]))
@@ -287,6 +302,7 @@ export function get(row, metric) {
 const STAT_LABELS = {
   mean: 'mean',
   min: 'minimum',
+  max: 'peak',
   total: 'total',
 }
 

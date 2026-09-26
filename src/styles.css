@@ -383,6 +383,25 @@ nav a.active { color: #102a43; font-weight: 700; }
 .note-list li { border-bottom: 1px solid #edf2f7; padding: 12px 0; }
 .note-list p { margin: 4px 0 0; }
 
+/* One card per configured window: the decision, its span, and its sentence. */
+.window-card {
+  background: #fff;
+  border: 1px solid #e5edf3;
+  border-radius: 10px;
+  margin-top: 12px;
+  padding: 14px 16px;
+}
+.window-head { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.window-head strong { font-size: .95rem; }
+.window-head .badge { margin-left: auto; }
+.window-why { color: #243b53; line-height: 1.6; margin: 8px 0 4px; }
+.flag-chip {
+  background: #eaf2f7;
+  border-radius: 3px;
+  font-size: .75rem;
+  padding: 1px 5px;
+}
+
 .prose { max-width: 680px; }
 .prose p { color: #486581; line-height: 1.7; }
 .prose code { background: #eaf2f7; border-radius: 3px; font-size: .85em; padding: 1px 5px; }

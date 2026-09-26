@@ -206,6 +206,97 @@ check('quality.json carries the counts the UI displays', () => {
   assert.ok(quality.notes.length >= 10)
 })
 
+check('a folder that changed layout keeps both layouts, not the last one', () => {
+  // Regression. `metric_defs` was keyed on (station, folder, col_index), so a
+  // folder could hold exactly one meaning per column index and the second layout
+  // silently overwrote the first. `aisvn` gained a `power` column on 2020-06-17
+  // and went from 10 columns to 11, so column 4 ended up recorded as `load` for
+  // all 39 files when 38 of them are 11-column files where it is `power`. The
+  // ingest was never wrong -- it maps each file with its own width-matched
+  // header -- but this table is what the report and the channel-coverage tab
+  // present as the schema.
+  const defs = quality.metric_defs
+  assert.ok(defs.length > 0, 'quality.json has no metric_defs')
+  for (const def of defs) {
+    assert.ok(
+      'n_columns' in def,
+      `metric_defs row for ${def.station_id}/${def.source_dir}/${def.col_index} has no width`,
+    )
+  }
+  const aisvn = defs.filter((d) => d.station_id === 'aisvn' && d.col_index === 4)
+  assert.equal(aisvn.length, 2, `aisvn column 4 should have two layouts, got ${aisvn.length}`)
+  const byWidth = Object.fromEntries(aisvn.map((d) => [d.n_columns, d]))
+  assert.equal(byWidth[10].raw_name, 'load', 'the 10-column layout has load at index 4')
+  assert.equal(byWidth[10].canonical_col, 'load_v')
+  assert.equal(byWidth[11].raw_name, 'power', 'the 11-column layout has power at index 4')
+  assert.equal(byWidth[11].canonical_col, 'power_w')
+  assert.ok(byWidth[10].n_files < byWidth[11].n_files, 'the wider layout should cover more files')
+  // `test` is two unrelated schemas in one folder: 4 columns of nix/temp/wifi
+  // probe for 16 of its 19 files, 11 columns of solar channels for 2.
+  const widths = new Set(defs.filter((d) => d.station_id === 'test').map((d) => d.n_columns))
+  assert.ok(widths.has(4) && widths.has(11), `test should have both layouts, saw ${[...widths]}`)
+})
+
+check('the uptime counter is published, since it is the only reboot evidence', () => {
+  // `boot` is the logger's own monotonic read counter. It is the only record that
+  // the hardware restarted, and the gaps in every other channel start where it
+  // drops. It has no plausibility band (it is a count, not a measurement) and it
+  // was absent from both rollups, so the site could not show it at all.
+  for (const [station, year, column] of [
+    ['aisvn', '2020', 'boot_count_max'],
+    ['phumy2', '2023', 'boot_count_max'],
+    ['aisvn2', '2021', 'boot_count_max'],
+  ]) {
+    const rows = parseCsv(readFileSync(join(DATA, station, 'daily', `${year}.csv`), 'utf8'))
+    assert.ok(column in rows[0], `${station} ${year} has no ${column} column`)
+    const values = rows.map((r) => num(r[column])).filter((v) => v !== null)
+    assert.ok(values.length > 0, `${station} ${year} ${column} has no values`)
+    assert.ok(Math.max(...values) > 1, `${station} ${year}: counter never got past 1`)
+  }
+  // A station whose applet has no boot column must not gain a fabricated one.
+  const noBoot = parseCsv(readFileSync(join(DATA, 'solar-2020-05', 'daily', '2020.csv'), 'utf8'))
+  assert.ok(
+    noBoot.every((r) => num(r.boot_count_max) === null),
+    'solar-2020-05 has no boot channel and must not have uptime values',
+  )
+  const hourly = parseCsv(readFileSync(join(DATA, 'aisvn', 'hourly', '2020.csv'), 'utf8'))
+  assert.ok('boot_count_min' in hourly[0], 'the hourly rollup needs boot_count_min too')
+})
+
+check('a reject reason is a category, never a sentence', () => {
+  // Rule 2, and the archive is where ignoring it cost 80.6 MiB: storing the
+  // NULL_WINDOWS prose as `rejects.reason` put one ~300-character sentence on
+  // 220,074 rows and made `rejects` as large as `readings`. The prose now lives
+  // once, in etl/config.py, and is republished here -- so this asserts the
+  // category is short AND that the sentence is still reachable by a reader.
+  for (const row of quality.rejects.by_reason) {
+    assert.ok(
+      row.reason.length <= 40,
+      `rejects.reason is ${row.reason.length} chars: ${row.reason.slice(0, 60)}`,
+    )
+    assert.ok(!/\s\s|;/.test(row.reason), `rejects.reason reads as prose: ${row.reason}`)
+  }
+  assert.ok(
+    quality.rejects.by_reason.some((r) => r.reason === 'null_window'),
+    'the null_window category is missing from by_reason',
+  )
+  // And the explanation has to still be published, or the category is a shrug.
+  assert.ok(Array.isArray(quality.null_windows), 'quality.json has no null_windows')
+  assert.ok(quality.null_windows.length > 0, 'null_windows is empty')
+  const window = quality.null_windows.find((w) => w.n_rejected > 1000)
+  assert.ok(window, 'no window explains a significant number of cells')
+  assert.ok(window.why.length > 40, 'the window has no explanation')
+  assert.ok(Array.isArray(window.columns) && window.columns.length > 0)
+  assert.ok(window.valid_from && window.valid_to)
+  // Every column the window names should be accounted for in the count.
+  const flagged = quality.null_windows.reduce((sum, w) => sum + w.n_rejected, 0)
+  assert.equal(
+    flagged,
+    quality.rejects.by_reason.find((r) => r.reason === 'null_window').n,
+    'window counts do not add up to the null_window reject total',
+  )
+})
+
 let dailyFiles = 0
 let dailyRows = 0
 let hourlyFiles = 0

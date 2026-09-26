@@ -227,17 +227,45 @@ redundancy is the whole win. `tests/test_ingest.py::TestReadCache` covers it.
 
 ### Why `solardata.db` is not committed
 
-It is 158 MiB, over GitHub's 100 MiB per-file limit for a git blob, so a commit
-of it would be rejected outright. What *is* committed:
+It is 167 MiB after `VACUUM` (182 MiB as the ingest leaves it), over GitHub's
+100 MiB per-file limit for a git blob, so a commit of it would be rejected
+outright. `release.yml` gzips it to a **19 MiB** Release asset, which is the form
+most people actually want. What *is* committed:
 
 | Path | Size | Why |
 |---|---|---|
-| `data/processed/parquet/` | 7.4 MiB | The interchange format; gives anyone the processed data from a clone. All 734,908 readings at the native cadence |
+| `data/processed/parquet/` | 7.5 MiB | The interchange format; gives anyone the processed data from a clone. All 734,908 readings at the native cadence |
 | `public/data/` | 1.9 MiB | The CSV/JSON rollups the site fetches, so GitHub Pages works from a clone: daily *and* hourly, plus the plausibility bands |
 | `data/processed/quality_report.md` | ~10 KB | The review artefact, readable in a pull request |
 | `data/processed/quality_report.json` | ~80 KB | Machine-readable form of the same |
 | `data/baseline.json` | ~1 KB | The expected counts CI enforces |
 | `data/raw/**` | 30.4 MiB | The primary source of truth |
+
+The Parquet export is **2.5× smaller than the gzipped database** for exactly the
+same 734,908 rows, which is why the database is a convenience rather than the
+distribution channel. Measured breakdown of the 167 MiB, if you are ever
+optimising it:
+
+| Part | Size | Note |
+|---|---:|---|
+| `readings` | 98.9 MiB | The data itself |
+| indexes | ~49 MiB | Four of them, on `readings` and the provenance columns |
+| `rejects` | 15.8 MiB | Was 96.1 MiB until `rejects.reason` stopped being a sentence — see below |
+| the two rollups | 2.5 MiB | 26,843 buckets |
+
+`rejects` was the second-largest table in the database and is now the fourth,
+for one reason. Rule 2 says "keep `rejects.reason` a stable category, not a
+sentence", and the `NULL_WINDOWS` path was storing the collector's ~300-character
+note as the reason on every one of the 220,074 cells it nulled: **80.6 MiB of one
+sentence, repeated.** The category is now `null_window`; the prose lives once,
+in `config.NULL_WINDOWS`, and `report.collect` republishes it to `quality.json`
+so the site can still explain every flagged cell from a sentence it reads once.
+That change halved the database and moved no data.
+
+If you go looking for the next win: it is not the storage layout. Restructuring
+`readings` — timestamps as an integer, dropping the per-row `tz` — is worth
+2.1× on that table and nothing at all to the file as a whole, because 75% of
+the `readings` cells are already NULL and cost one header byte each.
 
 `solardata.db` and the retired `data/exports/` are gitignored. Rebuild locally
 with `make build`, or download the database from a Release.

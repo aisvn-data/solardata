@@ -102,9 +102,27 @@ CREATE TABLE IF NOT EXISTS stations (
 -- What each raw column of each station means, and how confident we are.
 -- inferred = 1 means the file had no header row and the mapping was borrowed
 -- from a sibling file in the same archive folder.
+--
+-- `n_columns` is part of the key, and it has to be. A folder is a chronological
+-- run of 2000-row chunks from one applet, and the applet is allowed to change
+-- its columns partway through: `aisvn` went from 10 columns to 11 on
+-- 2020-06-17 when a `power` channel was added, `Maker_Webhooks_Events` did the
+-- same, and `test` is two unrelated schemas in one folder (4 columns of nix/temp/
+-- wifi probe for 16 of its 19 files, 11 columns of solar channels for 2).
+--
+-- Keyed on (station, folder, column) alone -- the obvious choice, and the one
+-- this table used to use -- a folder can hold exactly one meaning per index, so
+-- the second layout silently overwrote the first. For `aisvn` that produced a
+-- single row saying column 4 is `load`/`load_v` for all 39 files, when in fact
+-- it is `load` in one file and `power` in the other 38. The *ingest* was never
+-- affected: it maps each file with its own width-matched effective header, and
+-- `readings` is correct. This table is the one the report and the website's
+-- channel-coverage tab present as the schema, so it was the only place the
+-- archive's two layouts were conflated into one.
 CREATE TABLE IF NOT EXISTS metric_defs (
     station_id      TEXT NOT NULL REFERENCES stations(station_id),
     source_dir      TEXT NOT NULL,
+    n_columns       INTEGER NOT NULL,   -- width of the raw layout this describes
     col_index       INTEGER NOT NULL,   -- 0-based index in the raw sheet
     raw_name        TEXT,               -- header text, '' when headerless
     canonical_col   TEXT,               -- NULL when unmapped
@@ -114,7 +132,7 @@ CREATE TABLE IF NOT EXISTS metric_defs (
     inferred        INTEGER NOT NULL DEFAULT 0,
     reason          TEXT,
     n_files         INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (station_id, source_dir, col_index)
+    PRIMARY KEY (station_id, source_dir, n_columns, col_index)
 );
 
 -- Windows over which a column's scaling is believed constant.  Written by the
@@ -204,6 +222,12 @@ CREATE TABLE IF NOT EXISTS readings_hourly (
     power_w_avg REAL, power_w_max REAL,
     temp_c_avg REAL, temp_c_min REAL, temp_c_max REAL,
     current_a_avg REAL,
+    -- The logger's own monotonic counter, which resets on reboot. Min and max,
+    -- never a mean: a mean across a reboot averages two different boot sessions
+    -- into a number that never happened, and `max - min` is what says whether
+    -- the logger restarted inside the bucket. This is the only channel that
+    -- records the hardware's own view of its uptime.
+    boot_count_min INTEGER, boot_count_max INTEGER,
     energy_wh REAL,          -- power_w_avg * hours, when the hour is complete
     -- Audit trail for the unit correction: which channels had a
     -- collector-confirmed scale applied, and which regime rows decided it.
@@ -227,6 +251,9 @@ CREATE TABLE IF NOT EXISTS readings_daily (
     power_w_avg REAL, power_w_max REAL,
     energy_wh REAL,
     temp_c_min REAL, temp_c_avg REAL, temp_c_max REAL,
+    -- Uptime counter, min and max for the same reason as the hourly rollup: it
+    -- resets on reboot, so only the extremes are meaningful.
+    boot_count_min INTEGER, boot_count_max INTEGER,
     scaled_channels TEXT NOT NULL DEFAULT '',
     regime_ids      TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (station_id, day)
