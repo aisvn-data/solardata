@@ -4,6 +4,55 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] — 2026-09-26
+
+### Changed
+
+- **CI is split by cost.** `ci.yml` keeps the fast checks and now runs on every
+  push and pull request in about a minute; the expensive full build over all 364
+  raw files moves to a new `data.yml`, gated on the paths it actually reads
+  (`data/raw/**`, `etl/**`, `data/baseline.json`, `requirements.txt` and its own
+  definition), plus a weekly sweep on Mondays 03:17 UTC and `workflow_dispatch`.
+  A pull request that only touches `src/` cannot change a reading — the data
+  comes from `data/raw` through `etl/`, and both are committed — so rebuilding it
+  for such a change proved nothing and cost several minutes.
+- The data workflow is **deliberately not a required status check**: a
+  path-gated workflow produces no run at all when the paths do not match, and a
+  required check that never appears leaves a pull request waiting for a status
+  that will never arrive. `ci.yml` is the required gate, and it is not itself
+  path-gated, so a docs-only change still shows a run.
+- The weekly schedule is the backstop for anything the path filter misses. A
+  filter only sees the paths GitHub reports.
+
+### Fixed
+
+- **Every raw sheet was being parsed three times.** The ingest reads each file to
+  scan its structure, again in `detect_block`, and again in `iter_cells`.
+  Profiling 364 files showed **1,820 calls to `_read_rows` for 364 files**, and
+  reading a sheet is 86% of the whole build. `etl/readers/xlsx.py` now caches the
+  parsed sheet keyed by path *and* file size — the size so a file edited mid-run
+  cannot be served stale — and `etl/build_db.py` clears the cache between archive
+  folders to bound memory to one folder.
+
+  | | before | after |
+  |---|---:|---:|
+  | `etl ingest` | 168.9 s | **53.7 s** |
+  | `python -m etl all` | ~170 s | **71.7 s** |
+
+  Identical output: 734,908 readings, 4,399 duplicates, 224,579 rejected.
+
+- `tests/test_workflows.py` gained five checks covering the split: that
+  `data.yml` is gated on the right paths, that push and pull_request agree, that
+  `src/**` is *not* in the gate, that a schedule and a manual trigger exist, that
+  `ci.yml` is ungated and does not depend on the build, and that no cheap check
+  sits behind the expensive one.
+- `tests/test_ingest.py::TestReadCache` covers the cache: one parse per sheet,
+  dropped on request, and not served stale when a file changes size.
+
+123 tests, 22 frontend checks.
+
+---
+
 ## [0.6.0] — 2026-09-26
 
 Applies the collector-confirmed unit corrections to the published aggregates, so
