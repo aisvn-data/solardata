@@ -196,6 +196,56 @@ class TestWorkflowFiles(unittest.TestCase):
                 if "actions/checkout" in step.get("uses", ""):
                     self.assertNotIn("ref", step.get("with", {}))
 
+    def test_workflows_that_verify_run_every_stage_verify_depends_on(self):
+        """Regression. `ingest` rebuilds the database but does not populate
+        `regimes` -- that is a separate stage. A workflow that ran only `ingest`
+        and then `verify` reported `unconfirmed_regimes: 14 -> 0` and failed,
+        which was the guard working correctly and the workflow being wrong.
+
+        `verify` reads every table, so any workflow that calls it must first run
+        every stage that populates one.
+        """
+        from etl.verify import BASELINE_FIELDS
+
+        for name in self.files:
+            doc = load(name)
+            script = "\n".join(
+                step.get("run", "") for job in doc["jobs"].values() for step in job["steps"]
+            )
+            if "etl verify" not in script:
+                continue
+            with self.subTest(workflow=name):
+                # `etl all` runs every stage, so it satisfies all of them.
+                runs_everything = "etl all" in script
+                for stage in ("etl ingest", "etl regimes", "etl report"):
+                    if runs_everything:
+                        continue
+                    self.assertIn(
+                        stage,
+                        script,
+                        f"{name} runs `etl verify` but never `{stage}`",
+                    )
+        # Guard the guard: the fields above must still be the ones verify reads,
+        # so a new baseline field forces this test to be revisited.
+        self.assertIn("unconfirmed_regimes", BASELINE_FIELDS)
+        self.assertIn("notes", BASELINE_FIELDS)
+
+    def test_release_workflow_uses_no_third_party_actions(self):
+        # softprops/action-gh-release@v2 runs on the Node 20 runtime, which is
+        # what produced the deprecation warning. The `gh` CLI ships with the
+        # runner, so there is no third-party action left in the release path.
+        doc = load("release.yml")
+        allowed = ("actions/checkout@", "actions/setup-python@")
+        for job in doc["jobs"].values():
+            for step in job["steps"]:
+                uses = step.get("uses")
+                if not uses:
+                    continue
+                self.assertTrue(
+                    uses.startswith(allowed),
+                    f"release.yml uses a third-party action: {uses}",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
