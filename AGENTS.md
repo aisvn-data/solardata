@@ -31,10 +31,10 @@ python -m etl regimes             # detect unit-scale changes
 python -m etl aggregate           # hourly/daily rollups, applying confirmed scales
 python -m etl parquet             # SQLite -> partitioned Parquet
 python -m etl export              # SQLite -> CSV rollups for the website
+python -m etl export --granularity day   # daily rollups only (both is the default)
 python -m etl report              # write the data-quality report
 python -m etl verify              # fail if the build != data/baseline.json
 python -m etl query "SELECT ..."  # ad-hoc read-only SQL
-
 make test                         # pytest
 make check                        # ruff + pytest
 ```
@@ -232,8 +232,8 @@ of it would be rejected outright. What *is* committed:
 
 | Path | Size | Why |
 |---|---|---|
-| `data/processed/parquet/` | 7.4 MiB | The interchange format; gives anyone the processed data from a clone |
-| `public/data/` | 167 KB | The CSV/JSON rollups the site fetches, so GitHub Pages works from a clone |
+| `data/processed/parquet/` | 7.4 MiB | The interchange format; gives anyone the processed data from a clone. All 734,908 readings at the native cadence |
+| `public/data/` | 1.9 MiB | The CSV/JSON rollups the site fetches, so GitHub Pages works from a clone: daily *and* hourly, plus the plausibility bands |
 | `data/processed/quality_report.md` | ~10 KB | The review artefact, readable in a pull request |
 | `data/processed/quality_report.json` | ~80 KB | Machine-readable form of the same |
 | `data/baseline.json` | ~1 KB | The expected counts CI enforces |
@@ -248,7 +248,7 @@ Plain JSX, no TypeScript, no state library, no chart library. Data flows one
 way: `python -m etl export` writes `public/data/`, `src/data.js` fetches it, and
 the components render it. There is no build step between the CSV and the DOM.
 
-Two rules the frontend inherits from the pipeline, and the reason for each:
+Three rules the frontend inherits from the pipeline, and the reason for each:
 
 - **A gap is a gap.** An empty cell in `readings` reaches the chart as `null`
   and breaks the line. If you ever coerce it to 0 — even "just for the chart" —
@@ -256,9 +256,17 @@ Two rules the frontend inherits from the pipeline, and the reason for each:
 - **Available metrics are discovered, not declared.** `phumy2` has no `solar_v`
   or `battery_v` at all, so `availableMetrics()` derives the list from the rows
   and the UI disables what a station does not have.
+- **A flagged value is marked, never dropped.** A value outside its channel's
+  recorded band is drawn, ringed, counted and listed under the chart. The bands
+  are shipped in `public/data/metrics.json` straight from
+  `etl/normalize/metrics.py`, so the site cannot drift from the criterion the
+  ingest applied. Do not reintroduce a heuristic here: a median/MAD "spike" test
+  used to drop 16 real days of `aisvn` 2020 out of 101, because a panel's
+  24-hour mean is dominated by night and a single afternoon sample looks like an
+  outlier against it. `check_frontend.mjs` has a regression check by name.
 
-`node scripts/check_frontend.mjs` guards both, and runs in CI. Add to it when you
-change the chart or the CSV parsing.
+`node scripts/check_frontend.mjs` guards all three, and runs in CI. Add to it
+when you change the chart or the CSV parsing.
 
 ### Deploying to GitHub Pages
 
@@ -275,8 +283,9 @@ change the chart or the CSV parsing.
 
 The data files are committed under `public/data/`, so a frontend-only change
 deploys without re-running the Python pipeline. The deploy asserts that
-`dist/data/` contains `stations.json`, `quality.json` and all 13 CSVs, so a
-build that loses them fails instead of publishing a site full of errors.
+`dist/data/` contains `stations.json`, `metrics.json`, `quality.json` and all 26
+CSVs (13 station-years at two resolutions), so a build that loses them fails
+instead of publishing a site full of errors.
 
 ## Open questions a human still has to answer
 

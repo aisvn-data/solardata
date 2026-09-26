@@ -77,8 +77,18 @@ class TestFlagParsing(unittest.TestCase):
     def test_defaults_when_nothing_is_passed(self):
         settings = _settings(_args(["ingest"]))
         self.assertFalse(settings.only)
-        self.assertEqual(settings.export_granularity, "hour")
+        # "both": the site switches resolution at runtime, and the daily rollup
+        # is derived from the hourly one so the two cannot disagree.
+        self.assertEqual(settings.export_granularity, "both")
         self.assertTrue(settings.duplicate_policy)
+
+    def test_granularity_narrows_the_export_from_either_side(self):
+        for value in ("hour", "day", "both"):
+            for argv in (
+                ["--granularity", value, "export"],
+                ["export", "--granularity", value],
+            ):
+                self.assertEqual(_settings(_args(argv)).export_granularity, value, argv)
 
     def test_every_subcommand_has_a_handler(self):
         for command in (

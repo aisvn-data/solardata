@@ -160,7 +160,7 @@ export default function QualityInspector() {
                     <td className="num">
                       {((count / totals.readings) * 100).toFixed(1)}%
                     </td>
-                    <td className="muted small">{FLAG_MEANINGS[flag] ?? '—'}</td>
+                    <td className="muted small">{flagMeaning(flag)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -370,14 +370,40 @@ export default function QualityInspector() {
   )
 }
 
+/**
+ * What each quality flag means, and where the ones with no explanation come from.
+ *
+ * Two of these carry the 226,000 rows that `out_of_range` alone cannot account
+ * for, and both are *parameterised by column* -- `bad_window:temp_c`,
+ * `no_signal:solar2_v` -- so a flat lookup table left a quarter of all flagged
+ * readings rendering as a bare dash. `flagMeaning` handles the prefix.
+ *
+ * The three marked "never assigned" are declared in `etl/config.py` and have a
+ * detector or a constant behind them, but nothing in the pipeline calls one.
+ * They are listed so their absence from the table above is visibly deliberate
+ * rather than an oversight; see `AGENTS.md`'s open questions.
+ */
 const FLAG_MEANINGS = {
   sentinel: 'Raw cell was -992 or -1: the input was floating. Stored as NULL.',
   out_of_range:
-    'Value kept, but outside the channel’s plausible band. Often a scale change.',
-  clip: 'Repeated identical value long enough to be a rail artefact.',
-  duplicate_ts: 'Same station, same instant: absorbed by the primary key.',
-  non_monotonic: 'A counter went backwards, i.e. the logger rebooted.',
-  free_text: 'Prose found in a numeric cell; the text is kept in the notes table.',
+    'Value kept, but outside the channel’s plausible band. Ringed on the chart, never removed. Usually how a scale change gets noticed.',
+  'bad_window': 'A named window in etl/config.py where the reading is kept but should not be believed.',
+  no_signal:
+    'A named window in etl/config.py where the input was disconnected, so the stored value is a false reading. Nulled, with a rejects row carrying the reason.',
+  schema_misaligned:
+    'The row did not match the donor schema. Unreachable now that donor selection matches on width.',
+  duplicate_ts: 'Same station, same instant: absorbed by the primary key, recorded in rejects.',
+  clip: 'Repeated identical value long enough to be a rail artefact. Never assigned — the detector is not wired into the ingest.',
+  non_monotonic:
+    'A counter went backwards, i.e. the logger rebooted. Never assigned — no reboot detector runs.',
+  free_text: 'Prose in a numeric cell. Never assigned — unmapped columns are skipped before this point.',
+}
+
+function flagMeaning(flag) {
+  if (FLAG_MEANINGS[flag]) return FLAG_MEANINGS[flag]
+  const [family, column] = flag.split(':')
+  if (column && FLAG_MEANINGS[family]) return `${FLAG_MEANINGS[family]} Channel: ${column}.`
+  return '—'
 }
 
 function span(min, max) {

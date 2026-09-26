@@ -1,15 +1,14 @@
 import { useMemo, useRef, useState } from 'react'
-import { MS_PER_DAY } from '../data.js'
+import { MS_PER_DAY, get, pick, statLabel } from '../data.js'
 
 /**
  * A time-series chart in plain SVG.
  *
- * No charting library: the dataset is daily rollups, so a line chart with axes
- * is all that is needed, and `AGENTS.md` asks to keep the frontend dependency
- * free until there is a reason not to. A chart package would be ~100 kB of
- * JavaScript to draw two paths.
+ * No charting library: a line chart with axes is all that is needed, and
+ * `AGENTS.md` asks to keep the frontend dependency free until there is a reason
+ * not to. A chart package would be ~100 kB of JavaScript to draw two paths.
  *
- * Three things it has to get right, all of them consequences of the data
+ * Four things it has to get right, all of them consequences of the data
  * rather than of the drawing:
  *
  * - **Gaps break the line.** A `null` is "not measured", not zero, so the path
@@ -22,16 +21,25 @@ import { MS_PER_DAY } from '../data.js'
  *   temperature on independent axes would let any two curves be made to cross
  *   anywhere, which is meaningless. Sharing one axis also means "no data" reads
  *   honestly as an empty band.
+ * - **An out-of-band value is marked, not hidden.** A value outside the band
+ *   the pipeline records for its channel is drawn as usual and ringed, because
+ *   `AGENTS.md` rule 2 is that a flagged reading is kept. The marker says "look
+ *   at this"; it does not say "this is not real".
  */
 
 const PADDING = { top: 16, right: 18, bottom: 34, left: 56 }
 
+//: Above this many flagged points the rings stop being a warning and start being
+//: a texture, so the chart says so instead of drawing them all.
+const MAX_BREACH_MARKERS = 400
+
 export default function TimeSeriesChart({
   rows,
   series,
+  resolution = 'daily',
   height = 340,
   onHover,
-  hoverDay,
+  hoverRow,
 }) {
   const svgRef = useRef(null)
   const [pointer, setPointer] = useState(null)
@@ -44,14 +52,14 @@ export default function TimeSeriesChart({
     const dates = rows.map((row) => row.date)
     const minDate = Math.min(...dates)
     const maxDate = Math.max(...dates)
-    // A single day has zero extent, which would divide by zero. Give it a
+    // A single bucket has zero extent, which would divide by zero. Give it a
     // one-day window so the point sits in the middle instead.
     const span = maxDate - minDate || MS_PER_DAY
 
     const values = []
     for (const row of rows) {
       for (const item of series) {
-        const value = item.get(row)
+        const value = get(row, item)
         if (value !== null) values.push(value)
       }
     }
@@ -79,14 +87,24 @@ export default function TimeSeriesChart({
     return { minDate, maxDate, span, lo, hi, plotW, plotH, x, y }
   }, [rows, series, height])
 
+  const markers = useMemo(() => {
+    const found = []
+    for (const row of rows) {
+      for (const breach of row.breaches ?? []) {
+        found.push({ row, breach })
+      }
+    }
+    return { shown: found.slice(0, MAX_BREACH_MARKERS), total: found.length }
+  }, [rows])
+
   if (!geometry) {
     return (
       <div className="chart-empty">
         <p>No data for this station and period.</p>
         <p className="muted">
-          The daily rollups for this selection contain no values for the chosen
-          metrics. That usually means the station did not have the channel, not
-          that readings are missing &mdash; see the Data quality tab.
+          The {resolution} rollups for this selection contain no values for the
+          chosen metrics. That usually means the station did not have the
+          channel, not that readings are missing &mdash; see the Data quality tab.
         </p>
       </div>
     )
@@ -94,7 +112,8 @@ export default function TimeSeriesChart({
 
   const { lo, hi, plotW, plotH, x, y } = geometry
   const yTicks = niceTicks(lo, hi, 5)
-  const xTicks = buildDateTicks(rows, x)
+  const xTicks = buildDateTicks(rows, resolution)
+  const noun = resolution === 'hourly' ? 'hours' : 'days'
 
   function handleMove(event) {
     const svg = svgRef.current
@@ -129,7 +148,7 @@ export default function TimeSeriesChart({
         className="chart"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`Time series for ${series.length} metric(s) over ${rows.length} days`}
+        aria-label={`Time series for ${series.length} metric(s) over ${rows.length} ${noun}`}
         onMouseMove={handleMove}
         onMouseLeave={handleLeave}
       >
@@ -158,7 +177,7 @@ export default function TimeSeriesChart({
 
         {xTicks.map((tick) => (
           <text
-            key={tick.day}
+            key={tick.key}
             className="axis-label"
             x={x(tick.date)}
             y={PADDING.top + plotH + 20}
@@ -172,11 +191,29 @@ export default function TimeSeriesChart({
           <path
             key={item.key}
             className="series-line"
-            d={buildPath(rows, item.get, x, y)}
+            d={buildPath(rows, item, x, y)}
             stroke={item.colour}
             fill="none"
           />
         ))}
+
+        {markers.shown.map(({ row, breach }) => {
+          const metric = series.find((item) => item.key === breach.metric)
+          if (!metric) return null
+          return (
+            <rect
+              key={`${row.key}:${breach.metric}`}
+              className="breach-marker"
+              x={x(row.date) - 4}
+              y={y(breach.value) - 4}
+              width={8}
+              height={8}
+              transform={`rotate(45 ${x(row.date)} ${y(breach.value)})`}
+              fill="#fff"
+              stroke={metric.colour}
+            />
+          )
+        })}
 
         {pointer && (
           <g className="hover">
@@ -188,7 +225,7 @@ export default function TimeSeriesChart({
               y2={PADDING.top + plotH}
             />
             {series.map((item) => {
-              const value = item.get(pointer.row)
+              const value = get(pointer.row, item)
               if (value === null) return null
               return (
                 <circle
@@ -206,43 +243,139 @@ export default function TimeSeriesChart({
         )}
       </svg>
 
-      {hoverDay && (
-        <div className="chart-readout" role="status">
-          <strong>{hoverDay.day}</strong>
-          <span className="muted">
-            {hoverDay.nSamples ?? 0} samples over {hoverDay.nHours ?? 0} h
-          </span>
-          {series.map((item) => {
-            const value = item.get(hoverDay)
-            return (
-              <span key={item.key} className="readout-item">
-                <i style={{ background: item.colour }} />
-                {item.label}:{' '}
-                {value === null ? (
-                  <em className="muted">no data</em>
-                ) : (
-                  `${value.toFixed(item.decimals ?? 1)} ${item.unit}`
-                )}
-              </span>
-            )
-          })}
-        </div>
+      {markers.total > markers.shown.length && (
+        <p className="chart-note">
+          {markers.total} values in this range fall outside their channel&apos;s
+          recorded band; the first {markers.shown.length} are ringed. Use the
+          table below to list them all.
+        </p>
+      )}
+
+      {hoverRow && <Readout row={hoverRow} series={series} />}
+
+      {rows.some((row) => (row.breaches ?? []).length > 0) && (
+        <FlaggedTable rows={rows} series={series} />
       )}
     </div>
   )
 }
 
 /**
+ * The hover readout.
+ *
+ * Names the statistic behind each number, because the daily battery column is a
+ * day's minimum and the hourly one is the hour's mean, and a reader comparing
+ * the two views would otherwise be comparing different things under one label.
+ */
+function Readout({ row, series }) {
+  return (
+    <div className="chart-readout" role="status">
+      <strong>{row.day}</strong>
+      <span className="muted">
+        {row.nSamples ?? 0} samples over {row.nHours ?? 0} h
+        {row.nOutOfRange > 0 && (
+          <>
+            {' · '}
+            {row.nOutOfRange} flagged out-of-range
+          </>
+        )}
+      </span>
+      {series.map((item) => {
+        const { value, channel, stat } = pick(row, item)
+        const breach = (row.breaches ?? []).find((b) => b.metric === item.key)
+        return (
+          <span key={item.key} className="readout-item">
+            <i style={{ background: item.colour }} />
+            {item.label}
+            {stat && <em className="muted"> ({statLabel(stat)})</em>}:{' '}
+            {value === null ? (
+              <em className="muted">no data</em>
+            ) : (
+              `${value.toFixed(item.decimals ?? 1)} ${item.unit}`
+            )}
+            {breach && (
+              <em className="breach">
+                {' '}
+                outside the recorded {breach.band.lo}&ndash;{breach.band.hi} {item.unit}{' '}
+                band for {breach.channel}
+              </em>
+            )}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Every flagged value in the current range, listed.
+ *
+ * The rings on the chart are a visual cue; this is the part a reader can cite.
+ * Without it, "marked, never dropped" is a claim they have to take on trust.
+ */
+function FlaggedTable({ rows, series }) {
+  const entries = []
+  for (const row of rows) {
+    for (const breach of row.breaches ?? []) {
+      entries.push({ row, breach })
+    }
+  }
+  return (
+    <details className="flagged-table">
+      <summary>
+        {entries.length} flagged value{entries.length === 1 ? '' : 's'} in this
+        range &mdash; every one kept in the data
+      </summary>
+      <table>
+        <thead>
+          <tr>
+            <th>Bucket</th>
+            <th>Metric</th>
+            <th>Channel</th>
+            <th>Value</th>
+            <th>Recorded band</th>
+            <th>Samples</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map(({ row, breach }) => (
+            <tr key={`${row.key}:${breach.metric}`}>
+              <td>{row.day}</td>
+              <td>{breach.metric}</td>
+              <td>
+                <code>{breach.channel}</code>
+              </td>
+              <td>
+                {breach.value} {breach.band.unit}
+              </td>
+              <td>
+                {breach.band.lo}&ndash;{breach.band.hi} {breach.band.unit}
+              </td>
+              <td>
+                {row.nSamples ?? 0}
+                {row.nOutOfRange > 0 && (
+                  <span className="muted"> ({row.nOutOfRange} flagged)</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
+  )
+}
+
+/**
  * Build an SVG path, starting a new subpath whenever a value is null.
  *
- * This is the whole reason the chart is not a one-liner: a missing day must
+ * This is the whole reason the chart is not a one-liner: a missing bucket must
  * leave a hole, and `M`/`L` pairs are how SVG expresses that.
  */
-function buildPath(rows, get, x, y) {
+function buildPath(rows, metric, x, y) {
   let d = ''
   let penDown = false
   for (const row of rows) {
-    const value = get(row)
+    const value = get(row, metric)
     if (value === null) {
       penDown = false
       continue
@@ -279,27 +412,37 @@ function formatTick(value) {
 }
 
 /** About 6 date labels, taken from the rows actually present. */
-function buildDateTicks(rows, x) {
+function buildDateTicks(rows, resolution) {
   if (rows.length === 0) return []
   const target = 6
   const stride = Math.max(1, Math.round(rows.length / target))
   const ticks = []
   for (let i = 0; i < rows.length; i += stride) {
     const row = rows[i]
-    ticks.push({ day: row.day, date: row.date, label: shortDate(row.day) })
+    ticks.push({ key: `${i}`, date: row.date, label: shortDate(row.day, resolution) })
   }
-  // Always label the final day, so the range end is unambiguous.
+  // Always label the final bucket, so the range end is unambiguous.
   const last = rows[rows.length - 1]
-  if (ticks[ticks.length - 1]?.day !== last.day) {
-    ticks.push({ day: last.day, date: last.date, label: shortDate(last.day) })
+  if (ticks[ticks.length - 1]?.key !== `${rows.length - 1}`) {
+    ticks.push({
+      key: `${rows.length - 1}`,
+      date: last.date,
+      label: shortDate(last.day, resolution),
+    })
   }
-  void x
   return ticks
 }
 
-function shortDate(day) {
-  const [year, month, date] = day.split('-')
-  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  const label = `${date} ${names[Number(month) - 1]}`
-  return label === '1 Jan' || month === '01' ? year : label
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * A compact label. An hourly row is `YYYY-MM-DD HH:MM`, and printing the hour
+ * matters: a year of hourly data whose axis says only "1 Jan" gives no clue
+ * whether the line is a daily envelope or a single day.
+ */
+function shortDate(day, resolution) {
+  const [date, time] = day.split(' ')
+  const [year, month, dom] = date.split('-')
+  const base = resolution === 'hourly' && time ? `${time} ${dom} ${MONTHS[Number(month) - 1]}` : `${dom} ${MONTHS[Number(month) - 1]}`
+  return base === '1 Jan' || month === '01' ? year : base
 }

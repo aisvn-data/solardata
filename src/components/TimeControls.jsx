@@ -1,11 +1,17 @@
-import { METRICS } from '../data.js'
+import { GRANULARITIES, METRICS } from '../data.js'
 
 /**
- * Year, date range and metric selection.
+ * Year, resolution, date range and metric selection.
  *
  * The date inputs are constrained to the loaded year's bounds and to days that
  * actually have rows. Offering 2020-02-29 for phumy2, which starts in June,
  * would just produce an empty chart with no explanation.
+ *
+ * The resolution switch changes the rollup, not the filter: `Day` reads
+ * `readings_daily` (a mean over the day's hours) and `Hour` reads
+ * `readings_hourly` (a mean over the hour's ~30 samples). Both are means, so
+ * `Hour` is the finest the site goes -- the native 119 s cadence is in the
+ * Parquet export, which is a download rather than something a browser fetches.
  */
 export default function TimeControls({
   years,
@@ -19,9 +25,15 @@ export default function TimeControls({
   selected,
   onMetricToggle,
   onRangePreset,
+  granularities,
+  resolution,
+  onResolutionChange,
+  hideFlagged,
+  onHideFlaggedChange,
 }) {
-  const firstDay = rows[0]?.day ?? ''
-  const lastDay = rows[rows.length - 1]?.day ?? ''
+  const firstDay = rows[0]?.dateDay ?? ''
+  const lastDay = rows[rows.length - 1]?.dateDay ?? ''
+  const available = GRANULARITIES.filter((g) => granularities.includes(g.folder))
 
   return (
     <div className="controls">
@@ -36,6 +48,23 @@ export default function TimeControls({
             ))}
           </select>
         </label>
+
+        <div className="control">
+          <span>Resolution</span>
+          <div className="preset-buttons">
+            {available.map((g) => (
+              <button
+                key={g.folder}
+                type="button"
+                className={resolution === g.folder ? 'active' : ''}
+                aria-pressed={resolution === g.folder}
+                onClick={() => onResolutionChange(g.folder)}
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <label className="control">
           <span>From</span>
@@ -80,23 +109,38 @@ export default function TimeControls({
         {METRICS.map((metric) => {
           // A metric with no data for this station is shown disabled rather
           // than hidden, so it is visible *why* a channel is missing.
-          const available = metrics.includes(metric.key)
+          const availableForStation = metrics.includes(metric.key)
           const checked = selected.includes(metric.key)
           return (
-            <label key={metric.key} className={available ? '' : 'unavailable'}>
+            <label key={metric.key} className={availableForStation ? '' : 'unavailable'}>
               <input
                 type="checkbox"
                 checked={checked}
-                disabled={!available}
+                disabled={!availableForStation}
                 onChange={() => onMetricToggle(metric.key)}
               />
-              <i style={{ background: available ? metric.colour : '#cbd5e0' }} />
+              <i style={{ background: availableForStation ? metric.colour : '#cbd5e0' }} />
               {metric.label}
               <em>{metric.unit}</em>
             </label>
           )
         })}
       </fieldset>
+
+      <p className="control-hint">
+        <label className="flag-toggle">
+          <input
+            type="checkbox"
+            checked={hideFlagged}
+            onChange={(e) => onHideFlaggedChange(e.target.checked)}
+          />
+          Hide values outside their channel&apos;s recorded plausibility band
+        </label>
+        {' · '}
+        The band is the one the pipeline applies to every raw reading. Hiding a
+        flagged value is a reading aid, not a judgement: the value stays in the
+        database, in the Parquet export and in the flagged list under the chart.
+      </p>
     </div>
   )
 }
