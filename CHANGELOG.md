@@ -26,6 +26,13 @@ Data corrections, all confirmed by the collector. Baseline re-recorded: **735,00
     full of errors.
   - `concurrency` cancels an in-flight deploy when a newer commit lands, so the
     published site never moves backwards.
+- `tests/test_workflows.py` — 9 checks over the workflow files, in CI. These
+  validate the *Actions schema*, not just YAML syntax: `yaml.safe_load` accepts
+  any well-formed mapping, so `environment:` sat at the workflow level and
+  Actions rejected the whole file with `Unexpected value 'environment'`, while
+  every local check passed. The test asserts the allowed top-level, job and step
+  keys, that `needs` points at real jobs, that `environment` is on the deploy
+  job, and that no workflow is back on a deprecated Node 20 action.
 - Action versions moved off the deprecated Node 20 runtimes: `checkout@v5`,
   `setup-node@v5`, `setup-python@v6`, `cache@v5`, `upload-artifact@v5`, plus
   `configure-pages@v5`, `upload-pages-artifact@v4` and `deploy-pages@v4` for the
