@@ -9,6 +9,28 @@ versions follow [Semantic Versioning](https://semver.org/).
 Data corrections, all confirmed by the collector. Baseline re-recorded: **735,004
 → 734,908 readings**.
 
+### Added
+
+- **GitHub Pages deployment.** `.github/workflows/pages.yml` builds `dist/` and
+  publishes it on every push to `main`, so a frontend-only change ships without
+  re-running the Python pipeline. The build output was already correct for
+  project pages — `base` is `/solardata/` and all 15 data files land in
+  `dist/data/` — but nothing deployed it, and Pages answered every request with
+  `404 There isn't a GitHub Pages site here` because no site had been created
+  for the repository.
+  - Pages must be enabled once in the repository settings (*Settings → Pages →
+    Build and deployment → Source → GitHub Actions*); no workflow file can do
+    that for you.
+  - The deploy asserts `dist/data/` contains `stations.json`, `quality.json` and
+    all 13 CSVs, so a build that loses them fails instead of publishing a site
+    full of errors.
+  - `concurrency` cancels an in-flight deploy when a newer commit lands, so the
+    published site never moves backwards.
+- Action versions moved off the deprecated Node 20 runtimes: `checkout@v5`,
+  `setup-node@v5`, `setup-python@v6`, `cache@v5`, `upload-artifact@v5`, plus
+  `configure-pages@v5`, `upload-pages-artifact@v4` and `deploy-pages@v4` for the
+  new deploy. CI runs Python 3.13 and Node 22, matching the local toolchain.
+
 ### Fixed
 
 - **A schema-donor bug mislabelled 45,986 readings — 59% of the `aisvn`

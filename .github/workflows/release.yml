@@ -36,11 +36,11 @@ jobs:
     steps:
       # No `ref:` here on purpose -- checkout uses the triggering commit, which
       # is the tag on a tag push and the selected branch on a manual run.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
 
       - name: Install dependencies
