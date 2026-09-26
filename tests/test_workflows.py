@@ -15,7 +15,21 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-import yaml
+# Deliberately a plain `import yaml` inside a try/except rather than
+# `pytest.importorskip`: a module-level import failure aborts the *entire*
+# pytest collection rather than skipping one file, so a missing optional
+# dependency would take every other test result down with it. Skipping at module
+# level is the graceful form, and keeping the import statement visible means the
+# dependency-declaration check below can still see it.
+try:
+    import yaml
+except ImportError:  # pragma: no cover - depends on the environment
+    import pytest
+
+    pytest.skip(
+        "pyyaml is required to validate the GitHub Actions workflows",
+        allow_module_level=True,
+    )
 
 WORKFLOW_DIR = Path(__file__).resolve().parent.parent / ".github" / "workflows"
 
@@ -195,6 +209,103 @@ class TestWorkflowFiles(unittest.TestCase):
             for step in job["steps"]:
                 if "actions/checkout" in step.get("uses", ""):
                     self.assertNotIn("ref", step.get("with", {}))
+
+    def test_workflows_that_verify_run_every_stage_verify_depends_on(self):
+        """Regression. `ingest` rebuilds the database but does not populate
+        `regimes` -- that is a separate stage. A workflow that ran only `ingest`
+        and then `verify` reported `unconfirmed_regimes: 14 -> 0` and failed,
+        which was the guard working correctly and the workflow being wrong.
+
+        `verify` reads every table, so any workflow that calls it must first run
+        every stage that populates one.
+        """
+        from etl.verify import BASELINE_FIELDS
+
+        for name in self.files:
+            doc = load(name)
+            script = "\n".join(
+                step.get("run", "") for job in doc["jobs"].values() for step in job["steps"]
+            )
+            if "etl verify" not in script:
+                continue
+            with self.subTest(workflow=name):
+                # `etl all` runs every stage, so it satisfies all of them.
+                runs_everything = "etl all" in script
+                for stage in ("etl ingest", "etl regimes", "etl report"):
+                    if runs_everything:
+                        continue
+                    self.assertIn(
+                        stage,
+                        script,
+                        f"{name} runs `etl verify` but never `{stage}`",
+                    )
+        # Guard the guard: the fields above must still be the ones verify reads,
+        # so a new baseline field forces this test to be revisited.
+        self.assertIn("unconfirmed_regimes", BASELINE_FIELDS)
+        self.assertIn("notes", BASELINE_FIELDS)
+
+    def test_release_workflow_uses_no_third_party_actions(self):
+        # softprops/action-gh-release@v2 runs on the Node 20 runtime, which is
+        # what produced the deprecation warning. The `gh` CLI ships with the
+        # runner, so there is no third-party action left in the release path.
+        doc = load("release.yml")
+        allowed = ("actions/checkout@", "actions/setup-python@")
+        for job in doc["jobs"].values():
+            for step in job["steps"]:
+                uses = step.get("uses")
+                if not uses:
+                    continue
+                self.assertTrue(
+                    uses.startswith(allowed),
+                    f"release.yml uses a third-party action: {uses}",
+                )
+
+    def test_every_third_party_import_is_a_declared_dependency(self):
+        """Regression. `tests/test_workflows.py` imported yaml without it being
+        in requirements.txt. It worked locally only because pyyaml happened to
+        be installed from an unrelated task, and CI failed at *collection* --
+        which aborts the whole run, so every other test result was lost too.
+
+        This walks the imports in the test suite and asserts each third-party
+        module is declared, so a new import cannot reach CI undeclared.
+        """
+        import importlib.util
+        import re
+
+        requirements = (
+            (WORKFLOW_DIR.parent.parent / "requirements.txt").read_text(encoding="utf-8")
+        ).lower()
+        # Distribution name -> import name, where they differ.
+        renames = {"pyyaml": "yaml", "pyarrow": "pyarrow", "openpyxl": "openpyxl"}
+
+        declared = set()
+        for line in requirements.splitlines():
+            line = line.split("#")[0].strip().lower()
+            match = re.match(r"^([a-z0-9._-]+)", line)
+            if match:
+                declared.add(renames.get(match.group(1), match.group(1)))
+
+        stdlib = set(getattr(__import__("sys"), "stdlib_module_names", ()))
+        tests_dir = WORKFLOW_DIR.parent.parent / "tests"
+
+        for path in sorted(tests_dir.rglob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            for statement in re.findall(r"^\s*(?:import|from)\s+([a-zA-Z0-9_.]+)", source, re.M):
+                root = statement.split(".")[0]
+                if root in stdlib or root.startswith("_") or root == "etl":
+                    continue
+                if root in ("tests",):
+                    continue
+                if importlib.util.find_spec(root) is None:
+                    continue  # unavailable here, so the module guards it itself
+                # A module inside a try/except that skips is still a hard
+                # dependency: it is declared, and the guard only stops a minimal
+                # environment from taking the whole collection down with it.
+                self.assertIn(
+                    root,
+                    declared,
+                    f"{path.name} imports {root!r} but it is not in requirements.txt",
+                )
 
 
 if __name__ == "__main__":
