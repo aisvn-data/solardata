@@ -4,6 +4,70 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-09-26
+
+Applies the collector-confirmed unit corrections to the published aggregates, so
+the charts are in volts instead of millivolts.
+
+### Changed
+
+- **The rollups are now unit-corrected.** `readings` stays raw and is never
+  modified — it is the canonical record, and rewriting it would lose the ability
+  to disagree with a correction. The hourly and daily rollups, which are what
+  the website reads, now have the `status = 'confirmed'` scales applied. Before
+  this, `aisvn-solar`'s solar axis read **4570** instead of 4.6 V and `phumy2`
+  read **1384**; both now peak at 2.9 V and 3.4 V, which is right for a small
+  panel and a small array respectively.
+- **Unconfirmed regimes are still never applied.** 11 windows remain
+  unconfirmed, all of them `aisvn`, and `aisvn`'s chart therefore still plots raw
+  values. That is the rule working, not an oversight: those need the firmware.
+- **`aggregate` is a separate stage**, between `regimes` and `parquet`. Applying
+  a scale needs the `regimes` table, and rolling up inside the ingest meant the
+  daily table was built before the detector ran — on a clean build that is
+  silently unscaled. `test_ingest_alone_does_not_build_rollups` locks the
+  ordering down.
+- **Confirmed regimes are windowed to the channel's extent, not to the
+  detector's proposal.** The collector's statement is that these channels log
+  millivolts *as integers* for their whole record, so the window comes from the
+  data. `phumy2.solar2_v` was previously scaled for its first seven months and
+  raw for the following three years.
+- **`valid_to` is now the exclusive end.** Writing the last day's own date
+  excluded it from the half-open window, which is how `aisvn-solar` kept a raw
+  601 V on 2020-06-12 and `phumy2` a raw 1384 V on 2024-02-01.
+- **Audit columns.** `readings_hourly` and `readings_daily` gained
+  `scaled_channels` and `regime_ids`, and both are exported, so a reader can
+  tell a converted value from a raw one without re-deriving it. The frontend
+  states the conversion in a note when a station's values have been converted.
+- `n_out_of_range` reaches the rollups, so the chart can distinguish an
+  implausible day from a merely empty one.
+
+### Fixed
+
+- `readings_hourly` had no `battery_v_max`, so the **daily battery maximum was
+  being taken from the hourly minimum** — wrong data, quietly, since the first
+  release.
+- The confirmed-regime map could name a rollup column that does not exist
+  (`battery_v_avg` is hourly-only), and the channel map had `load_v` as a bare
+  string rather than a tuple, so it iterated character by character and produced
+  `SET l = l * ?`. Both now go through the table's actual column list.
+
+### Build baseline
+
+| | before | after |
+|---|---:|---:|
+| Readings | 734,908 | 734,908 |
+| Unconfirmed regimes | 14 | **11** |
+| Hourly / daily buckets | 25,649 / 1,194 | 25,649 / 1,194 |
+
+The three promoted windows are detector proposals for channels the collector then
+confirmed — `aisvn-solar.solar_v`, `aisvn-solar.lipo_v`, `aisvn2.battery2_v` —
+whose proposal windows are now replaced by confirmed ones spanning the channel.
+Readings and bucket counts are unchanged: this release corrects units, not data.
+
+115 Python tests, 22 frontend checks.
+
+---
+
 ## [0.5.0] — 2026-09-26
 
 Data corrections, all confirmed by the collector. Baseline re-recorded: **735,004

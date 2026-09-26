@@ -280,7 +280,7 @@ class TestCommittedBaseline(unittest.TestCase):
         self.assertEqual(counts["stations"], 8)
         self.assertEqual(counts["duplicate_ts"], 4399)
         self.assertEqual(counts["notes"], 10)
-        self.assertEqual(counts["unconfirmed_regimes"], 14)
+        self.assertEqual(counts["unconfirmed_regimes"], 11)
         self.assertEqual(counts["headerless_without_donor"], 0)
 
     def test_malformed_rejects_cover_the_excluded_and_nulled_cells(self):

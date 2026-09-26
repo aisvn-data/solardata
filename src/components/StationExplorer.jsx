@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   METRIC_BY_KEY,
+  anyScaled,
   availableMetrics,
   filterByRange,
   loadDaily,
@@ -209,6 +210,17 @@ export default function StationExplorer() {
               summary={summary}
               range={fromDay || toDay ? { from: fromDay || 'start', to: toDay || 'end' } : null}
             />
+
+            {anyScaled(inRange) && (
+              <p className="chart-note scaled" role="status">
+                Values for this station are converted from the units the
+                collector logged &mdash; several stations write millivolts as
+                integers, so the raw number is a thousand times the reading you
+                see here. The conversion is applied only to channels confirmed
+                against the firmware, and each affected day records which
+                channels were converted.
+              </p>
+            )}
 
             {plotted.droppedDays > 0 && (
               <p className="chart-note" role="status">

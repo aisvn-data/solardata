@@ -205,6 +205,11 @@ CREATE TABLE IF NOT EXISTS readings_hourly (
     temp_c_avg REAL, temp_c_min REAL, temp_c_max REAL,
     current_a_avg REAL,
     energy_wh REAL,          -- power_w_avg * hours, when the hour is complete
+    -- Audit trail for the unit correction: which channels had a
+    -- collector-confirmed scale applied, and which regime rows decided it.
+    -- Empty means the value is exactly what the sensor reported.
+    scaled_channels TEXT NOT NULL DEFAULT '',
+    regime_ids      TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (station_id, ts_utc)
 ) WITHOUT ROWID;
 
@@ -222,6 +227,8 @@ CREATE TABLE IF NOT EXISTS readings_daily (
     power_w_avg REAL, power_w_max REAL,
     energy_wh REAL,
     temp_c_min REAL, temp_c_avg REAL, temp_c_max REAL,
+    scaled_channels TEXT NOT NULL DEFAULT '',
+    regime_ids      TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (station_id, day)
 ) WITHOUT ROWID;
 

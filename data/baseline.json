@@ -7,15 +7,15 @@
     "duplicate_ts": 4399,
     "malformed_rejects": 220180,
     "notes": 10,
-    "unconfirmed_regimes": 14,
+    "unconfirmed_regimes": 11,
     "headerless_without_donor": 0,
     "hourly_buckets": 25649,
     "daily_buckets": 1194
   },
   "recorded": {
     "tool_version": "0.5.0",
-    "run_started_at": "2026-09-25T19:34:18Z",
-    "ingest_notes": "364 files; 734908 rows; 4399 duplicate timestamps absorbed; 224579 rejected; 25649 hourly / 1194 daily buckets",
-    "reason": "null the phumy2.solar2_v stuck-at-zero window 2022-10..2023 (0.0 at every hour incl. noon, vs a working panel's 2% at noon); confirm solar2_v and lipo2_v as millivolts per collector"
+    "run_started_at": "2026-09-26T06:00:36Z",
+    "ingest_notes": "364 files; 734908 rows; 4399 duplicate timestamps absorbed; 224579 rejected",
+    "reason": "apply collector-confirmed unit scales in a new aggregate stage; confirmed regimes now windowed to the channel extent, which promotes 3 detector proposals to confirmed (14 -> 11 unconfirmed)"
   }
 }
