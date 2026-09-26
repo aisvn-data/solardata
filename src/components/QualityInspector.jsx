@@ -48,7 +48,7 @@ export default function QualityInspector() {
 
   const totals = report.totals
   const flags = report.flag_totals ?? {}
-  const unconfirmed = (report.regimes ?? []).filter((r) => r.status === 'unconfirmed')
+  const unconfirmed = ((report.regimes) ?? []).filter((r) => r.status === 'unconfirmed')
 
   return (
     <div className="inspector">
@@ -401,7 +401,7 @@ export default function QualityInspector() {
  */
 const FLAG_MEANINGS = {  sentinel: 'Raw cell was -992 or -1: the input was floating. Stored as NULL.',
   out_of_range:
-    'Value kept, but outside the channel’s plausible band. Ringed on the chart, never removed. Usually how a scale change gets noticed.',
+    'Value kept, but outside the channel's plausible band. Ringed on the chart, never removed. Usually how a scale change gets noticed.',
   'bad_window': 'A named window in etl/config.py where the reading is kept but should not be believed.',
   no_signal:
     'A named window in etl/config.py where the input was disconnected, so the stored value is a false reading. Nulled, with a rejects row carrying the reason.',
@@ -423,7 +423,7 @@ function flagMeaning(flag) {
 
 const REJECT_REASONS = {
   null_window:
-    'A named window in etl/config.py where the input was disconnected, so the stored value was a false reading. The cell is nulled and recorded here. The reasoning is on the Windows tab — once per window, not once per cell.',
+    'A named window in etl/config.py where the input was disconnected, so the stored value was a false reading. The cell is nulled and recorded here. The reasoning is on the Windows tab — once [...]
   duplicate_ts: 'Same station, same instant: absorbed by the primary key.',
   repeated_header: 'A header row repeated inside a headerless chunk.',
   unparseable: 'The cell could not be parsed into the schema.',
