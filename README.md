@@ -7,7 +7,7 @@
 Analyze, clean and display collected solar data.
 
 Four years of telemetry from several solar stations in Nha Be and Phu My Hung,
-Ho Chi City, Vietnam (May 2020 – February 2024): **735,004 readings across 8
+Ho Chi City, Vietnam (May 2020 – February 2024): **734,908 readings across 8
 stations**, forwarded to Google Sheets by IFTTT and exported as 364 XLSX files.
 
 ## Status
@@ -24,7 +24,7 @@ stations**, forwarded to Google Sheets by IFTTT and exported as 364 XLSX files.
 | Website | Vite + React at `src/` — station explorer and data-quality inspector |
 | CI | `.github/workflows/` — frontend, lint, test, full build, baseline |
 
-735,004 readings across 8 stations, May 2020 → February 2024. The archive is
+734,908 readings across 8 stations, May 2020 → February 2024. The archive is
 messy in ways that matter: 305 of the 364 files have **no header row**, several
 sheets carry redundant side-by-side column blocks, the same column name means
 different things at different times, and `-992` is a disconnected-sensor

@@ -2,7 +2,7 @@
 
 ## The question
 
-The raw archive is 364 XLSX files, 30.4 MiB, 735,004 readings, with
+The raw archive is 364 XLSX files, 30.4 MiB, 734,908 readings, with
 US-locale text timestamps, absent header rows, drifting column meanings, mixed
 scaling, and sentinel values. What should it become so it can be processed
 later without anyone re-deriving those judgements?
@@ -27,7 +27,7 @@ rewriting it. And a browser cannot read it, so the website would still need a
 CSV export beside it.
 
 **Long/EAV format** (`station, ts, metric, value`). Fully general — it absorbs
-any schema drift without new columns. Rejected on practicality: 735,004 rows
+any schema drift without new columns. Rejected on practicality: 734,908 rows
 becomes ~5M, every chart query becomes a pivot, and the per-metric NULL pattern
 is what makes the wide form compress so well in Parquet anyway.
 
@@ -50,7 +50,7 @@ name.
 
 At 158 MiB it is bigger than the Parquet output and much bigger than the CSV
 exports, which is the cost of carrying provenance and rejected-row records for
-all 735,004 readings. That is a trade this dataset should make.
+all 734,908 readings. That is a trade this dataset should make.
 
 ### Parquet as the interchange format
 
@@ -63,7 +63,7 @@ doing statistics.
 ### CSV only for the website
 
 1,127 daily rows across 14 station-years, 0.1 MiB total, written from the
-pre-aggregated tables so the browser never touches 735,004 rows. Plus
+pre-aggregated tables so the browser never touches 734,908 rows. Plus
 `stations.json` for the station cards. Browsers read CSV; they do not read
 SQLite or Parquet, and a GitHub Pages site cannot run a query server.
 
@@ -120,7 +120,7 @@ there is no float-versus-int decision left to make on the measurements
 themselves.
 
 What is genuinely wasteful is the six `TEXT` columns, and 30 MiB of that is
-`ts_local` and `tz` — derivable data stored 735,004 times.
+`ts_local` and `tz` — derivable data stored 734,908 times.
 
 ### Why it is left alone for now
 

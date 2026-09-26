@@ -19,7 +19,7 @@ from etl.config import (
     FLAG_NON_MONOTONIC,
     FLAG_OUT_OF_RANGE,
     FLAG_SENTINEL,
-    SENTINEL_NEGATIVE,
+    SENTINELS,
 )
 from etl.normalize.metrics import Metric
 
@@ -92,14 +92,7 @@ def coerce_number(
     if not text:
         return CellResult(None)
 
-    # 1. Exact sentinel match, checked before float parsing so that "-992.0"
-    #    written by Sheets is caught as well as "-992".
-    for sentinel, reason in SENTINEL_NEGATIVE.items():
-        if text == sentinel or text == f"{sentinel}.0":
-            del reason
-            return CellResult(None, (FLAG_SENTINEL,))
-
-    # 2. Numeric?
+    # 1. Numeric? Everything else depends on this, including the sentinel check.
     try:
         number = float(text)
     except ValueError:
@@ -108,6 +101,12 @@ def coerce_number(
         return CellResult(None, (FLAG_FREE_TEXT,))
 
     if number != number or number in (float("inf"), float("-inf")):  # NaN / inf
+        return CellResult(None, (FLAG_SENTINEL,))
+
+    # 2. Sentinel. Compared as a number, not as text, because the XLSX reader
+    #    normalises integral floats to their integer spelling: a cell holding
+    #    342.0 arrives as "342", so a string-keyed table misses it silently.
+    if number in SENTINELS:
         return CellResult(None, (FLAG_SENTINEL,))
 
     # 3. Plausibility.  Only a flag -- the value is kept, because during a

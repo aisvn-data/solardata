@@ -21,7 +21,14 @@ from datetime import datetime
 from pathlib import Path
 
 from etl import __version__, stations
-from etl.config import FLAG_DUPLICATE_TS, Settings
+from etl.config import (
+    BAD_WINDOWS,
+    FLAG_DUPLICATE_TS,
+    FLAG_MISALIGNED,
+    NULL_WINDOWS,
+    ROW_EXCLUSIONS,
+    Settings,
+)
 from etl.db import connect, finish_run, init_schema, log_build, start_run
 from etl.normalize.metrics import (
     CANONICAL_COLUMNS,
@@ -141,21 +148,34 @@ def _scan_folder(raw_dir: Path) -> list[FileScan]:
 
 
 def _resolve_donors(scans: list[FileScan]) -> None:
-    """Give every headerless file the schema of the nearest earlier sibling.
+    """Give every headerless file the schema of a sibling whose layout matches.
 
     The archive is a chronological sequence of 2000-row chunks, and the header
-    row only survives on the chunks that happened to be re-exported.  So the
+    row only survives on the chunks that happened to be re-exported. So the
     closest *preceding* file that does carry a header is the best available
     description of what a headerless file's columns mean.
 
-    Without this step the pipeline would ingest timestamps and discard every
-    measurement in the ~90% of files that have no header row.
+    **Width must match.** This is not a nicety. On 2020-06-17 the ``aisvn``
+    applet gained a ``power`` column, going from 10 columns to 11, and the
+    header-bearing chunk that predates it is the one donor logic would reach
+    for. Applying a 10-column header to an 11-column row shifts every channel
+    from index 4 onwards by one: ``load`` lands in ``wind``, ``wind`` lands in
+    ``temp``, ``temp`` lands in ``solar2``, and the real ``boot`` counter is
+    dropped. That silently mislabelled 45,986 readings -- 59% of the station --
+    and it presented as a sensor fault: ``temp_c`` was receiving the ``wind``
+    channel, which reads 0.0 when there is no wind, so 41,698 readings looked
+    like sub-5 degC temperatures in Ho Chi City. It took the collector's own
+    margin notes to make the window look like a hardware problem.
+
+    So donor selection is: exact width match first, then nearest preceding by
+    parsed time, then nearest following. A donor of the wrong width is not
+    used at all.
     """
     donors = [s for s in scans if s.has_header and s.header]
     if not donors:
         return
 
-    def _key(scan: FileScan) -> datetime:
+    def _time(scan: FileScan) -> datetime:
         """Sort on the *parsed* instant, never the raw string.
 
         Column A is US-locale text, so "April ..." sorts before "August ..."
@@ -169,20 +189,27 @@ def _resolve_donors(scans: list[FileScan]) -> None:
         except TimestampError:
             return datetime.max
 
-    ordered = sorted(donors, key=_key)
-    dated = [s for s in ordered if s.first_ts]
-    undated = [s for s in ordered if not s.first_ts]
-
     for scan in scans:
         if scan.has_header or not scan.first_ts:
             continue
-        preceding = [d for d in dated if _key(d) <= _key(scan)]
+
+        matching = [d for d in donors if len(d.header) == scan.n_columns]
+        if not matching:
+            # Nothing in this folder describes a layout this wide. Leave the
+            # file unmapped: `usable_width` then collapses to the key column
+            # only, and the row still lands in `rejects`/`source_files` with
+            # `inferred = 1` so the gap is visible rather than silent.
+            continue
+
+        anchor = _time(scan)
+        preceding = [d for d in matching if _time(d) <= anchor]
         if preceding:
-            scan.donor = preceding[-1]
-        elif dated:
-            scan.donor = dated[0]
-        elif undated:
-            scan.donor = undated[0]
+            scan.donor = max(preceding, key=_time)
+        else:
+            # No earlier match: take the earliest following one. The layout is
+            # what matters here, not the direction, and the donor is recorded
+            # either way so the inference is auditable.
+            scan.donor = min(matching, key=_time)
 
 
 @dataclass
@@ -278,6 +305,47 @@ def _register_metric_defs(
         )
 
 
+def _bad_window_flags(station_id: str, ts_utc: str, row: dict) -> tuple[str, ...]:
+    """Flag readings inside a window the collector has declared bad.
+
+    The values are kept, not nulled: a window known to be unreliable is still
+    evidence, and the flag is what stops a query from using it by accident. The
+    declared windows are half-open, so the good period starts at ``valid_to``.
+    """
+    flags: list[str] = []
+    for win_station, valid_from, valid_to, columns, _why in BAD_WINDOWS:
+        if win_station != station_id or not (valid_from <= ts_utc < valid_to):
+            continue
+        for column in columns.split(","):
+            column = column.strip()
+            if row.get(column) is not None:
+                flags.append(f"bad_window:{column}")
+    return tuple(flags)
+
+
+def _null_windows(station_id: str, ts_utc: str, row: dict) -> tuple[tuple[str, ...], list[str]]:
+    """Null channels inside a window where the stored value is affirmatively wrong.
+
+    Returns ``(flags, reasons)``. Unlike :func:`_bad_window_flags` this discards
+    the number, because here the number makes a false claim -- 0.0 V from a
+    panel says "produced nothing" when the truth is "not connected". Every
+    affected cell is also written to ``rejects`` so nothing disappears silently.
+    """
+    flags: list[str] = []
+    reasons: list[str] = []
+    for win_station, valid_from, valid_to, columns, why in NULL_WINDOWS:
+        if win_station != station_id or not (valid_from <= ts_utc < valid_to):
+            continue
+        for column in columns.split(","):
+            column = column.strip()
+            if row.get(column) is None:
+                continue
+            row[column] = None
+            flags.append(f"no_signal:{column}")
+            reasons.append(why)
+    return tuple(flags), reasons
+
+
 def _insert_file(
     conn: sqlite3.Connection,
     run_id: int,
@@ -319,7 +387,22 @@ def _insert_file(
     # A donor header can be wider or narrower than the file it describes; only
     # the columns the file actually has are meaningful.
     usable_width = min(block.n_columns, len(effective)) if effective else block.n_columns
+    misaligned = bool(effective) and len(effective) != block.n_columns
+    if misaligned:
+        # Should be unreachable now that _resolve_donors matches on width, but
+        # a file that carries its own header can still disagree with itself.
+        usable_width = min(block.n_columns, len(effective))
     _register_metric_defs(conn, station, source_dir, effective, usable_width, scan.inferred)
+
+    # Row-level exclusion decided by the collector, e.g. the reinstall window in
+    # data/raw/aisvn/IFTTT_aisvn (25).xlsx.
+    row_floor = 0
+    row_floor_reason = ""
+    for suffix, first_row, why in ROW_EXCLUSIONS:
+        if scan.rel_path.endswith(suffix.replace("/", "\\")) or scan.rel_path.endswith(suffix):
+            row_floor = first_row
+            row_floor_reason = why
+            break
 
     outcome = FileOutcome(
         file_id=file_id,
@@ -341,6 +424,18 @@ def _insert_file(
             continue
         raw_ts = cells[0]
         if not raw_ts:
+            continue
+        if row_floor and sheet_row < row_floor:
+            rejects.append(
+                (
+                    file_id,
+                    station.station_id,
+                    sheet_row,
+                    "time",
+                    raw_ts,
+                    row_floor_reason,
+                )
+            )
             continue
         if looks_like_header(raw_ts):
             rejects.append(
@@ -377,7 +472,14 @@ def _insert_file(
             row[column] = result.value
             flags.append(result.flags)
 
-        row["quality_flags"] = merge_flags(*flags)
+        null_flags, null_reasons = _null_windows(station.station_id, ts_utc, row)
+        row_flags = merge_flags(
+            *flags,
+            (FLAG_MISALIGNED,) if misaligned else (),
+            _bad_window_flags(station.station_id, ts_utc, row),
+            null_flags,
+        )
+        row["quality_flags"] = row_flags
         values = tuple(row.get(name) for name in _INSERT_COLUMNS)
         inserted = conn.execute(_INSERT_SQL, values).rowcount
         if inserted:
@@ -411,6 +513,17 @@ def _insert_file(
                     "time",
                     raw_ts,
                     FLAG_DUPLICATE_TS,
+                )
+            )
+        for reason in null_reasons:
+            rejects.append(
+                (
+                    file_id,
+                    station.station_id,
+                    sheet_row,
+                    ",".join(c for c in row_flags if c.startswith("no_signal:")),
+                    raw_ts,
+                    reason,
                 )
             )
 

@@ -179,7 +179,7 @@ check('bench stations are present but flagged unpublished', () => {
 })
 
 check('quality.json carries the counts the UI displays', () => {
-  assert.equal(quality.totals.readings, 735004)
+  assert.equal(quality.totals.readings, 734908)
   assert.equal(quality.source_files.total, 364)
   assert.equal(quality.source_files.without_header, 305)
   assert.ok(Array.isArray(quality.regimes))
@@ -207,11 +207,12 @@ function walk(dir) {
 walk(DATA)
 
 check('every daily CSV parses and its day matches its UTC day', () => {
-  // 13 station-years across 6 production stations, 1,127 daily rows. Pinned
+  // 13 station-years across 6 production stations, 1,124 daily rows. Pinned
   // because a silent change here means the site is showing a different amount
-  // of data than the report claims.
+  // of data than the report claims. It was 1,127 before the 2020-06-17 schema
+  // alignment fix and the aisvn (25) row exclusions.
   assert.equal(csvFiles, 13, `expected 13 csv files, got ${csvFiles}`)
-  assert.equal(totalRows, 1127, `expected 1127 daily rows, got ${totalRows}`)
+  assert.equal(totalRows, 1124, `expected 1124 daily rows, got ${totalRows}`)
 })
 
 check('a day of genuine zeros is not confused with a day of NULLs', () => {

@@ -4,6 +4,127 @@ All notable changes to `solardata` are recorded here, including findings about
 the raw archive. The format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-09-26
+
+Data corrections, all confirmed by the collector. Baseline re-recorded: **735,004
+→ 734,908 readings**.
+
+### Fixed
+
+- **A schema-donor bug mislabelled 45,986 readings — 59% of the `aisvn`
+  station.** On 2020-06-17 the applet gained a `power` column, going from 10
+  columns to 11. Donor selection matched on date alone, so the 23 headerless
+  11-column files (2)–(23) inherited the 10-column header from the preceding
+  sibling. Applying a 10-column header to an 11-column row shifts every channel
+  from index 4 onwards by one:
+
+  | raw column | stored as | should be |
+  |---|---|---|
+  | `power` | `load` | `power` |
+  | `load` | `wind` | `load` |
+  | `wind` | **`temp`** | `wind` |
+  | `temp` | `solar2` | `temp` |
+  | `solar2` | `LiPo` | `solar2` |
+  | `LiPo` | `boot` | `LiPo` |
+  | `boot` | *(dropped)* | `boot` |
+
+  Donor selection now requires an exact column-count match, preferring the
+  nearest preceding sibling and falling back to the earliest following one.
+  `tests/test_ingest.py::TestDonorWidthMatching` locks this down.
+
+- **A correction to a correction.** 0.4.0 reported an "`aisvn` temperature
+  fault, 100% implausible June–September 2020". That was **wrong**, and so was
+  the reasoning behind it. The temperature channel was not faulty — it was
+  receiving the `wind` channel, which reads 0.0 when there is no wind. After the
+  alignment fix, `aisvn.temp_c` is:
+
+  | month | n | median | implausible |
+  |---|---:|---:|---:|
+  | 2020-06 | 10,545 | 33.7 °C | 19% |
+  | 2020-07 | 10,411 | 32.1 °C | **0%** |
+  | 2020-08 | 13,283 | 31.9 °C | **0%** |
+  | 2020-11 → 2022-02 | 26,665 | 32–34 °C | **0%** |
+
+  The earlier claim also had its diagnosis inverted: October 2020 was never the
+  broken window, it was when the collector had already been fixed. The margin
+  notes in the archive (*"Pin 4 is temperature - calibrated ..."*,
+  *"Installed in the dark, let's start again!"*) describe the repair, not the
+  fault.
+
+- **New sentinel: `342.1`.** 14,107 readings in `aisvn.temp_c` sit at exactly
+  342.1 and 7 at 342.0 — a saturating float32 conversion, not a temperature.
+  Now stored as NULL with `quality_flags = 'sentinel'`. The sentinel table is
+  keyed by float rather than by string, because the XLSX reader normalises
+  integral floats to their integer spelling: a cell holding 342.0 arrives as
+  the text `"342"`, which a string-keyed table misses silently.
+
+- **`aisvn (25).xlsx`, first 100 rows excluded.** The collector confirmed the
+  pre-reinstall window is unusable. Measured transition: `battery` steps from
+  −0.99 to 12.84 V at sheet row 112, but rows 102–111 are the powered-down state
+  (solar 0, load 0), so the earlier boundary is used and those 10 extra rows
+  are harmless.
+
+### Changed
+
+- **`phumy2.solar2_v` and `phumy2.lipo2_v` promoted to `confirmed` at ×0.001.**
+  The collector confirms `solar2_v` is millivolts from a small ~5 V panel, and
+  `lipo2_v` reads 1980–4196 throughout, which is mV of a 3S pack. Note that the
+  *level* still moves when a bridge and load were fitted — roughly 5000 mV
+  before, ~1200 mV after — so the stored millivolt value is a divider output,
+  not always the panel voltage. Recovering true panel voltage needs the bridge
+  ratio, which is not in the archive.
+- **New `NULL_WINDOWS` mechanism, and the first window in it.** Distinct from
+  `BAD_WINDOWS`, which flags but keeps: a window where the stored number makes
+  an *affirmatively false* claim is nulled and every affected cell written to
+  `rejects`.
+  - `phumy2.solar2_v`, 2022-10 → 2023-12: the channel reads 0.0 V at **every
+    hour of the day** for the whole of 2023, including noon. A working panel is
+    100% zero from 18:00 to 05:00 and 2% at midday — that is exactly the
+    profile `solar2_v` shows in 2020. Zero all day is a disconnected input, not a
+    dark panel, and 169,789 readings charting as a flat line at zero would be a
+    wrong answer rather than an ugly one. The channel recovers in 2024-01.
+  - 14 regimes remain unconfirmed, down from 20.
+- **Timezone is now a fact, not an assumption.** Confirmed as `Asia/Ho_Chi_Minh`
+  (UTC+07:00) by the diurnal temperature cycle: the daily minimum lands at 05:00
+  local for both `phumy2` (415k rows) and `aisvn`, which is sunrise in Ho Chi
+  City. An offset wrong by 5 or 7 hours would put that minimum at 22:00 or
+  midnight. `TestTimezoneIsHoChiMinh` asserts it.
+- **2020-06-15 → 2020-06-17 15:20 local flagged as a bad window** for
+  `aisvn.temp_c`. Not scattered read errors: the channel reports **exactly
+  200.0 for every one of its first 1,359 readings**, then `342.1` for a 4-hour
+  block, and only becomes real after 2020-06-17 15:20 local — the same moment
+  the applet changed its column layout. 90% of all out-of-range temperatures on
+  this station fall in this window, so it is a commissioning artefact rather
+  than noise.
+- **2020-10-23 → 2020-10-30 flagged as a bad window** for `aisvn`
+  `solar_v`/`battery_v`/`temp_c`. Values are kept and flagged, not nulled.
+- **`package.json` version synced to 0.5.0** and its dependencies pinned to
+  exact versions. `TestVersionConsistency` now asserts that `package.json`,
+  `pyproject.toml` and `etl.__version__` agree, that dependencies are not
+  `latest`, and that the changelog documents the current version.
+- `load_v` documented as a two-state load rail with a behaviour change: 28,192
+  readings at exactly 0, last on 2020-10-30. Concentrated in June (80%), July
+  (78%) and August (19%); from November 2020 the channel is 9.5–24.7 V and
+  never 0.
+
+### Build baseline
+
+| | before | after |
+|---|---:|---:|
+| Readings | 735,004 | **734,908** |
+| Duplicate timestamps | 4,403 | 4,399 |
+| Malformed rejects | 6 | 220,180 |
+| Unconfirmed regimes | 23 | **14** |
+| Hourly / daily buckets | 25,662 / 1,197 | 25,649 / 1,194 |
+
+The −96 readings are the 100 excluded `aisvn (25)` rows less 4 duplicate
+timestamps they previously absorbed. The 220,180 malformed rejects are the 6
+repeated header rows, the 100 excluded rows, and the 220,074 cells nulled by a
+`NULL_WINDOW` — every one recorded rather than silently dropped or, worse,
+silently kept as a false zero. 102 tests, 12 frontend checks.
+
+---
+
 ## [0.4.0] — 2026-09-26
 
 ### Added

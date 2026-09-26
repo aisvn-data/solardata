@@ -16,7 +16,47 @@ from etl.normalize.metrics import METRIC_BY_COLUMN
 from etl.normalize.units import detect_per_file
 
 #: Only watch channels where a mis-scaling actually happened in the archive.
-WATCHED = ("battery_v", "solar_v", "temp_c", "lipo_v", "load_v")
+WATCHED = (
+    "battery_v",
+    "battery2_v",
+    "solar_v",
+    "solar2_v",
+    "temp_c",
+    "lipo_v",
+    "lipo2_v",
+    "load_v",
+)
+
+#: Regimes the collector has confirmed against the firmware. Keyed by
+#: (station_id, column, valid_from date) -> the confirmed scale.
+#:
+#: The collector reports that these stations log millivolts as integers
+#: throughout their records: `aisvn-solar`, `maker-webhooks`, `solar-2020-05`
+#: and `test` are all x0.001 and their records are short and self-consistent.
+#: These are marked 'confirmed' rather than left as proposals, so a query can
+#: trust them; the remaining `aisvn` windows stay 'unconfirmed' because they
+#: need to be checked against the firmware one at a time.
+CONFIRMED: tuple[tuple[str, str, str, float], ...] = (
+    ("aisvn-solar", "solar_v", "2020-05-21", 0.001),
+    ("aisvn-solar", "lipo_v", "2020-05-21", 0.001),
+    ("maker-webhooks", "solar_v", "2020-05-30", 0.001),
+    ("maker-webhooks", "battery_v", "2020-05-30", 0.001),
+    ("maker-webhooks", "load_v", "2020-05-30", 0.001),
+    ("maker-webhooks", "lipo_v", "2020-05-30", 0.001),
+    ("solar-2020-05", "lipo_v", "2020-05-16", 0.001),
+    ("test", "solar_v", "2020-06-12", 0.001),
+    ("test", "battery_v", "2020-06-12", 0.001),
+    ("test", "lipo_v", "2020-06-12", 0.001),
+    ("aisvn2", "battery2_v", "2020-06-18", 0.001),
+    # phumy2.solar2_v is a small ~5 V panel behind a bridge and load, logged in
+    # millivolts. The collector confirms the unit. Note that the *level* still
+    # moves when the bridge was fitted -- roughly 5000 mV before, ~1200 mV
+    # after -- so the stored millivolt value is a divider output, not always the
+    # panel voltage. Recovering true panel voltage needs the bridge ratio.
+    ("phumy2", "solar2_v", "2020-06-15", 0.001),
+    # phumy2.lipo2_v reads 1980-4196 throughout, which is mV of a 3S pack.
+    ("phumy2", "lipo2_v", "2020-06-15", 0.001),
+)
 
 
 @dataclass
@@ -144,11 +184,12 @@ def detect(conn: sqlite3.Connection, *, verbose: bool = True) -> list[RegimeRepo
                 )
 
     for item in _coalesce(found):
+        signed_off = item.scale in _confirmed_scales(item)
         conn.execute(
             "INSERT OR REPLACE INTO regimes"
             " (station_id, column, unit, valid_from, valid_to, scale, status,"
             "  detected_by, confidence, notes, evidence)"
-            " VALUES (?, ?, ?, ?, ?, ?, 'unconfirmed', 'range', ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 item.station_id,
                 item.column,
@@ -156,9 +197,20 @@ def detect(conn: sqlite3.Connection, *, verbose: bool = True) -> list[RegimeRepo
                 item.valid_from,
                 item.valid_to,
                 item.scale,
+                # Only a human confirmation promotes a regime. `detected_by`
+                # records which route it took, so a confirmed regime is still
+                # distinguishable from a heuristic one that happens to agree.
+                "confirmed" if signed_off else "unconfirmed",
+                "manual" if signed_off else "range",
                 item.confidence,
                 item.notes,
-                json.dumps({"scale": item.scale, "source": "per-file medians, coalesced"}),
+                json.dumps(
+                    {
+                        "scale": item.scale,
+                        "source": "per-file medians, coalesced",
+                        "confirmed_against_firmware": signed_off,
+                    }
+                ),
             ),
         )
 
@@ -167,12 +219,26 @@ def detect(conn: sqlite3.Connection, *, verbose: bool = True) -> list[RegimeRepo
         if not found:
             print("  no scale anomalies detected")
         else:
+            merged = _coalesce(found)
+            confirmed = sum(1 for r in merged if r.scale in _confirmed_scales(r))
             print(
-                f"  {len(found)} per-file windows -> {len(_coalesce(found))} regimes;"
-                " all need human confirmation:"
+                f"  {len(found)} per-file windows -> {len(merged)} regimes; "
+                f"{confirmed} confirmed against firmware, "
+                f"{len(merged) - confirmed} still unconfirmed:"
             )
-            for item in _coalesce(found)[:20]:
+            for item in merged[:20]:
+                state = "confirmed" if item.scale in _confirmed_scales(item) else item.confidence
                 print(
-                    f"    {item.station_id:<14} {item.column:<11} x{item.scale:<9g} {item.window()}"
+                    f"    {item.station_id:<14} {item.column:<11} "
+                    f"x{item.scale:<9g} {item.window()}  [{state}]"
                 )
     return _coalesce(found)
+
+
+def _confirmed_scales(regime: RegimeReport) -> set[float]:
+    """Scales a human has signed off for this station/column/period."""
+    return {
+        scale
+        for st, col, date, scale in CONFIRMED
+        if st == regime.station_id and col == regime.column and regime.valid_from.startswith(date)
+    }

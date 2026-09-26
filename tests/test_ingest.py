@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import ClassVar
 
 import openpyxl
 from etl.build_db import ingest
@@ -527,6 +529,227 @@ class TestStationRegistry(unittest.TestCase):
 
         for station in STATIONS:
             ZoneInfo(station.tz)  # raises if the zone name is wrong
+
+
+class TestDonorWidthMatching(unittest.TestCase):
+    """A donor header must have the same number of columns as the file.
+
+    Regression. On 2020-06-17 the ``aisvn`` applet gained a ``power`` column,
+    going from 10 columns to 11. The header-bearing chunk that predates it is
+    the donor a date-only rule would reach for, and applying a 10-column header
+    to an 11-column row shifts every channel from index 4 onwards by one:
+    ``load`` lands in ``wind``, ``wind`` lands in ``temp``, ``temp`` lands in
+    ``solar2``, and the real ``boot`` counter is dropped.
+
+    That mislabelled 45,986 readings -- 59% of the station -- and it presented
+    as a sensor fault, because ``temp_c`` was receiving the ``wind`` channel,
+    which reads 0.0. 41,698 readings looked like sub-5 degC temperatures in Ho
+    Chi City, and it took the collector's margin notes to make the window look
+    like a hardware problem.
+    """
+
+    HEADER_10: ClassVar[list[str]] = [
+        "time",
+        "solar",
+        "battery",
+        "current",
+        "load",
+        "wind",
+        "temp",
+        "solar2",
+        "LiPo",
+        "boot",
+    ]
+    HEADER_11: ClassVar[list[str]] = [
+        "time",
+        "solar",
+        "battery",
+        "current",
+        "power",
+        "load",
+        "wind",
+        "temp",
+        "solar2",
+        "LiPo",
+        "boot",
+    ]
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.settings = Settings(
+            raw_dir=self.tmp / "raw",
+            out_dir=self.tmp / "out",
+            db_path=self.tmp / "out" / "solardata.db",
+            parquet_dir=self.tmp / "out" / "parquet",
+            export_dir=self.tmp / "exports",
+            report_json=self.tmp / "out" / "q.json",
+            report_md=self.tmp / "out" / "q.md",
+        )
+
+    def _build(self):
+        """Mirror the real archive: a 10-column header, headerless 11-column
+        files, then a later 11-column header -- exactly the shape of
+        data/raw/aisvn, where the applet gained ``power`` on 2020-06-17."""
+        folder = self.settings.raw_dir / "aisvn"
+        write_xlsx(folder / "IFTTT_aisvn.xlsx", [self.HEADER_10, self._row_10(10)])
+        write_xlsx(
+            folder / "IFTTT_aisvn (1).xlsx",
+            [self._row_11(10, 10), self._row_11(12, 11)],
+        )
+        # The next header-bearing file, two months later, 11 columns wide.
+        write_xlsx(
+            folder / "IFTTT_aisvn (9).xlsx",
+            [self.HEADER_11, self._row_11(20, 900, day=20, month="August")],
+        )
+        return folder
+
+    def _row_10(self, minute, day=14, month="July"):
+        # time, solar, battery, current, load, wind, temp, solar2, LiPo, boot
+        return [
+            f"{month} {day}, 2020 at 10:{minute:02d}AM",
+            14.45,
+            14.35,
+            1.21,
+            17.56,
+            0.0,
+            0.0,
+            32.5,
+            12.12,
+            4.12,
+        ]
+
+    def _row_11(self, minute, boot, day=14, month="July"):
+        # time, solar, battery, current, power, load, wind, temp, solar2, LiPo, boot
+        return [
+            f"{month} {day}, 2020 at 10:{minute:02d}AM",
+            14.45,
+            14.35,
+            1.21,
+            17.56,
+            0.0,
+            0.0,
+            32.5,
+            12.12,
+            4.12,
+            boot,
+        ]
+
+    def test_donor_must_have_the_same_column_count(self):
+        self._build()
+        ingest(self.settings, verbose=False)
+        conn = connect(self.settings.db_path, read_only=True)
+        row = conn.execute(
+            "SELECT n_columns, schema_donor FROM source_files"
+            " WHERE filename = 'IFTTT_aisvn (1).xlsx'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(row["n_columns"], 11)
+        # A later 11-column header exists, so it is used -- not the nearer
+        # 10-column sibling, which would shift every channel from index 4.
+        self.assertEqual(row["schema_donor"], "aisvn/IFTTT_aisvn (9).xlsx")
+
+    def test_wrong_width_donor_does_not_shift_channels(self):
+        """The regression's actual symptom: temp_c receiving the wind channel."""
+        self._build()
+        ingest(self.settings, verbose=False)
+        conn = connect(self.settings.db_path, read_only=True)
+        row = conn.execute(
+            "SELECT temp_c, load_v, power_w, boot_count, lipo_v"
+            " FROM readings WHERE station_id = 'aisvn' AND ts_utc = ?",
+            ("2020-07-14T03:10:00Z",),
+        ).fetchone()
+        conn.close()
+        # Correctly aligned: temp gets 32.5, load gets 0.0, power gets 17.56,
+        # boot gets the counter, LiPo gets 4.12.
+        self.assertEqual(row["temp_c"], 32.5)
+        self.assertEqual(row["load_v"], 0.0)
+        self.assertEqual(row["power_w"], 17.56)
+        self.assertEqual(row["boot_count"], 10)
+        self.assertEqual(row["lipo_v"], 4.12)
+
+    def test_a_file_with_no_width_matching_donor_is_left_unmapped(self):
+        """Never map onto a layout that does not fit; record the gap instead."""
+        folder = self.settings.raw_dir / "aisvn"
+        # Only a 10-column header exists, but the data file has 14 columns.
+        write_xlsx(folder / "IFTTT_aisvn.xlsx", [self.HEADER_10, self._row_10(10)])
+        wide = [f"July 14, 2020 at 10:{m:02d}AM" for m in (30,) for _ in [0]] + [
+            f"ch{i}" for i in range(13)
+        ]
+        write_xlsx(folder / "IFTTT_aisvn (1).xlsx", [[wide[0]] + [1.0] * 13])
+        ingest(self.settings, verbose=False)
+        conn = connect(self.settings.db_path, read_only=True)
+        row = conn.execute(
+            "SELECT schema_donor, inferred FROM source_files WHERE filename = 'IFTTT_aisvn (1).xlsx'"
+        ).fetchone()
+        count = conn.execute("SELECT COUNT(*) FROM readings WHERE station_id = 'aisvn'").fetchone()[
+            0
+        ]
+        conn.close()
+        # No donor chosen, so no channel is invented, but the timestamps and the
+        # file itself are still recorded.
+        self.assertIsNone(row["schema_donor"])
+        self.assertEqual(row["inferred"], 0)
+        self.assertEqual(count, 2)  # both files' timestamps still ingested
+
+    def test_donor_prefers_preceding_when_widths_match(self):
+        folder = self.settings.raw_dir / "aisvn"
+        write_xlsx(folder / "IFTTT_aisvn.xlsx", [self.HEADER_10, self._row_10(10)])
+        write_xlsx(
+            folder / "IFTTT_aisvn (1).xlsx",
+            [self._row_10(12), self._row_10(14)],
+        )
+        # A later header-bearing file with the same 10-column width.
+        write_xlsx(
+            folder / "IFTTT_aisvn (9).xlsx",
+            [self.HEADER_10, self._row_10(20, day=20)],
+        )
+        ingest(self.settings, verbose=False)
+        conn = connect(self.settings.db_path, read_only=True)
+        row = conn.execute(
+            "SELECT schema_donor FROM source_files WHERE filename = 'IFTTT_aisvn (1).xlsx'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(row["schema_donor"], "aisvn/IFTTT_aisvn.xlsx")
+
+
+class TestTimezoneIsHoChiMinh(unittest.TestCase):
+    """The stations are in Ho Chi City; UTC+07:00 all year, no DST.
+
+    Confirmed against the data by the diurnal temperature cycle: the daily
+    minimum lands at 05:00 local, which is sunrise in Ho Chi City. An offset
+    wrong by 5 or 7 hours would put that minimum at 22:00 or midnight.
+    """
+
+    def test_phumy2_ambient_cycle_peaks_and_troughs_in_the_right_hours(self):
+        db = Path(__file__).resolve().parent.parent / "data" / "processed" / "solardata.db"
+        if not db.exists():
+            self.skipTest("no built database; run `python -m etl ingest` first")
+        conn = connect(db, read_only=True)
+        try:
+            rows = conn.execute(
+                "SELECT CAST(substr(ts_local, 12, 2) AS INTEGER) AS h, AVG(temp_c) AS t"
+                " FROM readings WHERE station_id = 'phumy2'"
+                "   AND temp_c BETWEEN 20 AND 40"
+                " GROUP BY h"
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertGreater(len(rows), 12, "not enough hourly temperature data")
+        by_hour = {r["h"]: r["t"] for r in rows}
+        hottest = max(by_hour, key=by_hour.get)
+        coldest = min(by_hour, key=by_hour.get)
+        # Tropical diurnal cycle: peak early-mid afternoon, trough near dawn.
+        self.assertIn(hottest, range(12, 16), f"peak at {hottest}:00 local")
+        self.assertIn(coldest, range(3, 8), f"trough at {coldest}:00 local")
+
+    def test_vietnam_has_no_dst_so_the_offset_is_constant(self):
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("Asia/Ho_Chi_Minh")
+        summer = datetime(2020, 7, 1, 12, tzinfo=tz)
+        winter = datetime(2021, 1, 15, 12, tzinfo=tz)
+        self.assertEqual(summer.utcoffset(), timedelta(hours=7))
+        self.assertEqual(winter.utcoffset(), timedelta(hours=7))
 
 
 if __name__ == "__main__":
