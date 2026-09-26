@@ -263,6 +263,83 @@ check('the uptime counter is published, since it is the only reboot evidence', (
   assert.ok('boot_count_min' in hourly[0], 'the hourly rollup needs boot_count_min too')
 })
 
+check('a contaminated aggregate is distinguishable from a clean one', () => {
+  // The real case, and the reason the per-metric counts exist. phumy2
+  // 2020-11-27 16:00 UTC contains one sample of power_w = 19,877 where its
+  // neighbours are 0. Averaged with the 29 good zeros in that hour it becomes
+  // 662.57 W, which is *inside* the +/-2000 W band, so nothing about the value
+  // says anything is wrong. `power_w_n_oor = 1` does.
+  const hourly = parseCsv(readFileSync(join(DATA, 'phumy2', 'hourly', '2020.csv'), 'utf8'))
+  assert.ok('power_w_n_oor' in hourly[0], 'the hourly rollup needs a per-metric count')
+  const row = hourly.find((r) => r.ts_utc === '2020-11-27T16:00:00Z')
+  assert.ok(row, 'the 2020-11-27 16:00 bucket is missing')
+  assert.equal(num(row.n_samples), 30)
+  assert.equal(num(row.power_w_n_oor), 1, 'exactly one sample of the 30 was out of band')
+  // The aggregate is inside the band, which is the whole point: the value alone
+  // cannot be judged, the count beside it can.
+  const value = num(row.power_w_avg)
+  assert.ok(value > 600 && value < 700, `expected ~662.57, got ${value}`)
+  assert.ok(Math.abs(value) <= 2000, 'the aggregate is inside the band')
+  // And the row-level count is 30 of 30 and therefore useless on its own, because
+  // current2_a reads ~232 against a +/-50 A band for the whole period.
+  assert.equal(num(row.n_out_of_range), 30, 'the row-level count is saturated here')
+  assert.equal(num(row.current2_a_n_oor), 30)
+  // It is a single bucket in the whole station-year, so a reader is not looking
+  // at a channel that is broadly broken.
+  const contaminated = hourly.filter((r) => num(r.power_w_n_oor) > 0)
+  assert.ok(contaminated.length < 10, `${contaminated.length} buckets flagged on power_w`)
+})
+
+check('every channel a station records is offered, not a fixed six', () => {
+  // Regression. The picker iterated a hardcoded list of six metrics, so
+  // `solar3_v` and `lipo2_v` were in `readings`, in the rollups and in the
+  // database the whole time with nowhere to appear -- and selecting AISVN #2
+  // offered nothing that worked. Channels are now discovered from the data.
+  for (const station of stations.filter((s) => s.published)) {
+    const year = station.years[station.years.length - 1]
+    const rows = parseCsv(
+      readFileSync(join(DATA, station.station_id, 'daily', `${year}.csv`), 'utf8'),
+    )
+    for (const [column] of [
+      ['solar_v'], ['solar2_v'], ['solar3_v'], ['battery_v'], ['battery2_v'],
+      ['lipo_v'], ['lipo2_v'], ['current_a'], ['current2_a'], ['power_w'],
+      ['load_v'], ['temp_c'],
+    ]) {
+      if (rows.some((r) => num(r[`${column}_avg`]) !== null)) {
+        assert.ok(
+          `${column}_avg` in rows[0],
+          `${station.station_id} ${year}: ${column} has data but no exported column`,
+        )
+      }
+    }
+  }
+  // The two that were unreachable before, asserted directly.
+  const aisvn2 = parseCsv(readFileSync(join(DATA, 'aisvn2', 'daily', '2021.csv'), 'utf8'))
+  assert.ok(
+    aisvn2.some((r) => num(r.solar3_v_avg) !== null),
+    'aisvn2 solar3_v must be exported and therefore selectable',
+  )
+  const phumy2 = parseCsv(readFileSync(join(DATA, 'phumy2', 'daily', '2020.csv'), 'utf8'))
+  assert.ok(
+    phumy2.some((r) => num(r.lipo2_v_avg) !== null),
+    'phumy2 lipo2_v must be exported and therefore selectable',
+  )
+  // And each station's observed range is published, so the site can show what
+  // that instrument did beside what the pipeline expects of it.
+  assert.ok(Array.isArray(quality.channel_ranges), 'quality.json has no channel_ranges')
+  const forPhumy2 = quality.channel_ranges.filter((r) => r.station_id === 'phumy2')
+  assert.ok(forPhumy2.length >= 5, 'phumy2 should report several channels')
+  for (const r of forPhumy2) {
+    assert.ok(r.n > 0 && r.min !== null && r.max !== null, `${r.column} has no range`)
+    assert.ok('band_lo' in r && 'band_hi' in r, `${r.column} has no band`)
+  }
+  // The disagreement this exists to surface: phumy2 reads far above the 45 degC
+  // band for ambient temperature, and no amount of hiding that helps.
+  const temp = forPhumy2.find((r) => r.column === 'temp_c')
+  assert.ok(temp.max > temp.band_hi, 'phumy2 temp_c should exceed its band')
+  assert.ok(temp.n > 400000, 'temp_c should be the dominant phumy2 channel')
+})
+
 check('a reject reason is a category, never a sentence', () => {
   // Rule 2, and the archive is where ignoring it cost 80.6 MiB: storing the
   // NULL_WINDOWS prose as `rejects.reason` put one ~300-character sentence on

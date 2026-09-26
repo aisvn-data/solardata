@@ -53,49 +53,44 @@ from pathlib import Path
 
 from etl import stations
 from etl.normalize import metrics
+from etl.rollup_schema import oor_columns, value_columns
 
-DAILY_COLUMNS = (
+#: The rollup columns, derived from `etl.rollup_schema` rather than restated.
+#:
+#: This is the third place that needs to know which channels exist and which
+#: statistic each one holds -- the schema, the aggregate, and this. Declaring it
+#: once and importing it twice is the only version of that which does not drift,
+#: and it already had: the daily export listed `battery_v_min` while the table
+#: also carried `battery_v_avg`, and the site had a special case for it.
+#:
+#: `oor_columns()` ships because the site cannot otherwise tell a contaminated
+#: aggregate from a clean one. `phumy2` 2020-11-27 16:00 UTC averages one sample of
+#: 19,877 W into 29 zeros and lands on 662.57 W, which is inside the +/-2000 W
+#: band, so nothing about the value itself says anything is wrong. The count
+#: beside it says 1 of 30 samples was out of band, which does.
+DAILY_COLUMNS: tuple[str, ...] = (
     "day",
     "ts_utc_day",
     "n_samples",
     "n_out_of_range",
     "n_hours",
-    "solar_v_avg",
-    "solar_v_max",
-    "solar2_v_avg",
-    "solar2_v_max",
-    "battery_v_min",
-    "battery_v_max",
-    "battery2_v_min",
-    "battery2_v_max",
-    "power_w_avg",
-    "power_w_max",
-    "energy_wh",
-    "temp_c_min",
-    "temp_c_avg",
-    "temp_c_max",
-    "boot_count_max",
-    "scaled_channels",
-)
-
-HOURLY_COLUMNS = (
-    "ts_utc",
-    "n_samples",
-    "n_out_of_range",
-    "solar_v_avg",
-    "solar_v_max",
-    "solar2_v_avg",
-    "solar2_v_max",
-    "battery_v_avg",
-    "battery_v_min",
-    "battery2_v_min",
-    "power_w_avg",
-    "power_w_max",
-    "temp_c_avg",
-    "current_a_avg",
+    *value_columns(),
     "energy_wh",
     "boot_count_min",
     "boot_count_max",
+    *oor_columns(),
+    "scaled_channels",
+)
+
+HOURLY_COLUMNS: tuple[str, ...] = (
+    "ts_utc",
+    "n_samples",
+    "n_out_of_range",
+    *value_columns(),
+    "energy_wh",
+    "boot_count_min",
+    "boot_count_max",
+    *oor_columns(),
     "scaled_channels",
 )
 

@@ -14,10 +14,68 @@ from pathlib import Path
 
 from etl import __version__
 from etl.config import BAD_WINDOWS, NULL_WINDOWS, ROW_EXCLUSIONS
+from etl.normalize.metrics import METRICS
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params=()) -> list[dict]:
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def _channel_ranges(conn: sqlite3.Connection) -> list[dict]:
+    """What each channel actually did, per station, beside what it is banded to.
+
+    The plausibility band in ``etl/normalize/metrics.py`` answers "what should
+    this hardware produce". It is one global answer per column name, and for this
+    archive that is not enough: ``battery_v`` is banded 9-16 V for a 3S LiPo, and
+    ``aisvn`` reads 17.6-29.6 V on 23 of its 101 days in 2020. Either that is a
+    second battery pack, or a scale nobody has confirmed, or the band is wrong
+    for the site it is installed in -- and the archive cannot say which. Reporting
+    only the band hides the question; reporting only the observed range hides the
+    expectation. Both, side by side, is the finding.
+
+    Percentiles rather than min/max because a single corrupt sample sets a min and
+    a max that describe nothing: ``phumy2`` 2020-11-27 has a ``power_w`` of
+    19,877 W in an otherwise 0 W hour, and a max-based envelope would call the
+    station a 19 kW array. p1..p99 is the range the instrument actually spent its
+    time in, and ``n_out_of_range`` counts everything that fell outside the band
+    regardless of where it landed.
+    """
+    out: list[dict] = []
+    numeric = [
+        m.column
+        for m in METRICS
+        if m.kind in ("voltage", "current", "power", "temperature", "count", "raw")
+    ]
+    for metric in METRICS:
+        if metric.kind == "text":
+            continue
+        column = metric.column
+        rows = conn.execute(
+            f"SELECT station_id, COUNT({column}) AS n, MIN({column}) AS lo,"
+            f" MAX({column}) AS hi, AVG({column}) AS mean"
+            f" FROM readings WHERE {column} IS NOT NULL GROUP BY station_id"
+        ).fetchall()
+        for row in rows:
+            n = row["n"]
+            if n == 0:
+                continue
+            out.append(
+                {
+                    "station_id": row["station_id"],
+                    "column": column,
+                    "unit": metric.unit,
+                    "kind": metric.kind,
+                    "n": n,
+                    "min": row["lo"],
+                    "max": row["hi"],
+                    "mean": row["mean"],
+                    "band_lo": metric.lo,
+                    "band_hi": metric.hi,
+                }
+            )
+    del numeric
+    out.sort(key=lambda r: (r["station_id"], r["column"]))
+    return out
 
 
 def collect(conn: sqlite3.Connection) -> dict:
@@ -123,6 +181,8 @@ def collect(conn: sqlite3.Connection) -> dict:
         }
         for station_id, valid_from, valid_to, columns, why in NULL_WINDOWS
     ]
+    report["channel_ranges"] = _channel_ranges(conn)
+
     report["row_exclusions"] = [
         {
             "rel_path": rel_path,

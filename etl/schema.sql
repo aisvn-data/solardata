@@ -210,32 +210,94 @@ CREATE INDEX IF NOT EXISTS ix_readings_file ON readings (source_file_id);
 -- `n_out_of_range` carries the quality signal into the rollup. Without it a day
 -- whose only reading is an ADC test pattern (solar 123 V, battery 456 V) looks
 -- exactly like a real day in a chart -- which is how one reached the website.
+-- The rollup tables carry two families of column beyond the bucket key, and
+-- both are declared in `etl/rollup_schema.py` so the aggregate stage and the
+-- export stage cannot disagree about which channels exist or which statistic
+-- each one holds. That is not hypothetical: the daily table once had no
+-- `battery_v_avg` while the hourly one did, and every consumer had to know.
+--
+-- `<channel>_<stat>` is the aggregated value -- `avg`, `min` or `max`, chosen per
+-- channel because a LiPo pack's health is its lowest reading and a power spike
+-- is a peak. `<channel>_n_oor` counts the samples in the bucket whose value fell
+-- outside the band `etl/normalize/metrics.py` records for that channel.
+--
+-- The per-metric count exists because the row-level `n_out_of_range` cannot
+-- answer the question the site needs to ask. `phumy2` 2020-11-27 16:00 UTC is the
+-- case: one sample reads `power_w = 19877` where its neighbours are 0, and
+-- averaged with the 29 good zeros in that hour it becomes 662.57 -- *inside* the
+-- +/-2000 W band, so the aggregate carries no flag. The row-level count is no
+-- help either, because every sample in that hour is flagged: `current2_a` reads
+-- ~232 against a +/-50 A band. One flag for the row, 30 of 30, and the one sample
+-- that actually broke something is invisible. Counting per metric gives 1 of 30
+-- on `power_w`, which is answerable.
+
 CREATE TABLE IF NOT EXISTS readings_hourly (
     station_id TEXT NOT NULL,
     ts_utc     TEXT NOT NULL,
     n_samples  INTEGER NOT NULL,
     n_out_of_range INTEGER NOT NULL DEFAULT 0,
-    solar_v_avg REAL, solar_v_max REAL, solar_v_min REAL,
-    solar2_v_avg REAL, solar2_v_max REAL,
-    battery_v_avg REAL, battery_v_min REAL, battery_v_max REAL,
-    battery2_v_min REAL, battery2_v_max REAL,
-    power_w_avg REAL, power_w_max REAL,
-    temp_c_avg REAL, temp_c_min REAL, temp_c_max REAL,
+    solar_v_avg REAL,
+    solar_v_max REAL,
+    solar2_v_avg REAL,
+    solar2_v_max REAL,
+    solar3_v_avg REAL,
+    solar3_v_max REAL,
+    battery_v_avg REAL,
+    battery_v_min REAL,
+    battery_v_max REAL,
+    battery2_v_min REAL,
+    battery2_v_max REAL,
+    lipo_v_avg REAL,
+    lipo_v_min REAL,
+    lipo_v_max REAL,
+    lipo2_v_avg REAL,
+    lipo2_v_min REAL,
+    lipo2_v_max REAL,
     current_a_avg REAL,
-    -- The logger's own monotonic counter, which resets on reboot. Min and max,
-    -- never a mean: a mean across a reboot averages two different boot sessions
-    -- into a number that never happened, and `max - min` is what says whether
-    -- the logger restarted inside the bucket. This is the only channel that
-    -- records the hardware's own view of its uptime.
+    current_a_chA_avg REAL,
+    current_a_chB_avg REAL,
+    current2_a_avg REAL,
+    power_w_avg REAL,
+    power_w_max REAL,
+    load_v_avg REAL,
+    load1_v_avg REAL,
+    load2_v_avg REAL,
+    wind_v_avg REAL,
+    temp_c_avg REAL,
+    temp_c_min REAL,
+    temp_c_max REAL,
+    -- The two bench ADC channels, uncalibrated. solar-2020-05 is a bench sheet
+    -- whose only measurements are these and a LiPo pack; without them that station
+    -- offers a single channel, which reads as broken rather than small. Neither has
+    -- a plausibility band, so neither gets an out-of-range count.
+    voltage_adc_avg REAL, digital_adc_avg REAL,
+    solar_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    solar2_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    solar3_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    battery_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    battery2_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    lipo_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    lipo2_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    current_a_n_oor INTEGER NOT NULL DEFAULT 0,
+    current_a_chA_n_oor INTEGER NOT NULL DEFAULT 0,
+    current_a_chB_n_oor INTEGER NOT NULL DEFAULT 0,
+    current2_a_n_oor INTEGER NOT NULL DEFAULT 0,
+    power_w_n_oor INTEGER NOT NULL DEFAULT 0,
+    load_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    load1_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    load2_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    temp_c_n_oor INTEGER NOT NULL DEFAULT 0,
+    -- never a mean: a mean across a reboot averages two boot sessions into a
+    -- number that never happened, and max - min is what says whether the logger
+    -- restarted inside the bucket. This is the only channel that records the
+    -- hardware's own view of its uptime.
     boot_count_min INTEGER, boot_count_max INTEGER,
     energy_wh REAL,          -- power_w_avg * hours, when the hour is complete
-    -- Audit trail for the unit correction: which channels had a
-    -- collector-confirmed scale applied, and which regime rows decided it.
-    -- Empty means the value is exactly what the sensor reported.
     scaled_channels TEXT NOT NULL DEFAULT '',
     regime_ids      TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (station_id, ts_utc)
 ) WITHOUT ROWID;
+
 
 CREATE TABLE IF NOT EXISTS readings_daily (
     station_id TEXT NOT NULL,
@@ -244,20 +306,66 @@ CREATE TABLE IF NOT EXISTS readings_daily (
     n_samples  INTEGER NOT NULL,
     n_out_of_range INTEGER NOT NULL DEFAULT 0,
     n_hours    INTEGER,
-    solar_v_avg REAL, solar_v_max REAL,
-    solar2_v_avg REAL, solar2_v_max REAL,
-    battery_v_min REAL, battery_v_max REAL,
-    battery2_v_min REAL, battery2_v_max REAL,
-    power_w_avg REAL, power_w_max REAL,
-    energy_wh REAL,
-    temp_c_min REAL, temp_c_avg REAL, temp_c_max REAL,
-    -- Uptime counter, min and max for the same reason as the hourly rollup: it
-    -- resets on reboot, so only the extremes are meaningful.
+    solar_v_avg REAL,
+    solar_v_max REAL,
+    solar2_v_avg REAL,
+    solar2_v_max REAL,
+    solar3_v_avg REAL,
+    solar3_v_max REAL,
+    battery_v_avg REAL,
+    battery_v_min REAL,
+    battery_v_max REAL,
+    battery2_v_min REAL,
+    battery2_v_max REAL,
+    lipo_v_avg REAL,
+    lipo_v_min REAL,
+    lipo_v_max REAL,
+    lipo2_v_avg REAL,
+    lipo2_v_min REAL,
+    lipo2_v_max REAL,
+    current_a_avg REAL,
+    current_a_chA_avg REAL,
+    current_a_chB_avg REAL,
+    current2_a_avg REAL,
+    power_w_avg REAL,
+    power_w_max REAL,
+    load_v_avg REAL,
+    load1_v_avg REAL,
+    load2_v_avg REAL,
+    wind_v_avg REAL,
+    temp_c_avg REAL,
+    temp_c_min REAL,
+    temp_c_max REAL,
+    -- The two bench ADC channels, uncalibrated. solar-2020-05 is a bench sheet
+    -- whose only measurements are these and a LiPo pack; without them that station
+    -- offers a single channel, which reads as broken rather than small. Neither has
+    -- a plausibility band, so neither gets an out-of-range count.
+    voltage_adc_avg REAL, digital_adc_avg REAL,
+    solar_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    solar2_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    solar3_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    battery_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    battery2_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    lipo_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    lipo2_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    current_a_n_oor INTEGER NOT NULL DEFAULT 0,
+    current_a_chA_n_oor INTEGER NOT NULL DEFAULT 0,
+    current_a_chB_n_oor INTEGER NOT NULL DEFAULT 0,
+    current2_a_n_oor INTEGER NOT NULL DEFAULT 0,
+    power_w_n_oor INTEGER NOT NULL DEFAULT 0,
+    load_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    load1_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    load2_v_n_oor INTEGER NOT NULL DEFAULT 0,
+    temp_c_n_oor INTEGER NOT NULL DEFAULT 0,
+    energy_wh REAL,          -- sum of the hourly buckets' energy
+    -- Uptime counter, min and max for the same reason as the hourly rollup.
     boot_count_min INTEGER, boot_count_max INTEGER,
     scaled_channels TEXT NOT NULL DEFAULT '',
     regime_ids      TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (station_id, day)
 ) WITHOUT ROWID;
+
+
 
 -- ----------------------------------------------------------------- pipeline
 

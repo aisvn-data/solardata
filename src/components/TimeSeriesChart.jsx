@@ -260,12 +260,35 @@ export default function TimeSeriesChart({
   )
 }
 
+/** How a flagged value should be described in one line. */
+function levelText(breach) {
+  if (breach.level === 'contaminated') {
+    if (breach.oor > 0 && breach.band?.lo !== null && breach.band?.lo !== undefined) {
+      return `built entirely from ${breach.oor} out-of-band ${breach.oor === 1 ? 'sample' : 'samples'}`
+    }
+    return 'outside the recorded band'
+  }
+  if (breach.level === 'partial') {
+    return `built from ${breach.n - breach.oor} good and ${breach.oor} out-of-band ${breach.oor === 1 ? 'sample' : 'samples'}`
+  }
+  return `outside this station's recorded range (${breach.range ? fmt(breach.range.min) : ''}…${breach.range ? fmt(breach.range.max) : ''})`
+}
+
+function fmt(value) {
+  if (value === null || value === undefined) return '—'
+  const abs = Math.abs(value)
+  if (abs >= 1000) return value.toFixed(0)
+  if (abs >= 10) return value.toFixed(1)
+  return value.toFixed(2)
+}
+
 /**
  * The hover readout.
  *
- * Names the statistic behind each number, because the daily battery column is a
- * day's minimum and the hourly one is the hour's mean, and a reader comparing
- * the two views would otherwise be comparing different things under one label.
+ * Names the statistic behind each number, because the same channel carries a
+ * different statistic depending on the aggregation, and a reader comparing the
+ * day and hour views would otherwise be comparing different things under one
+ * label.
  */
 function Readout({ row, series }) {
   return (
@@ -291,14 +314,10 @@ function Readout({ row, series }) {
             {value === null ? (
               <em className="muted">no data</em>
             ) : (
-              `${value.toFixed(item.decimals ?? 1)} ${item.unit}`
+              `${value.toFixed(item.decimals ?? 1)}${item.unit ? ` ${item.unit}` : ''}`
             )}
             {breach && (
-              <em className="breach">
-                {' '}
-                outside the recorded {breach.band.lo}&ndash;{breach.band.hi} {item.unit}{' '}
-                band for {breach.channel}
-              </em>
+              <em className={`breach ${breach.level}`}> {levelText(breach)}</em>
             )}
           </span>
         )
@@ -320,6 +339,7 @@ function FlaggedTable({ rows, series }) {
       entries.push({ row, breach })
     }
   }
+  if (entries.length === 0) return null
   return (
     <details className="flagged-table">
       <summary>
@@ -330,10 +350,9 @@ function FlaggedTable({ rows, series }) {
         <thead>
           <tr>
             <th>Bucket</th>
-            <th>Metric</th>
             <th>Channel</th>
             <th>Value</th>
-            <th>Recorded band</th>
+            <th>Why</th>
             <th>Samples</th>
           </tr>
         </thead>
@@ -341,21 +360,22 @@ function FlaggedTable({ rows, series }) {
           {entries.map(({ row, breach }) => (
             <tr key={`${row.key}:${breach.metric}`}>
               <td>{row.day}</td>
-              <td>{breach.metric}</td>
               <td>
                 <code>{breach.channel}</code>
               </td>
               <td>
-                {breach.value} {breach.band.unit}
+                {fmt(breach.value)} {breach.band?.unit ?? ''}
+              </td>
+              <td className={`breach-cell ${breach.level}`}>
+                {breach.level === 'contaminated'
+                  ? `outside the ${breach.band?.lo}–${breach.band?.hi} band, or built entirely from flagged samples`
+                  : breach.level === 'partial'
+                    ? `${breach.oor} of ${breach.n} samples outside the ${breach.band?.lo}–${breach.band?.hi} band`
+                    : `outside this station's range ${fmt(breach.range?.min)}–${fmt(breach.range?.max)}`}
               </td>
               <td>
-                {breach.band.lo}&ndash;{breach.band.hi} {breach.band.unit}
-              </td>
-              <td>
-                {row.nSamples ?? 0}
-                {row.nOutOfRange > 0 && (
-                  <span className="muted"> ({row.nOutOfRange} flagged)</span>
-                )}
+                {breach.n}
+                {breach.oor > 0 && <span className="muted"> ({breach.oor} flagged)</span>}
               </td>
             </tr>
           ))}

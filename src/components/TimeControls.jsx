@@ -1,4 +1,4 @@
-import { GRANULARITIES, METRICS } from '../data.js'
+import { GRANULARITIES } from '../data.js'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -31,7 +31,7 @@ export default function TimeControls({
   fromDay,
   toDay,
   onRangeChange,
-  metrics,
+  channels,
   selected,
   onMetricToggle,
   onRangePreset,
@@ -133,26 +133,28 @@ export default function TimeControls({
       </div>
 
       <fieldset className="metric-picker">
-        <legend>Metrics</legend>
-        {METRICS.map((metric) => {
-          // A metric with no data for this station is shown disabled rather
-          // than hidden, so it is visible *why* a channel is missing.
-          const availableForStation = metrics.includes(metric.key)
-          const checked = selected.includes(metric.key)
+        <legend>Channels ({channels.length})</legend>
+        {channels.map((channel) => {
+          const checked = selected.includes(channel.key)
           return (
-            <label key={metric.key} className={availableForStation ? '' : 'unavailable'}>
+            <label key={channel.key} className={checked ? 'picked' : ''}>
               <input
                 type="checkbox"
                 checked={checked}
-                disabled={!availableForStation}
-                onChange={() => onMetricToggle(metric.key)}
+                onChange={() => onMetricToggle(channel.key)}
               />
-              <i style={{ background: availableForStation ? metric.colour : '#cbd5e0' }} />
-              {metric.label}
-              <em>{metric.unit}</em>
+              <i style={{ background: channel.colour }} />
+              {channel.label}
+              {channel.unit && <em>{channel.unit}</em>}
             </label>
           )
         })}
+        {channels.length === 0 && (
+          <p className="muted small">
+            This station has no numeric channels in the published rollups. That is
+            why it is not offered in the station list.
+          </p>
+        )}
       </fieldset>
 
       <p className="control-hint">
@@ -162,12 +164,13 @@ export default function TimeControls({
             checked={hideFlagged}
             onChange={(e) => onHideFlaggedChange(e.target.checked)}
           />
-          Hide values outside their channel&apos;s recorded plausibility band
+          Hide values that are outside their channel&apos;s recorded band, or built
+          partly from samples that are
         </label>
         {' · '}
-        The band is the one the pipeline applies to every raw reading. Hiding a
-        flagged value is a reading aid, not a judgement: the value stays in the
-        database, in the Parquet export and in the flagged list under the chart.
+        The band is the one the pipeline applies to every raw reading. Hiding one
+        is a reading aid, not a judgement: the value stays in the database, in the
+        Parquet export and in the flagged list under the chart.
       </p>
     </div>
   )

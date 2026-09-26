@@ -8,11 +8,45 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **An implausible reading could be averaged into a plausible-looking number, and
+  nothing downstream could tell.** `phumy2` 2020-11-27 16:00 UTC contains exactly
+  one sample reading `power_w = 19877` and `solar2_v = 160` where its neighbours
+  are 0 and 0. Average that with the 29 good zeros in the hour and you get
+  **662.57 W** — comfortably *inside* the ±2000 W band, so the value carries no
+  flag at all. The site was drawing it as a real reading.
+
+  The row-level `n_out_of_range` could not help either: it reads **30 of 30** for
+  that hour, because `current2_a` reads ~232 against a ±50 A band for the whole
+  period (it is milliamps and the scale is unconfirmed — see the open questions).
+  One flag for the row, every sample flagged, and the one sample that actually
+  broke something invisible.
+
+  Both rollups now carry `<channel>_n_oor`: how many samples in the bucket fell
+  outside *that channel's* band. The same hour reads `power_w_n_oor = 1`,
+  `solar2_v_n_oor = 1` and `current2_a_n_oor = 30`, which separates the real
+  finding from the chronic one. It is the only power bucket flagged in the whole
+  station-year.
+
+- **The channel picker was a fixed list of six metrics, so a station's real
+  channels could not be shown.** `aisvn2` logs `solar3_v` and no `power_w` or
+  `temp_c` at all; `phumy2` logs `lipo2_v`; `aisvn-solar` logs `load1_v` and
+  `load2_v`; `maker-webhooks` logs `current_a_chA`/`chB`. All of it was in
+  `readings`, in the rollups and in the database the whole time, and none of it
+  had anywhere to appear — which is why selecting AISVN #2 offered greyed-out
+  controls and nothing that worked. Channels are now discovered from the rollup
+  the station actually ships, and every channel that has data is selectable.
+
+  The rollups were also missing those channels entirely, so they had to be added:
+  `solar3_v`, `load_v`, `load1_v`, `load2_v`, `wind_v`, `lipo_v`, `lipo2_v`,
+  `current_a_chA`, `current_a_chB`, `current2_a`, `voltage_adc`, `digital_adc`.
+  `solar-2020-05` went from one offerable channel to three, which is what a bench
+  sheet actually has.
+
 - **`metric_defs` could only describe one layout per folder, and the wrong one
   won.** Its primary key was `(station_id, source_dir, col_index)`, so a folder
   held exactly one meaning per column index and a second layout silently
-  overwrote the first. A folder is a chronological run of chunks from one
-  applet, and the applet is allowed to change its columns partway through:
+  overwrote the first. A folder is a chronological run of chunks from one applet
+  and the applet may change its columns partway through:
 
   | station | folder | the change |
   |---|---|---|
@@ -26,15 +60,15 @@ versions follow [Semantic Versioning](https://semver.org/).
   `test`'s 4-column probe schema was not recorded at all, despite `nix_raw` and
   `wifi_raw` holding 31,228 rows between them.
 
-  **The ingest was never wrong.** Each file is mapped with its own
-  width-matched effective header, and `readings` is correct: `load_v` is
-  populated and `power_w` is NULL before 2020-06-17, the reverse after. This
-  table is the one the report and the channel-coverage tab present as the
-  schema, so it was the only place the archive's two layouts were conflated.
-  `n_columns` is now part of the key.
+  **The ingest was never wrong.** Each file is mapped with its own width-matched
+  effective header, and `readings` is correct: `load_v` is populated and
+  `power_w` is NULL before 2020-06-17, the reverse after. This table is the one
+  the report and the channel-coverage tab present as the schema, so it was the
+  only place the archive's two layouts were conflated. `n_columns` is now part of
+  the key.
 
-- **`rejects.reason` was a sentence, on 220,074 rows.** Rule 2 says to keep it
-  a stable category, and the archive is where ignoring that shows: the
+- **`rejects.reason` was a sentence, on 220,074 rows.** Rule 2 says to keep it a
+  stable category, and the archive is where ignoring that shows: the
   `NULL_WINDOWS` path stored the collector's ~300-character note as the reason on
   every cell it nulled. That is **80.6 MiB of one paragraph, repeated**, and it
   made `rejects` (96.1 MiB) as large as `readings` — in a database that is not
@@ -47,37 +81,53 @@ versions follow [Semantic Versioning](https://semver.org/).
   | `solardata.db`, VACUUMed | 329.2 MiB | **166.7 MiB** |
   | gzipped, the Release asset | 20.0 MiB | 18.7 MiB |
 
-  **No data moved.** The counts are identical — 734,908 readings, 224,579
-  rejected cells, 220,074 of them nulled in the same window — so
-  `python -m etl verify` matches the baseline unchanged and no re-record was
-  needed. What changed is where the sentence lives: once, in `config.py`, which
-  is version-controlled and human-readable. `report.collect` republishes it to
-  `quality.json` as `null_windows` and `bad_windows`, paired with the number of
-  rows each explains, so the site can still explain every flagged cell — and now
-  says so on a dedicated **Windows** tab, where previously a reader saw the
-  category with no reasoning attached. The same fix applies to
-  `pre-reinstall window; collector confirmed rows from here on are usable`,
-  which is now `pre_reinstall`.
+  **No data moved.** The counts are identical, so `python -m etl verify` matches
+  the baseline unchanged. What changed is where the sentence lives: once, in
+  `config.py`, republished to `quality.json` as `null_windows` and `bad_windows`
+  paired with the rows each explains, and shown on a dedicated **Windows** tab
+  where previously a reader saw the category with no reasoning attached.
 
 - **`null_window` rejects had an empty `column_name`.** The code derived it by
   iterating `row_flags` for `no_signal:` prefixes, but `row_flags` is a merged
-  *string*, so the loop walked its characters and matched nothing. Every one of
-  the 220,074 rows said nothing about which channel it was about, and the
-  window's `n_rejected` in the report was silently 0. `_null_windows` now returns
-  the columns it nulled.
+  *string*, so the loop walked its characters and matched nothing. All 220,074
+  rows said nothing about which channel they were about, and the window's
+  `n_rejected` in the report was silently 0.
 
 ### Added
 
-- **The uptime counter, `boot`, is now a channel you can chart.** The logger
-  writes a monotonic read counter that resets on reboot. It is the only record
-  that the hardware restarted, and the gaps in every other channel begin where it
-  drops — but it was in `readings` and in the Parquet export and in *neither*
-  rollup, so the site could not show it. It is aggregated as min and max, never a
-  mean: a mean across a reboot averages two boot sessions into a number that
-  never happened. A day whose `boot_count_min` is 1 restarted; `boot_count_max` is
-  how long it had been up. Coverage is 100% for `aisvn`, `aisvn2`, `aisvn-solar`,
-  `maker-webhooks` and `phumy2`, and genuinely absent for `solar-2020-05` and
-  `voltage-phumy`, whose sheets have no such column.
+- **A per-station, per-channel range, beside the band.** `channel_ranges` in
+  `quality.json` reports, for every channel a station has actually recorded, the
+  min, max and count beside the band the pipeline expects. The band is one global
+  answer per column name and is not enough on its own:
+
+  | station | channel | observed | band |
+  |---|---|---|---|
+  | `phumy2` | `temp_c` | 15.5 … 80.6 °C | 5 … 45 |
+  | `phumy2` | `current2_a` | 155 … 1,996.8 A | −50 … 50 |
+  | `aisvn` | `battery_v` | −0.99 … 15,310 V | 9 … 16 |
+  | `aisvn2` | `solar3_v` | 0 … 23,860 V | 0 … 60 |
+  | `aisvn2` | `battery2_v` | 456 … 15,360 V | 9 … 16 |
+
+  Each row is either a second battery pack, an unconfirmed unit scale, or a band
+  wrong for the site it is installed in, and the archive cannot say which.
+  Reporting only the band hides the question; reporting only the range hides the
+  expectation. The Explorer shows both, and marks in orange the channels whose
+  readings fall outside their band.
+
+- **Three levels of "this number is not to be trusted", stated as counts rather
+  than verdicts.** `clean` — every sample in the bucket was in band. `partial` —
+  *some* were, so the aggregate blends measurements with flagged values and is
+  neither; this is the 662 W case. `contaminated` — *every* sample was out of
+  band, so the aggregate is not a summary of plausible values at all. Separately,
+  a value inside the band but outside what that station has ever recorded is
+  reported against the station's range and never called a flag. Nothing is
+  removed at any level.
+
+- **The uptime counter, `boot`, is a channel you can chart.** The logger's
+  monotonic read counter is in `readings` and in the Parquet export and in
+  *neither* rollup, so the site could not show it. It is aggregated as min and
+  max, never a mean. A bucket whose min is 1 restarted; the max is how long it
+  had been up.
 
   | station | readings | boot | share | downward steps |
   |---|---:|---:|---:|---:|
@@ -90,28 +140,33 @@ versions follow [Semantic Versioning](https://semver.org/).
   | `solar-2020-05` | 12,920 | 0 | 0% | — |
   | `voltage-phumy` | 5,553 | 0 | 0% | — |
 
-  `maker-webhooks`' 526 resets across 8,535 readings is the one figure here that
-  does not look like ordinary rebooting, and it is recorded rather than explained.
-  It may be a genuinely flaky applet or a counter that is not a reboot counter
-  for that firmware; there is no way to tell from the archive alone.
-- A **Windows** tab in the data-quality inspector, rendering each configured
-  window once: station, channels, span, row count, and the reasoning in full.
-  `rejects.by_reason` also gained a Meaning column, so a category is never a
-  shrug.
-- `check_frontend.mjs` asserts two invariants by name — *a reject reason is a
-  category, never a sentence* and *a folder that changed layout keeps both
-  layouts, not the last one* — plus *the uptime counter is published, since it is
-  the only reboot evidence*. They fail the build if either regresses.
+  `maker-webhooks`' 526 resets across 8,535 readings does not look like ordinary
+  rebooting. It is recorded rather than explained: a flaky applet, or a counter
+  that is not a reboot counter for that firmware, and the archive cannot tell
+  them apart. It belongs in the open questions.
+
+- `check_frontend.mjs` asserts four invariants by name — *a contaminated
+  aggregate is distinguishable from a clean one*, *every channel a station
+  records is offered, not a fixed six*, *a folder that changed layout keeps both
+  layouts, not the last one*, and *a reject reason is a category, never a
+  sentence*. Each fails the build if its regression returns.
 
 ### Changed
 
-- The channel-coverage tab shows the layout width, so the same column index in two
-  layouts is visible as two rows rather than one.
-- The size claims in `AGENTS.md`, `README.md`, `docs/data-dictionary.md` and
+- The rollup column list is declared once, in `etl/rollup_schema.py`, and
+  imported by the aggregate stage and the export stage. Three places need to agree
+  on it — schema, SQL, CSV header — and they had already drifted once: the daily
+  export listed `battery_v_min` while the table also carried `battery_v_avg`, and
+  the site had a special case for it. Both rollups now carry the same statistics.
+- The per-metric out-of-range counts are computed with the bands passed as SQL
+  parameters read from `METRIC_BY_COLUMN`, so the plausibility table has one home
+  and the site cannot drift from the criterion the ingest applied.
+- The channel-coverage tab shows the layout width, so the same column index in
+  two layouts reads as two rows rather than one.
+- Size claims in `AGENTS.md`, `README.md`, `docs/data-dictionary.md` and
   `docs/format-design.md` are updated to the measured figures. `CHANGELOG.md` is
   deliberately not: its older numbers are records of releases where they were
-  true, and rewriting a changelog to match today's build is how a changelog
-  stops being a changelog.
+  true.
 
 ## [0.7.1] — 2026-09-26
 

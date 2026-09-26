@@ -171,9 +171,45 @@ nav a.active { color: #102a43; font-weight: 700; }
   font-size: .85rem;
   gap: 6px;
 }
-.metric-picker label.unavailable { color: #9fb3c8; cursor: not-allowed; }
+.metric-picker label.picked { font-weight: 700; }
 .metric-picker i { border-radius: 2px; height: 10px; width: 10px; }
 .metric-picker em { color: #9fb3c8; font-size: .75rem; font-style: normal; }
+
+/* Per-station channel inventory: what this instrument recorded, beside what the
+   pipeline expects it to record. */
+.channel-table {
+  background: #fff;
+  border: 1px solid #e5edf3;
+  border-radius: 12px;
+  font-size: .82rem;
+  margin-bottom: 14px;
+  padding: 12px 16px;
+}
+.channel-table summary { color: #486581; cursor: pointer; font-weight: 700; }
+.channel-table table { border-collapse: collapse; margin: 12px 0 8px; width: 100%; }
+.channel-table th,
+.channel-table td {
+  border-bottom: 1px solid #edf2f7;
+  font-size: .78rem;
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.channel-table th.num,
+.channel-table td.num { text-align: right; white-space: nowrap; }
+.channel-table th {
+  color: #627d98;
+  font-size: .68rem;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.channel-table .band-warn {
+  background: #fffaf0;
+  border-radius: 3px;
+  color: #9b2c2c;
+  font-weight: 700;
+  padding: 1px 4px;
+}
 
 .stat-tiles {
   display: grid;
@@ -236,11 +272,14 @@ nav a.active { color: #102a43; font-weight: 700; }
 .readout-item { align-items: center; display: flex; gap: 6px; }
 .readout-item i { border-radius: 2px; height: 9px; width: 9px; }
 .readout-item .breach {
-  color: #9b2c2c;
   font-size: .78rem;
   font-style: normal;
   font-weight: 700;
 }
+.readout-item .breach.partial { color: #975a16; }
+.readout-item .breach.contaminated { color: #9b2c2c; }
+.breach-cell.partial { color: #975a16; }
+.breach-cell.contaminated { color: #9b2c2c; font-weight: 700; }
 
 .chart-note {
   background: #fffaf0;
