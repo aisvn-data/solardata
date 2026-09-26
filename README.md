@@ -1,8 +1,8 @@
 # solardata
 
-![GitHub License](https://img.shields.io/github/license/aisvn-data/solardata)
-![GitHub Release](https://img.shields.io/github/v/release/aisvn-data/solardata)
-![GitHub package.json version (branch)](https://img.shields.io/github/package-json/v/aisvn-data/solardata/main)
+![GitHub License](https://img.shields.io/github/license/kreier/solardata)
+![GitHub Release](https://img.shields.io/github/v/release/kreier/solardata)
+![GitHub package.json version (branch)](https://img.shields.io/github/package-json/v/kreier/solardata/main)
 
 Analyze, clean and display collected solar data.
 
