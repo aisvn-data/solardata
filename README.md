@@ -43,7 +43,7 @@ clone is immediately useful; the SQLite file ships as a Release asset.
 ```bash
 npm install
 npm run dev        # http://localhost:5173/solardata/
-npm run build      # -> dist/, deployable to GitHub Pages
+npm run build      # -> dist/, deployed to GitHub Pages by CI on push to main
 ```
 
 Two tabs:
