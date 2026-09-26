@@ -48,7 +48,7 @@ contains at least one stretch where `battery` and `temp` are not volts and
 degrees, and the schema has somewhere to record that without lying in a column
 name.
 
-At 158 MiB it is bigger than the Parquet output and much bigger than the CSV
+At 329 MiB it is bigger than the Parquet output and much bigger than the CSV
 exports, which is the cost of carrying provenance and rejected-row records for
 all 734,908 readings. That is a trade this dataset should make.
 
@@ -72,16 +72,16 @@ SQLite or Parquet, and a GitHub Pages site cannot run a query server.
 ```
 data/raw/**.xlsx                  364 files, 30.4 MiB   immutable, committed
   |
-  +-- data/processed/parquet/       7.4 MiB  committed: interchange
+  +-- data/processed/parquet/       7.5 MiB  committed: interchange
   +-- data/processed/quality_report.*         committed: the review artefact
   +-- data/baseline.json                      committed: the guard CI enforces
-  +-- data/processed/solardata.db   158 MiB   not committable (>100 MiB)
+  +-- data/processed/solardata.db   329 MiB   not committable (>100 MiB)
   +-- data/exports/                  0.1 MiB  for the browser
 ```
 
 The Parquet output, the report and the baseline are committed, so the processed
 data and the record of what the build should produce are both available from a
-clone without running anything. `solardata.db` is not, because at 158 MiB it
+clone without running anything. `solardata.db` is not, because at 329 MiB it
 exceeds GitHub's 100 MiB per-file limit for a git blob; it ships as a Release
 asset instead. `data/exports/` stays out of git until the frontend reads it.
 
@@ -90,14 +90,14 @@ it is the only thing that must be committed at full size.
 
 ## Why the SQLite file is larger than the raw archive
 
-`data/raw` is 30.4 MiB and `solardata.db` is 158.2 MiB, which looks alarming
+`data/raw` is 30.4 MiB and `solardata.db` is 329.2 MiB, which looks alarming
 until you account for the format. XLSX is a ZIP of XML:
 
 | | |
 |---|---|
 | raw archive on disk (ZIP) | 30.4 MiB |
 | the same files uncompressed | **251.4 MiB** (deflate ratio 12.1%) |
-| `solardata.db` | 158.2 MiB |
+| `solardata.db` | 329.2 MiB |
 | DB ÷ uncompressed XML | **0.63×** |
 
 The database is **37% smaller than the raw XML text it came from**. The 5.2×

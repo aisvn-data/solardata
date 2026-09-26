@@ -162,8 +162,8 @@ asserts that every day and every sample count matches across the pair.
 
 | Path | Format | Size | In git? | Purpose |
 |---|---|---|---|---|
-| `data/processed/solardata.db` | SQLite | 158 MiB | no | Canonical store, query in place |
-| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 7.4 MiB | **yes** | Interchange; pandas/duckdb/dask. All 734,908 readings at the native 119 s cadence |
+| `data/processed/solardata.db` | SQLite | 329 MiB | no | Canonical store, query in place. 20 MiB gzipped as a Release asset |
+| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 7.5 MiB | **yes** | Interchange; pandas/duckdb/dask. All 734,908 readings at the native 119 s cadence |
 | `public/data/{station}/daily/{year}.csv` | CSV | 0.1 MiB | **yes** | Daily rollups the site's Day view fetches |
 | `public/data/{station}/hourly/{year}.csv` | CSV | 1.7 MiB | **yes** | Hourly rollups the site's Hour view fetches |
 | `public/data/stations.json` | JSON | 5 KB | **yes** | Station metadata, coverage, which rollups exist |
@@ -175,7 +175,10 @@ asserts that every day and every sample count matches across the pair.
 
 `public/data/` is committed because the site is static: GitHub Pages serves the
 files straight from a clone, and a frontend-only change must not need the ingest.
-`solardata.db` is gitignored — it is over GitHub's 100 MiB per-file limit.
+`solardata.db` is gitignored — at 329 MiB it is far over GitHub's 100 MiB
+per-file limit. `release.yml` ships it VACUUMed and gzipped (20 MiB); the
+committed Parquet is 7.5 MiB for the same 734,908 rows and needs no download
+at all.
 Everything is rebuilt with `make build`; the database is also distributed as a
 Release asset.
 

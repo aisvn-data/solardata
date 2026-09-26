@@ -227,17 +227,36 @@ redundancy is the whole win. `tests/test_ingest.py::TestReadCache` covers it.
 
 ### Why `solardata.db` is not committed
 
-It is 158 MiB, over GitHub's 100 MiB per-file limit for a git blob, so a commit
-of it would be rejected outright. What *is* committed:
+It is 329 MiB after `VACUUM` (355 MiB as the ingest leaves it), far over
+GitHub's 100 MiB per-file limit for a git blob, so a commit of it would be
+rejected outright. `release.yml` gzips it to a **20 MiB** Release asset, which
+is the form most people actually want. What *is* committed:
 
 | Path | Size | Why |
 |---|---|---|
-| `data/processed/parquet/` | 7.4 MiB | The interchange format; gives anyone the processed data from a clone. All 734,908 readings at the native cadence |
+| `data/processed/parquet/` | 7.5 MiB | The interchange format; gives anyone the processed data from a clone. All 734,908 readings at the native cadence |
 | `public/data/` | 1.9 MiB | The CSV/JSON rollups the site fetches, so GitHub Pages works from a clone: daily *and* hourly, plus the plausibility bands |
 | `data/processed/quality_report.md` | ~10 KB | The review artefact, readable in a pull request |
 | `data/processed/quality_report.json` | ~80 KB | Machine-readable form of the same |
 | `data/baseline.json` | ~1 KB | The expected counts CI enforces |
 | `data/raw/**` | 30.4 MiB | The primary source of truth |
+
+The Parquet export is **13× smaller than the gzipped database** for exactly the
+same 734,908 rows, which is why the database is a convenience rather than the
+distribution channel. Measured breakdown of the 329 MiB, if you are ever
+optimising it:
+
+| Part | Size | Note |
+|---|---:|---|
+| `readings` | 98.9 MiB | The data itself |
+| `rejects` | 96.1 MiB | **80.6 MiB of this is one ~300-character sentence stored on 220,074 rows**, against rule 2's "keep `rejects.reason` a stable category, not a sentence" |
+| indexes | ~132 MiB | The remaining 40% of the file |
+| the two rollups | 2.5 MiB | 26,843 buckets |
+
+So the cheapest win in the whole database is not the storage layout: it is
+writing the `NULL_WINDOWS` prose once and referencing it, instead of 220,074
+times. Restructuring `readings` itself — timestamps as an integer, dropping the
+per-row `tz` — is worth 2.1× on that table and nothing at all to `rejects`.
 
 `solardata.db` and the retired `data/exports/` are gitignored. Rebuild locally
 with `make build`, or download the database from a Release.
