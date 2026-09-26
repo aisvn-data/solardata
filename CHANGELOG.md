@@ -11,6 +11,35 @@ Data corrections, all confirmed by the collector. Baseline re-recorded: **735,00
 
 ### Added
 
+- **Metric selection is now remembered per station, and spike days are excluded
+  from the chart.** Three separate defects made the explorer look broken:
+  - *Selection looked predetermined.* Switching stations fell back to "the first
+    two channels this station has" whenever the previous selection did not
+    survive, so phumy2 always opened on power + temperature. The selection is
+    now keyed by station and restored on return.
+  - *phumy2 and aisvn2 had no solar voltage at all.* They log `solar2` and
+    `solar3` + `battery2`, and the daily/hourly rollups only aggregated
+    `solar_v` / `battery_v`. 308 of 636 phumy2 days and 250 of 250 aisvn2 days
+    now carry a solar channel, and the frontend resolves the numbered variant
+    as the same metric.
+  - *Implausible days were drawn as if they were data.* `aisvn` 2020-10-01 is a
+    single ADC test-pattern reading (solar 123, battery 456, current 789)
+    between days reading 18 and 19. The rollups now carry `n_out_of_range`, and
+    the chart drops days whose values are spikes against that channel's own
+    median, stating how many it left out.
+
+- **Spike detection is deliberately scale-blind and declines to guess.** A first
+  attempt keyed the filter on the absolute plausibility band, which flagged
+  *every* millivolt reading of phumy2 and dropped 636 of 636 days. The filter is
+  now relative to the series: median and MAD rather than mean and deviation,
+  because one 456 V reading is exactly what drags a mean away from the value you
+  want to compare against. When a channel's scatter exceeds 20% of its own level
+  the detector returns no limit at all — `phumy2.solar2_v` steps from ~5000 mV to
+  ~1200 mV when a bridge is fitted, and over a window holding both halves the
+  distribution is bimodal, so either mode looks like a spike against the median
+  of the other. Erasing that would delete a real configuration change.
+- 7 new checks in `scripts/check_frontend.mjs` covering the spike logic, the
+  second solar channel, and the new column. 19 frontend checks, 114 Python tests.
 - **GitHub Pages deployment.** `.github/workflows/pages.yml` builds `dist/` and
   publishes it on every push to `main`, so a frontend-only change ships without
   re-running the Python pipeline. The build output was already correct for

@@ -217,6 +217,16 @@ nav a.active { color: #102a43; font-weight: 700; }
 .readout-item { align-items: center; display: flex; gap: 6px; }
 .readout-item i { border-radius: 2px; height: 9px; width: 9px; }
 
+.chart-note {
+  background: #fffaf0;
+  border: 1px solid #fbd38d;
+  border-radius: 8px;
+  color: #7b341e;
+  font-size: .82rem;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+}
+
 .chart-empty {
   background: #fff;
   border: 1px solid #e5edf3;

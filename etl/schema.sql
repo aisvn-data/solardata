@@ -183,12 +183,24 @@ CREATE INDEX IF NOT EXISTS ix_readings_ts ON readings (ts_utc);
 CREATE INDEX IF NOT EXISTS ix_readings_file ON readings (source_file_id);
 
 -- Pre-aggregated views so the website never scans the raw table.
+--
+-- The numbered `*2` / `*3` channels matter: phumy2 logs `solar2` and aisvn2
+-- logs `solar3` + `battery2`, so aggregating only `solar_v` / `battery_v` left
+-- the two largest stations with nothing at all to chart. The frontend treats a
+-- numbered variant as the same metric and uses whichever the station has.
+--
+-- `n_out_of_range` carries the quality signal into the rollup. Without it a day
+-- whose only reading is an ADC test pattern (solar 123 V, battery 456 V) looks
+-- exactly like a real day in a chart -- which is how one reached the website.
 CREATE TABLE IF NOT EXISTS readings_hourly (
     station_id TEXT NOT NULL,
     ts_utc     TEXT NOT NULL,
     n_samples  INTEGER NOT NULL,
+    n_out_of_range INTEGER NOT NULL DEFAULT 0,
     solar_v_avg REAL, solar_v_max REAL, solar_v_min REAL,
-    battery_v_avg REAL, battery_v_min REAL,
+    solar2_v_avg REAL, solar2_v_max REAL,
+    battery_v_avg REAL, battery_v_min REAL, battery_v_max REAL,
+    battery2_v_min REAL, battery2_v_max REAL,
     power_w_avg REAL, power_w_max REAL,
     temp_c_avg REAL, temp_c_min REAL, temp_c_max REAL,
     current_a_avg REAL,
@@ -201,9 +213,12 @@ CREATE TABLE IF NOT EXISTS readings_daily (
     day        TEXT NOT NULL,   -- YYYY-MM-DD, local calendar day
     ts_utc_day TEXT NOT NULL,   -- UTC midnight of that local day
     n_samples  INTEGER NOT NULL,
+    n_out_of_range INTEGER NOT NULL DEFAULT 0,
     n_hours    INTEGER,
     solar_v_avg REAL, solar_v_max REAL,
+    solar2_v_avg REAL, solar2_v_max REAL,
     battery_v_min REAL, battery_v_max REAL,
+    battery2_v_min REAL, battery2_v_max REAL,
     power_w_avg REAL, power_w_max REAL,
     energy_wh REAL,
     temp_c_min REAL, temp_c_avg REAL, temp_c_max REAL,

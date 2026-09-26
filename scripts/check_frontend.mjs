@@ -229,4 +229,108 @@ check('a day of genuine zeros is not confused with a day of NULLs', () => {
   assert.ok(withTemp.length > 200, `only ${withTemp.length} days with temperature`)
 })
 
+// ------------------------------------------------------------ spike detection
+
+const median = (xs) => {
+  const s = [...xs].sort((a, b) => a - b)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+const SPIKE_MAD_MULTIPLIER = 6
+const SPIKE_RELATIVE_FLOOR = 0.35
+const MAX_TIGHTNESS = 0.2
+
+const mad = (xs, med) => median(xs.map((v) => Math.abs(v - med)))
+
+/** Mirrors of src/data.js, so the assertions exercise the same logic. */
+function robustStats(values) {
+  const clean = values.filter((v) => v !== null && v !== undefined)
+  if (clean.length === 0) return { median: null, mad: null }
+  return { median: median(clean), mad: mad(clean, median(clean)) }
+}
+
+function spikeLimit(stats, unit) {
+  if (!stats || stats.median === null) return null
+  if (Math.abs(stats.mad) > Math.abs(stats.median) * MAX_TIGHTNESS) return null
+  const spread = stats.mad * 1.4826 * SPIKE_MAD_MULTIPLIER
+  const relative = Math.abs(stats.median) * SPIKE_RELATIVE_FLOOR
+  const absolute = unit === 'Wh' ? 5 : unit === 'W' ? 20 : 1.5
+  return Math.max(spread, relative, absolute)
+}
+
+check('the ADC test-pattern day is a spike against its own series', () => {
+  // The real case: aisvn 2020-10-01, a single reading of solar 123 V and
+  // battery 456 V between days that read 18 and 19.
+  const series = [18.45, 19.12, 18.9, 19.4, 18.7, 19.0, 18.8, 19.2, 18.6, 19.1]
+  const stats = robustStats(series)
+  const limit = spikeLimit(stats, 'V')
+  assert.ok(limit !== null, 'a tight series must yield a usable limit')
+  assert.ok(Math.abs(123 - stats.median) > limit, '123 V should be a spike')
+  assert.ok(Math.abs(456 - stats.median) > limit, '456 V should be a spike')
+  for (const v of series) {
+    assert.ok(Math.abs(v - stats.median) <= limit, `${v} should NOT be a spike`)
+  }
+})
+
+check('spike detection is scale-blind, so a millivolt channel is not wiped out', () => {
+  // The failure mode this replaced: an absolute plausibility band flagged every
+  // phumy2 reading (millivolts) and dropped 636 of 636 days.
+  const millivolts = [1441, 1520, 1390, 1610, 1475, 1555, 1430, 1580, 1490, 1560]
+  const limit = spikeLimit(robustStats(millivolts), 'V')
+  assert.ok(limit !== null)
+  const stats = robustStats(millivolts)
+  for (const v of millivolts) {
+    assert.ok(Math.abs(v - stats.median) <= limit, `${v} mV should not be a spike`)
+  }
+})
+
+check('a bimodal series disables spike detection instead of eating half of it', () => {
+  // phumy2.solar2_v steps from ~5000 mV to ~1200 mV when a bridge is fitted.
+  // Over a window holding both, the distribution is bimodal and either mode
+  // looks like a spike against the median of the other. Neither is an artefact,
+  // so the detector must decline rather than delete a real configuration change.
+  const bimodal = [...Array(30).fill(5000), ...Array(30).fill(1200)]
+  const limit = spikeLimit(robustStats(bimodal), 'V')
+  assert.equal(limit, null, 'a bimodal series must not be filtered')
+})
+
+check('an absent channel yields no limit rather than a wrong one', () => {
+  assert.equal(spikeLimit({ median: null, mad: null }, 'V'), null)
+  assert.equal(spikeLimit({ median: 0, mad: 0 }, 'V'), 1.5)
+})
+
+check('an all-NULL metric column is reported, not drawn', () => {
+  // phumy2 has no battery channel whatsoever; it must not appear as a control.
+  const rows = parseCsv(readFileSync(join(DATA, 'phumy2', 'daily', '2023.csv'), 'utf8'))
+  const firstOf = (row, keys) => {
+    for (const k of keys) {
+      const v = num(row[k])
+      if (v !== null) return v
+    }
+    return null
+  }
+  assert.equal(firstOf(rows[0], ['battery_v_min', 'battery2_v_min']), null)
+})
+
+check('the second solar channel is exported, so phumy2 is chartable', () => {
+  // phumy2 logs `solar2`; before the fix the rollups only carried solar_v and
+  // the largest station had nothing to plot.
+  const rows = parseCsv(readFileSync(join(DATA, 'phumy2', 'daily', '2020.csv'), 'utf8'))
+  const withSolar = rows.filter((r) => num(r.solar2_v_avg) !== null)
+  assert.ok(withSolar.length > 50, `only ${withSolar.length} days with solar2_v`)
+  const withSolar1 = rows.filter((r) => num(r.solar_v_avg) !== null)
+  assert.equal(withSolar1.length, 0, 'phumy2 must not have a solar_v column at all')
+})
+
+check('daily rollups carry the out-of-range count for the inspector', () => {
+  const rows = parseCsv(readFileSync(join(DATA, 'aisvn', 'daily', '2020.csv'), 'utf8'))
+  for (const row of rows) {
+    assert.ok('n_out_of_range' in row, 'n_out_of_range column is missing')
+    assert.ok(row.n_out_of_range !== '', 'n_out_of_range is blank')
+  }
+  const flagged = rows.filter((r) => num(r.n_out_of_range) > 0)
+  assert.ok(flagged.length > 0, 'expected at least one flagged day')
+})
+
 console.log(`\n${passed} checks passed`)

@@ -594,9 +594,11 @@ def build_aggregates(conn: sqlite3.Connection) -> tuple[int, int]:
     hourly = conn.execute(
         """
         INSERT INTO readings_hourly
-            (station_id, ts_utc, n_samples,
+            (station_id, ts_utc, n_samples, n_out_of_range,
              solar_v_avg, solar_v_max, solar_v_min,
-             battery_v_avg, battery_v_min,
+             solar2_v_avg, solar2_v_max,
+             battery_v_avg, battery_v_min, battery_v_max,
+             battery2_v_min, battery2_v_max,
              power_w_avg, power_w_max,
              temp_c_avg, temp_c_min, temp_c_max,
              current_a_avg, energy_wh)
@@ -604,8 +606,11 @@ def build_aggregates(conn: sqlite3.Connection) -> tuple[int, int]:
             station_id,
             substr(ts_utc, 1, 13) || ':00:00Z' AS hour,
             COUNT(*),
+            SUM(quality_flags LIKE '%out_of_range%'),
             AVG(solar_v),   MAX(solar_v),   MIN(solar_v),
-            AVG(battery_v), MIN(battery_v),
+            AVG(solar2_v),  MAX(solar2_v),
+            AVG(battery_v), MIN(battery_v), MAX(battery_v),
+            MIN(battery2_v), MAX(battery2_v),
             AVG(power_w),   MAX(power_w),
             AVG(temp_c),    MIN(temp_c),    MAX(temp_c),
             AVG(current_a),
@@ -619,9 +624,11 @@ def build_aggregates(conn: sqlite3.Connection) -> tuple[int, int]:
     daily = conn.execute(
         """
         INSERT INTO readings_daily
-            (station_id, day, ts_utc_day, n_samples, n_hours,
+            (station_id, day, ts_utc_day, n_samples, n_out_of_range, n_hours,
              solar_v_avg, solar_v_max,
+             solar2_v_avg, solar2_v_max,
              battery_v_min, battery_v_max,
+             battery2_v_min, battery2_v_max,
              power_w_avg, power_w_max, energy_wh,
              temp_c_min, temp_c_avg, temp_c_max)
         SELECT
@@ -629,9 +636,12 @@ def build_aggregates(conn: sqlite3.Connection) -> tuple[int, int]:
             substr(h.ts_utc, 1, 10)                       AS day,
             substr(h.ts_utc, 1, 11) || '00:00:00Z'        AS day_start,
             SUM(h.n_samples),
+            SUM(h.n_out_of_range),
             COUNT(*),
             AVG(h.solar_v_avg),   MAX(h.solar_v_max),
-            MIN(h.battery_v_min), MAX(h.battery_v_min),
+            AVG(h.solar2_v_avg),  MAX(h.solar2_v_max),
+            MIN(h.battery_v_min), MAX(h.battery_v_max),
+            MIN(h.battery2_v_min), MAX(h.battery2_v_max),
             AVG(h.power_w_avg),   MAX(h.power_w_max),
             SUM(h.energy_wh),
             MIN(h.temp_c_min),    AVG(h.temp_c_avg),    MAX(h.temp_c_max)
