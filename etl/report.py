@@ -166,19 +166,23 @@ def collect(conn: sqlite3.Connection) -> dict:
         " LEFT JOIN source_files f ON f.file_id = n.file_id ORDER BY f.rel_path LIMIT 40",
     )
 
+    # `n_columns` is reported because a folder can hold more than one layout --
+    # `aisvn` went from 10 columns to 11 when `power` was added on 2020-06-17,
+    # and `test` is two unrelated schemas. The width is what tells the reader
+    # which files a row describes.
     report["metric_defs"] = _rows(
         conn,
-        "SELECT station_id, source_dir, col_index, raw_name, canonical_col, unit,"
-        " confidence, inferred, reason, n_files"
+        "SELECT station_id, source_dir, n_columns, col_index, raw_name, canonical_col,"
+        " unit, confidence, inferred, reason, n_files"
         " FROM metric_defs WHERE canonical_col IS NOT NULL AND raw_name <> ''"
-        " ORDER BY station_id, source_dir, col_index",
+        " ORDER BY station_id, source_dir, n_columns, col_index",
     )
 
     report["unmapped_columns"] = _rows(
         conn,
-        "SELECT station_id, source_dir, col_index, raw_name, reason, n_files"
+        "SELECT station_id, source_dir, n_columns, col_index, raw_name, reason, n_files"
         " FROM metric_defs WHERE canonical_col IS NULL AND raw_name <> ''"
-        " ORDER BY station_id, source_dir, col_index",
+        " ORDER BY station_id, source_dir, n_columns, col_index",
     )
 
     report["regimes"] = _rows(

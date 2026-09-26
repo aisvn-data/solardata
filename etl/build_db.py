@@ -274,7 +274,16 @@ def _register_metric_defs(
     n_columns: int,
     inferred: bool,
 ) -> None:
-    """Record the column meaning for this folder.
+    """Record the column meaning for one *layout* in this folder.
+
+    Keyed on the layout's width as well as its column index, because a folder
+    can contain more than one: `aisvn` gained a `power` column on 2020-06-17 and
+    went from 10 columns to 11, `Maker_Webhooks_Events` did the same, and `test`
+    holds two unrelated schemas. Keyed on the column index alone -- which is what
+    this used to do -- a folder can only ever hold one meaning per index, so the
+    second layout overwrote the first and `aisvn` ended up claiming column 4 was
+    `load` for all 39 files when 38 of them are 11-column files where it is
+    `power`. The ingest was never wrong; only this record of it was.
 
     ``inferred`` is 1 when the column names were borrowed from a sibling file
     because this one had no header row.  That flag is the honest signal that we
@@ -286,10 +295,10 @@ def _register_metric_defs(
         metric = METRIC_BY_COLUMN.get(mapping.column) if mapping.column else None
         conn.execute(
             "INSERT INTO metric_defs"
-            " (station_id, source_dir, col_index, raw_name, canonical_col, unit, kind,"
-            "  confidence, inferred, reason, n_files)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
-            " ON CONFLICT(station_id, source_dir, col_index) DO UPDATE SET"
+            " (station_id, source_dir, n_columns, col_index, raw_name, canonical_col,"
+            "  unit, kind, confidence, inferred, reason, n_files)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
+            " ON CONFLICT(station_id, source_dir, n_columns, col_index) DO UPDATE SET"
             "   n_files = n_files + 1,"
             "   raw_name = CASE WHEN excluded.inferred = 1 THEN metric_defs.raw_name"
             "                   ELSE excluded.raw_name END,"
@@ -301,6 +310,7 @@ def _register_metric_defs(
             (
                 station.station_id,
                 source_dir,
+                n_columns,
                 mapping.index,
                 mapping.raw_name,
                 mapping.column,

@@ -174,7 +174,8 @@ def build(conn: sqlite3.Connection, *, verbose: bool = True) -> tuple[int, int, 
              battery2_v_min, battery2_v_max,
              power_w_avg, power_w_max,
              temp_c_avg, temp_c_min, temp_c_max,
-             current_a_avg, energy_wh,
+             current_a_avg, boot_count_min, boot_count_max,
+             energy_wh,
              scaled_channels, regime_ids)
         SELECT
             station_id,
@@ -188,6 +189,7 @@ def build(conn: sqlite3.Connection, *, verbose: bool = True) -> tuple[int, int, 
             AVG(power_w),   MAX(power_w),
             AVG(temp_c),    MIN(temp_c),    MAX(temp_c),
             AVG(current_a),
+            MIN(boot_count), MAX(boot_count),
             AVG(power_w) * (COUNT(*) * 2.0 / 3600.0),   -- 2-minute nominal cadence
             '', ''
         FROM readings
@@ -206,6 +208,7 @@ def build(conn: sqlite3.Connection, *, verbose: bool = True) -> tuple[int, int, 
              battery2_v_min, battery2_v_max,
              power_w_avg, power_w_max, energy_wh,
              temp_c_min, temp_c_avg, temp_c_max,
+             boot_count_min, boot_count_max,
              scaled_channels, regime_ids)
         SELECT
             h.station_id,
@@ -221,6 +224,11 @@ def build(conn: sqlite3.Connection, *, verbose: bool = True) -> tuple[int, int, 
             AVG(h.power_w_avg),   MAX(h.power_w_max),
             SUM(h.energy_wh),
             MIN(h.temp_c_min),    AVG(h.temp_c_avg),    MAX(h.temp_c_max),
+            -- MIN of the hourly MINs is the smallest counter value the logger
+            -- reported that day. A value of 1 means the logger had just booted,
+            -- so a day whose min is 1 restarted; a day whose min is high simply
+            -- means it did not.
+            MIN(h.boot_count_min), MAX(h.boot_count_max),
             '',
             ''
         FROM readings_hourly h

@@ -251,13 +251,19 @@ export default function QualityInspector() {
             How each raw column of each archive folder was mapped.{' '}
             <code>inferred</code> means the file had no header row and borrowed the
             layout from an earlier sibling — 305 of 364 files, so most mappings
-            are inherited rather than read.
+            are inherited rather than read. <strong>Width</strong> is part of the
+            key: a folder can hold more than one layout, because an applet is
+            allowed to add a column partway through a run. <code>aisvn</code> went
+            from 10 columns to 11 on 2020-06-17 when a <code>power</code> channel
+            was added, so column 4 is <code>load</code> in one file and{' '}
+            <code>power</code> in the other 38.
           </p>
           <table className="data-table">
             <thead>
               <tr>
                 <th>Station</th>
                 <th>Folder</th>
+                <th className="num">Width</th>
                 <th className="num">Col</th>
                 <th>Raw header</th>
                 <th>Canonical</th>
@@ -268,11 +274,14 @@ export default function QualityInspector() {
             </thead>
             <tbody>
               {(report.metric_defs ?? []).map((def, index) => (
-                <tr key={`${def.station_id}-${def.source_dir}-${def.col_index}-${index}`}>
+                <tr
+                  key={`${def.station_id}-${def.source_dir}-${def.n_columns}-${def.col_index}-${index}`}
+                >
                   <td>
                     <code>{def.station_id}</code>
                   </td>
                   <td className="small">{def.source_dir}</td>
+                  <td className="num">{def.n_columns}</td>
                   <td className="num">{def.col_index}</td>
                   <td>
                     <code>{def.raw_name || '—'}</code>

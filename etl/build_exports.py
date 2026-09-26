@@ -74,6 +74,7 @@ DAILY_COLUMNS = (
     "temp_c_min",
     "temp_c_avg",
     "temp_c_max",
+    "boot_count_max",
     "scaled_channels",
 )
 
@@ -93,6 +94,8 @@ HOURLY_COLUMNS = (
     "temp_c_avg",
     "current_a_avg",
     "energy_wh",
+    "boot_count_min",
+    "boot_count_max",
     "scaled_channels",
 )
 
