@@ -72,6 +72,19 @@ that reads exactly 0 for 415,112 of 415,117 readings, which is open question 3 i
 `AGENTS.md` and was never a measurement. `aisvn`'s is a measurement from the
 recompile onwards, and a reconstruction before it.
 
+**Two more consequences of the same edit, found by auditing the built database.**
+`CONFIRMED_WINDOWS` is not one window for the whole record — it is seven `aisvn`
+rows at `×0.001` covering `2020-06-15T06:10:00Z .. 2020-06-17T08:20:00Z`, which
+is precisely the part of the file the repair converted: **1,480 readings, 1.91%
+of the station, all in `IFTTT_aisvn.xlsx`**. So the double-scaling is bounded,
+and the fix is to delete those seven rows.
+
+An eighth row, `aisvn temp_c ×0.1` over 04:12–08:20Z the same day, now runs the
+other way: the committed build had 317–341 there (tenths) and the current one has
+31.7–34.2 (degrees), so the rollup divides by ten again and those hours land at
+0.33 °C. Every other reading of the record is in tenths, mean 323.3. That scale
+needs inverting. (The count in the window also moved, 114 → 121, unexplained.)
+
 **The audit.** Of 363 files, **304 still hold at least one millivolt channel**:
 
 | station | files | channels still in millivolts | readings |
@@ -91,6 +104,21 @@ the raw would gain nothing and would remove the evidence that the firmware wrote
 millivolts, so they are left alone deliberately rather than overlooked. The
 answer to "should more raw files be updated" is: only where a file is **not**
 uniform, and after this change there is none.
+
+**The 100%-flagged channels, and the two that are not a scale question.**
+Dividing by 1000 brings 98–100% inside the recorded band for most of them. Two
+are not:
+
+- **`aisvn2.lipo2_v` is a stuck input.** 17 distinct values in 164,097 readings,
+  with 7,097 appearing 161,790 times. The same station's `solar3_v` has 2,131
+  distinct values over the same rows. The ×0.01 regime proposed for it is
+  fitting 2,307 excursions, and its window (2020-06-18 to 06-23) is wrong too —
+  the low values run to 2021-10-30.
+- **`aisvn-solar.battery_v` is a 2 V pack, not a 12 V bank.** Raw 0–2,574, mean
+  2,060, 2020-05-21 → 2020-06-12; ÷1000 gives 1.98–2.57 V, consistent with that
+  file's `solar_v` topping out at 3.5 V and its header being `time, solar,
+  battery, load_1, load_2, LiPo, wind, dump, boot`. It needs a per-station
+  *band*, not a scale — the `CHANNEL_UNITS` gap again.
 
 ### Added
 
