@@ -580,6 +580,22 @@ check('an available metric is selectable, because the picker is given keys', () 
   assert.deepEqual(availableMetricKeys(bench), [])
 })
 
+check('the view the site opens on reads real columns', () => {
+  // `check_render.mjs` resolves DEFAULT_VIEW's station, year, range and channels
+  // against the real files, but it does so through `VALUE_COLUMNS` in src/data.js
+  // -- a mapping. This is the same question asked of the CSV itself: is the
+  // column the site will chart actually published, under the name the exporter
+  // writes? `wind_v` is the collector's unwired wind-turbine input, the most
+  // likely of the opening pair to be dropped in a cleanup as "always zero", and
+  // nothing in the browser would fail if it were.
+  const header = readFileSync(join(DATA, 'aisvn', 'daily', '2020.csv'), 'utf8')
+    .split(/\r?\n/)[0]
+    .split(',')
+  for (const column of ['solar_v_avg', 'wind_v_avg']) {
+    assert.ok(header.includes(column), `aisvn 2020: the rollup has no ${column} column`)
+  }
+})
+
 /** Mirrors isOutOfBand in src/data.js, so the assertion exercises that logic. */
 function isOutOfBand(channel, value) {
   const band = bands[channel]

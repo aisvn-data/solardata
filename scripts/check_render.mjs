@@ -36,7 +36,8 @@ import TimeControls from '../src/components/TimeControls.jsx'
 import TimeSeriesChart from '../src/components/TimeSeriesChart.jsx'
 import StatTiles from '../src/components/StatTiles.jsx'
 import QualityInspector from '../src/components/QualityInspector.jsx'
-import { METRICS, discoverChannels, loadBands, loadRollup } from '../src/data.js'
+import { DEFAULT_VIEW, defaultSelection, openingView } from '../src/components/StationExplorer.jsx'
+import { METRICS, discoverChannels, filterByRange, loadBands, loadRollup } from '../src/data.js'
 
 // Anchored on the working directory, not on this file's location: the check is
 // built into `node_modules/` before it runs, so `import.meta.url` would put the
@@ -146,6 +147,76 @@ await check('the data-quality inspector mounts and the data it reads is present'
       REASONS.includes(row.reason),
       `rejects.by_reason has "${row.reason}", which the inspector cannot explain`,
     )
+  }
+})
+
+await check('the view the site opens on exists, and opens on a chart', async () => {
+  // `StationExplorer` picks its opening station, year, range and channels from
+  // DEFAULT_VIEW, and every one of those is a claim about the archive: a name
+  // that no longer resolves, a year the station did not report, a range of days
+  // the rollup does not have, or a channel the exporter dropped. The component
+  // degrades rather than throws in every one of those cases -- which is right
+  // for the reader and the wrong way to find out, because the symptom is a
+  // default the reader never asked for and cannot account for.
+  //
+  // So the opening state is resolved here, against the real `stations.json` and
+  // the real rollup, exactly as the component's effects would. Effects do not run
+  // under a static render, so this drives the two exported helpers plus the same
+  // `loadRollup` -> `discoverChannels` path the component uses.
+  const stations = readJson('stations.json')
+  const opening = openingView(stations)
+  assert.ok(opening, 'no published station to open on')
+  const station = stations.find((s) => s.station_id === opening.stationId)
+  assert.ok(
+    station.published && station.years.includes(opening.year),
+    `the opening view is ${opening.stationId} ${opening.year}, which is not published`,
+  )
+  assert.equal(opening.stationId, DEFAULT_VIEW.station, 'the opening station changed')
+  assert.equal(opening.year, DEFAULT_VIEW.year, 'the opening year changed')
+
+  const bands = await loadBands()
+  const rows = await loadRollup(opening.stationId, 'daily', opening.year)
+  const channels = await discoverChannels(rows, bands, new Map())
+  const available = channels.map((c) => c.key)
+
+  // Every named channel survived discovery, so the opening chart really is the
+  // solar and wind-turbine pair rather than a one-line fallback.
+  assert.deepEqual(
+    defaultSelection(available, opening.stationId, opening.year),
+    DEFAULT_VIEW.channels,
+    `the opening channels are not in the ${opening.stationId} ${opening.year} rollup`,
+  )
+
+  // And the named range is a range with data in it: `filterByRange` is what the
+  // chart receives, so an empty result would be a chart that renders an axis and
+  // no line. A day with no samples would additionally break the line in two.
+  const inRange = filterByRange(rows, DEFAULT_VIEW.from, DEFAULT_VIEW.to)
+  assert.ok(inRange.length > 0, `the opening range ${DEFAULT_VIEW.from}..${DEFAULT_VIEW.to} is empty`)
+  assert.equal(
+    inRange.filter((r) => (r.nSamples ?? 0) === 0).length,
+    0,
+    'the opening range contains a day with no readings, so the chart opens on a gap',
+  )
+  for (const key of DEFAULT_VIEW.channels) {
+    assert.ok(
+      inRange.some((r) => r.values[key] !== null),
+      `the opening range has no ${key} value to draw`,
+    )
+  }
+
+  // The one-shot default is not the same as a default the reader cannot escape:
+  // for any other view the selection is the old rule, so a station without these
+  // channels still gets a chart.
+  const other = stations.find(
+    (s) => s.published && s.station_id !== DEFAULT_VIEW.station && s.years.length > 0,
+  )
+  const otherYear = other.years[0]
+  const otherRows = await loadRollup(other.station_id, 'daily', otherYear)
+  const otherKeys = (await discoverChannels(otherRows, bands, new Map())).map((c) => c.key)
+  const picked = defaultSelection(otherKeys, other.station_id, otherYear)
+  assert.ok(picked.length > 0, `${other.station_id} would open on an empty chart`)
+  for (const key of picked) {
+    assert.ok(otherKeys.includes(key), `${key} is not a channel of ${other.station_id}`)
   }
 })
 
