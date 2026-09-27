@@ -27,7 +27,7 @@
       "lo": 9.0,
       "hi": 16.0,
       "kind": "voltage",
-      "description": "Battery bank voltage (3S LiPo)"
+      "description": "Battery bank voltage"
     },
     "battery2_v": {
       "unit": "V",
@@ -97,7 +97,7 @@
       "lo": null,
       "hi": null,
       "kind": "voltage",
-      "description": "Wind turbine input (unused, reads 0)"
+      "description": "Wind turbine input"
     },
     "temp_c": {
       "unit": "0.1 degC",

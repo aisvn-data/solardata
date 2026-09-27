@@ -5,8 +5,111 @@ the raw archive. The format follows [Keep a Changelog](https://keepachangelog.co
 versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.8.0] — 2026-09-27
+
+### Added
+
+- **`test` and `voltage-phumy` are on the site.** Both were excluded from
+  `public/data/` entirely, which meant the rollups existed nowhere even though
+  38,930 readings were in the database, in the Parquet export and in the quality
+  report — the one place a reader goes to look showed six of the eight stations
+  the project documents. `build_exports.build` now writes every station in the
+  registry and marks the two with `published: false`, which is a *grouping* and
+  not a filter: the site lists them under "Not solar production" and prints the
+  station's own note on its panel. `--all-stations` only moves them into the main
+  group; it no longer decides whether their CSVs exist.
+
+  Publishing `test` exposed a defect that the exclusion had been hiding: it
+  records `temp_c` in **hundredths** of a degree where every other station uses
+  tenths, and the rollup column is `temp_deci_c_avg` either way, so the site was
+  about to divide 2,807 hundredths by ten and print 280 °C for a warm afternoon.
+  The per-station unit now travels in `stations.json` as `channel_units`, and
+  `displayDivisor` reads the coefficient off the unit string rather than
+  special-casing `'0.1 degC'`. Held by `tests/test_export_policy.py` and by
+  `check_render.mjs`.
+- **`station.channel_units` in the manifest** — the same override, for the same
+  reason. Seven of the eight stations carry `{}`.
+- **`monthBounds` and `rangeForLoad` in `src/components/StationExplorer.jsx`**,
+  exported and tested. The range decision was a mutable ref read inside an effect
+  and could not be asserted from outside; it is now a pure function, and the
+  resolution is a parameter it ignores so that "a resolution switch keeps the
+  range" is a question a test can ask.
+- **`docs/format-design.md` documents `solardata_raw.db`.** It is a plan, it is
+  not built, and no stage writes one. The only mention of the name anywhere was
+  an aside in `etl/config.py` describing a layout the current database is
+  "heading towards", which read as though the file existed. The section states
+  that plainly and lists the four questions that have to be answered first.
+- **`docs/roadmap.md`** — what is not finished, in one place: the planned
+  `solardata_raw.db`, the eight questions only the collector can answer, the
+  known debt, and what has deliberately not been started. Until now the
+  equivalent of that list was the open-questions section of `AGENTS.md` plus
+  scattered asides, and "is X planned?" had no answer that did not involve a
+  grep through all three.
+
 ### Fixed
 
+- **Switching Day to Hour threw the reader's date range away.** The range reset
+  was keyed on station, year *and resolution*, so picking November and pressing
+  Hour to see the dawn jumped the chart back to the whole year. Day and Hour are
+  two samplings of the same days; a From/To is a statement about which days you
+  want, not how finely to draw them.
+- **`battery_v` was described as a 3S LiPo.** The collector confirms `aisvn`'s is
+  a lead-acid car battery. The description is now just "Battery bank voltage",
+  and the comment that justified the 9-16 V band no longer claims it was derived
+  from LiPo chemistry — 9-16 V is the right band for a 12 V lead pack, which
+  rests at 12.4-12.8 V, charges to 14.4 V and reads ~10.1 V flat, and it is what
+  makes `aisvn`'s 17.9 V daily peaks show up as `out_of_range` rather than
+  blending in. The real LiPo packs are `lipo_v`/`lipo2_v` at 2.5-4.35 V.
+- **`wind_v` was described as "unused, reads 0", which is false.** `aisvn`
+  records 0-13.3 V hourly in 2021, non-zero in 176 of November's 696 hours, and up
+  to 12,784 V in 2020; it is exactly 0 for all of 2022 and for `aisvn-solar`. The
+  description is now just the name of the input. It still has **no band**,
+  deliberately: the values are not a plausible generator output either, so a band
+  would have to be a guess. What the input is connected to is asked of the
+  collector.
+- **`pages.yml` asserted 26 CSVs and the export writes 30.** Publishing the two
+  bench stations would have failed every deploy. The count is now compared with
+  `public/data/` by `tests/test_workflows.py`, so the next station added cannot
+  break the deploy by being added to one place only.
+- **Every release page said the same two sentences.** `release.yml` wrote a fixed
+  heredoc into the notes, so a release never said what it changed — v0.7.1
+  shipped with notes that never mention the white page it fixed. The notes are
+  now extracted from this file's section for the tag, which is also the first
+  thing that has ever been a *contract* rather than a convention: the tag is
+  `v0.8.0` and the heading is `## [0.8.0]`, so the `v` has to come off before
+  matching, and `tests/test_changelog.py` runs the workflow's own awk program
+  against this file from the other side.
+- **`gh release create` had no `--target`.** It creates the tag at the *default
+  branch's* HEAD when the tag does not exist, so a manual run could publish a
+  database built from one commit under a tag pointing at another. And
+  `gh release edit` did not run on a re-run, because `upload --clobber` replaces
+  the assets and leaves the notes as they were — a re-run used to be incapable of
+  updating anything but the binaries. The asset sizes in the notes are measured
+  with python rather than `du`, which reports allocated blocks and rounds the
+  7.5 MiB Parquet directory up to 8.
+- **`CHANGELOG.md` had two `## [0.7.1]` sections.** `5f4ecc6` added one without
+  noticing `db13d57` had already used that version, which put a third of that
+  release's work under a heading the extractor skips. Both halves are now one
+  `## [0.8.0]` section, and `tests/test_changelog.py` fails on a duplicate.
+- **`v0.7.2` was published by hand.** Tagged, released, with a hand-written title
+  and GitHub's generated pull-request list, and it never ran `release.yml` — so
+  nothing verified the database it would have shipped. It had no changelog
+  section at all; there is now, recorded from what the tag contains.
+- **`v0.2` is not `v0.2.0`.** The tag does not follow the convention every later
+  tag does, and this file calls that release 0.2.0. Retagging a published release
+  to agree with a file written afterwards is worse than recording the mismatch,
+  so the mismatch is recorded in `docs/roadmap.md` and
+  `tests/test_changelog.py` exempts tags that are not `X.Y.Z` rather than
+  pretending the problem is not there.
+- **The README described v0.1.0 of the website**, in a second `## Website`
+  section that promised "a lightweight landing page, station overview cards, and
+  a roadmap". It also said 734,908 readings (730,914 since the `test` station's
+  solar layout was excluded), 89 tests (137), 1887 KB of site data (5.6 MiB), and
+  said nothing about the `test` exclusion. `docs/format-design.md` and
+  `docs/data-dictionary.md` had the same reading count, and `format-design.md`
+  claimed 6.8 MiB of Parquet against its own diagram's 7.5 MiB.
 - **The site was a white screen: `metrics` was renamed to `channels` on the
   child's destructuring and not at the call site**, so `TimeControls` read
   `undefined.length` and threw on every render. `npm run build` and
@@ -220,7 +323,13 @@ versions follow [Semantic Versioning](https://semver.org/).
   if its regression returns, and `check_render.mjs` renders the tree so a prop
   drift fails the build instead of the site.
 
-## [0.7.1] — 2026-09-26
+---
+
+The rest of 0.8.0, in commit order. This half is the temperature-unit work,
+and it is recorded here rather than under a version of its own because it was
+written while 0.7.1 was still the current one -- which is how the changelog
+came to have two `## [0.7.1]` sections and how `release.yml` ended up reading
+the wrong one. `tests/test_changelog.py` now fails on a duplicated version.
 
 - **The `aisvn` applet was recompiled mid-record and the scale window said
   otherwise.** The collector confirms the change at **2020-06-17 15:20 local**
@@ -353,6 +462,22 @@ versions follow [Semantic Versioning](https://semver.org/).
   cannot drift from the criterion the ingest applied.
 - Size claims in `AGENTS.md`, `README.md`, `docs/data-dictionary.md` and
   `docs/format-design.md` are updated to the measured figures.
+
+## [0.7.2] — 2026-09-26
+
+Published by hand rather than by `release.yml`: the release notes were the
+generated pull-request list, and this section did not exist. Recorded now from
+what the tag contains, which is 0.7.1 plus these four.
+
+- **The collector-confirmed unit scales are applied to the published rollups**
+  (#9), so the site stops showing a channel 1000x too large where the firmware
+  writes millivolts as integers.
+- **CI split by cost**, and each raw sheet is parsed once instead of three times
+  (#10): the build went from ~3 min to ~1.
+- **Hourly rollups are published** (#11), so the chart stops averaging away the
+  dawn and dusk of every day.
+- **Every layout a folder had is recorded**, and the uptime counter is exported
+  (#13), which is the only reboot evidence in the archive.
 
 ## [0.7.1] — 2026-09-26
 

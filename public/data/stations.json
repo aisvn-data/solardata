@@ -22,7 +22,8 @@
       "2020",
       "2021",
       "2022"
-    ]
+    ],
+    "channel_units": {}
   },
   {
     "station_id": "aisvn-solar",
@@ -45,7 +46,8 @@
     ],
     "years": [
       "2020"
-    ]
+    ],
+    "channel_units": {}
   },
   {
     "station_id": "aisvn2",
@@ -69,7 +71,8 @@
     "years": [
       "2020",
       "2021"
-    ]
+    ],
+    "channel_units": {}
   },
   {
     "station_id": "maker-webhooks",
@@ -92,7 +95,8 @@
     ],
     "years": [
       "2020"
-    ]
+    ],
+    "channel_units": {}
   },
   {
     "station_id": "phumy2",
@@ -121,7 +125,8 @@
       "2022",
       "2023",
       "2024"
-    ]
+    ],
+    "channel_units": {}
   },
   {
     "station_id": "solar-2020-05",
@@ -144,7 +149,8 @@
     ],
     "years": [
       "2020"
-    ]
+    ],
+    "channel_units": {}
   },
   {
     "station_id": "test",
@@ -165,7 +171,16 @@
       "daily",
       "hourly"
     ],
-    "years": []
+    "years": [
+      "2020"
+    ],
+    "channel_units": {
+      "temp_c": {
+        "unit": "0.01 degC",
+        "lo": 2149.0,
+        "hi": 3131.0
+      }
+    }
   },
   {
     "station_id": "voltage-phumy",
@@ -186,6 +201,9 @@
       "daily",
       "hourly"
     ],
-    "years": []
+    "years": [
+      "2020"
+    ],
+    "channel_units": {}
   }
 ]

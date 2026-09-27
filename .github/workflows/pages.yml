@@ -68,13 +68,23 @@ jobs:
           test -f dist/data/stations.json
           test -f dist/data/metrics.json
           test -f dist/data/quality.json
-          # 13 station-years at two resolutions: the daily and hourly rollups the
-          # site's resolution switch reads. A count that is not 26 means one of
-          # them stopped being written, and the deploy would publish a site whose
-          # Hour view 404s.
+          # 15 station-years at two resolutions, one folder per station in the
+          # registry: the daily and hourly rollups the site's resolution switch
+          # reads. A count that is not 30 means one of them stopped being written,
+          # and the deploy would publish a site whose Hour view 404s. It was 26
+          # until 0.7.2, when `test` and `voltage-phumy` stopped being withheld
+          # from the export; `scripts/check_frontend.mjs` pins the same number.
           count=$(find dist/data -name '*.csv' | wc -l)
           echo "csv files in dist: $count"
-          test "$count" -eq 26
+          test "$count" -eq 30
+          # And every station the manifest offers is actually there, so a station
+          # can never be listed but unreachable.
+          for station in $(node -e "for (const s of require('./dist/data/stations.json')) if (s.years.length) console.log(s.station_id)"); do
+            for folder in daily hourly; do
+              test -f "dist/data/$station/$folder/2020.csv" || test -d "dist/data/$station/$folder" \
+                || { echo "missing dist/data/$station/$folder"; exit 1; }
+            done
+          done
 
       - uses: actions/configure-pages@v5
 

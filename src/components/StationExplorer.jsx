@@ -36,7 +36,7 @@ import TimeSeriesChart from './TimeSeriesChart.jsx'
  * the pipeline's judgement about the hardware and is the same for every station
  * that logs a given column; the observed range is what *this* instrument actually
  * did. They agree on most channels and disagree loudly on the ones where a human
- * has a decision to make -- `aisvn`'s battery is banded 9-16 V for a 3S LiPo and
+ * has a decision to make -- `aisvn`'s battery is banded 9-16 V for a 12 V lead-acid pack and
  * reads up to 29.6 V, `aisvn2`'s `solar3_v` is banded 0-60 V and reads 23,860
  * because the millivolt scale was never confirmed. Showing only the band hides
  * that; showing only the observed range hides the expectation.
@@ -115,34 +115,64 @@ function fmt(value) {
 }
 
 /**
- * The view the site opens on: AISVN #1, three weeks of summer 2020, its two
- * headline channels.
+ * One station in the picker: its name, where it is, how much it recorded and the
+ * span it covers. Four facts, and the reader needs all four before choosing --
+ * "Phu My Hung #2" and "Phu My Hung #1" are otherwise indistinguishable.
+ */
+function StationButton({ station, active, onPick }) {
+  return (
+    <button type="button" className={active ? 'active' : ''} onClick={onPick}>
+      <strong>{station.display_name}</strong>
+      <span className="muted">{station.location}</span>
+      <span className="badge">{(station.n_readings ?? 0).toLocaleString()} readings</span>
+      <span className="muted small">
+        {station.first_ts_utc?.slice(0, 10)} → {station.last_ts_utc?.slice(0, 10)}
+      </span>
+    </button>
+  )
+}
+
+/**
+ * The view the site opens on: AISVN #1, November 2021, at hourly resolution.
  *
  * A default, not a restriction — every control below is still the reader's, and
  * nothing here decides what is interesting. It exists because the alternative
  * was the site opening on whatever the largest station happens to be for the
- * whole year, which asks a first-time reader to find a three-week window in
- * 1,466 daily buckets on their own. These 21 days are where `aisvn`'s solar
- * channel climbs from a night-time ~0 V to a ~20 V peak and comes back, so the
- * daily mean and the band make visible sense side by side, and `wind_v` reads
- * all of them because the collector wired the input and never populated it.
+ * whole year, which asks a first-time reader to find a period worth looking at
+ * inside 1,466 daily buckets on their own.
  *
- * Applied **once**, on the first rollup that loads, and only when that rollup
- * is this view. Re-asserting it on every change would take the range back out of
- * the reader's hands: a station that does not cover these days would open on an
- * empty chart, and the "All" preset would be a control that undid itself.
+ * The month, not a pair of dates, because the month is what the data has: the
+ * range is the month's own first and last day *with samples*, computed by
+ * `selectMonth`, so the month control reads "November 2021" on arrival instead
+ * of disagreeing with the From and To inputs beside it. A hardcoded pair of dates
+ * would go stale the moment a file was re-ingested.
+ *
+ * Hourly, because this is the one place the solar curve is legible: at `Day` the
+ * same month is a flat 2.9-13.6 V mean, and the point of the station is the shape
+ * between dawn and dusk. Battery, solar and wind together, because between them
+ * they are the whole of what `aisvn` is: a bank charging from 10.6 V, a panel
+ * going to ~20 V, and an input the collector wired and never explained.
+ *
+ * Applied **once**, on the first rollup that loads, and only when that rollup is
+ * this view. Re-asserting it on every change would take the range back out of the
+ * reader's hands: a station that does not cover these days would open on an empty
+ * chart, and the "All" preset would be a control that undid itself.
  */
 export const DEFAULT_VIEW = {
   station: 'aisvn',
-  year: '2020',
-  from: '2020-06-20',
-  to: '2020-07-10',
-  channels: ['solar_v', 'wind_v'],
+  year: '2021',
+  month: '2021-11',
+  resolution: 'hourly',
+  channels: ['battery_v', 'solar_v', 'wind_v'],
 }
 
 /** True while the loaded view is the one DEFAULT_VIEW describes. */
-function isDefaultView(stationId, year) {
-  return stationId === DEFAULT_VIEW.station && year === DEFAULT_VIEW.year
+function isDefaultView(stationId, year, resolution) {
+  return (
+    stationId === DEFAULT_VIEW.station &&
+    year === DEFAULT_VIEW.year &&
+    resolution === DEFAULT_VIEW.resolution
+  )
 }
 
 /**
@@ -150,15 +180,15 @@ function isDefaultView(stationId, year) {
  *
  * The requested station, and failing that the one with the most readings — an
  * opening view of nothing is worse than a fallback. Exported because the station
- * name, the year and the range below are claims about the archive, and
+ * name, the year and the month below are claims about the archive, and
  * `check_render.mjs` is the only place that can resolve them against the real
  * `stations.json` without a browser.
  */
 export function openingView(stations) {
-  const published = stations.filter((s) => s.published && s.years.length > 0)
-  if (published.length === 0) return null
-  const preferred = published.find((s) => s.station_id === DEFAULT_VIEW.station)
-  const biggest = published.reduce((a, b) => ((b.n_readings ?? 0) > (a.n_readings ?? 0) ? b : a))
+  const usable = stations.filter((s) => s.years.length > 0)
+  if (usable.length === 0) return null
+  const preferred = usable.find((s) => s.station_id === DEFAULT_VIEW.station)
+  const biggest = usable.reduce((a, b) => ((b.n_readings ?? 0) > (a.n_readings ?? 0) ? b : a))
   const opening = preferred ?? biggest
   return {
     stationId: opening.station_id,
@@ -178,12 +208,69 @@ export function openingView(stations) {
  * readable pair. `scripts/check_render.mjs` asserts that the intersection is not
  * silently empty for the opening view, which is the failure this hides.
  */
-export function defaultSelection(available, stationId, year) {
-  if (isDefaultView(stationId, year)) {
+export function defaultSelection(available, stationId, year, resolution) {
+  if (isDefaultView(stationId, year, resolution)) {
     const preferred = DEFAULT_VIEW.channels.filter((key) => available.includes(key))
     if (preferred.length > 0) return preferred
   }
   return available.slice(0, 2)
+}
+
+/**
+ * A month's own bounds in a rollup: its first and last day that carry samples.
+ *
+ * Bounded by the data, not by the calendar, and that is the whole reason this is
+ * a function. `aisvn` logged only part of some months, and a From/To padded with
+ * days it never reported renders as a chart with gaps in it. The month control
+ * and the opening default use this same rule, which is what keeps the control
+ * reading "November 2021" instead of "All" beside a range that says November.
+ * Returns null for a month the rollup does not have.
+ */
+export function monthBounds(rows, month) {
+  const inMonth = (rows ?? []).filter(
+    (row) => row.nSamples > 0 && row.dateDay.slice(0, 7) === month,
+  )
+  if (inMonth.length === 0) return null
+  return { from: inMonth[0].dateDay, to: inMonth[inMonth.length - 1].dateDay }
+}
+
+/**
+ * The From/To a freshly loaded rollup should have.
+ *
+ * `resolution` is an argument and is deliberately not part of the decision.
+ * That is the whole point of the signature: it makes "a resolution switch keeps
+ * the range" a thing a test can ask, by passing the same period twice with two
+ * different resolutions and requiring the same answer. The bug this replaces was
+ * the period key carrying the resolution, and with the key built by the caller
+ * a test could not see it -- the pure function passed every assertion while the
+ * component threw the range away.
+ *
+ * `changed: false` means leave the controls alone. The effect that calls this
+ * runs again for the same period when the station's observed ranges arrive, and
+ * again on every resolution change; clearing the range on either made the site
+ * discard the view it had just opened on.
+ *
+ * `opening` is the range DEFAULT_VIEW asks for, honoured once. A second visit to
+ * the opening view gets the reset, not the default: by then the reader has their
+ * own range in those inputs, and a default that keeps reasserting itself is a
+ * control that undoes itself.
+ */
+export function rangeForLoad({
+  stationId,
+  year,
+  resolution,
+  previous,
+  opening,
+  openingApplied,
+}) {
+  // Station and year, and nothing else. `resolution` is accepted and ignored.
+  void resolution
+  const period = `${stationId}:${year}`
+  if (period === previous) return { changed: false, from: null, to: null, opening: false }
+  if (opening && !openingApplied) {
+    return { changed: true, from: opening.from, to: opening.to, opening: true }
+  }
+  return { changed: true, from: '', to: '', opening: false }
 }
 
 export default function StationExplorer() {
@@ -193,7 +280,7 @@ export default function StationExplorer() {
   const [channels, setChannels] = useState([])
   const [stationId, setStationId] = useState(null)
   const [year, setYear] = useState('')
-  const [resolution, setResolution] = useState('daily')
+  const [resolution, setResolution] = useState(DEFAULT_VIEW.resolution)
   const [rows, setRows] = useState([])
   const [fromDay, setFromDay] = useState('')
   const [toDay, setToDay] = useState('')
@@ -208,20 +295,31 @@ export default function StationExplorer() {
   // The one-shot guard on DEFAULT_VIEW's range. A ref rather than state because
   // it is bookkeeping for an effect, not something anything renders.
   const defaultRangeDone = useRef(false)
-  // The view fromDay/toDay currently describe, so the loader below resets the
-  // range on a change of view and not on every run of its effect.
+  // The station and year fromDay/toDay currently describe, so the loader below
+  // resets the range on a change of *period* and not on every run of its effect.
+  //
+  // Deliberately not keyed on the resolution. Day and Hour are two samplings of
+  // the same days -- `dateDay` is derived the same way in both, and a From/To is
+  // a statement about which days the reader wants, not how finely to draw them.
+  // Clearing it on a resolution switch made the Hour button look broken: you pick
+  // November, press Hour to see the dawn, and the chart jumps back to the year.
   const rangeView = useRef(null)
 
   const viewKey = `${stationId}:${resolution}`
   const selected = selectionByView[viewKey] ?? []
+  // Declared here rather than next to the JSX that uses it, because the loader
+  // below needs this station's `channel_units` in its dependency list and a `const`
+  // cannot be read before the line that initialises it.
+  const station = stations.find((s) => s.station_id === stationId) ?? null
 
   useEffect(() => {
     let cancelled = false
     loadStations()
       .then((list) => {
         if (cancelled) return
-        const published = list.filter((s) => s.published && s.years.length > 0)
-        setStations(published)
+        // Every station with a rollup, production or not. Filtering on `published`
+        // here is what made the two bench stations disappear from the site.
+        setStations(list.filter((s) => s.years.length > 0))
         const opening = openingView(list)
         if (opening) {
           setStationId(opening.stationId)
@@ -273,15 +371,16 @@ export default function StationExplorer() {
     }
   }, [stationId])
 
-  // Load the CSV whenever station, year or resolution changes. The range resets
-  // because the days that exist in 2021 have nothing to do with 2022 -- except on
-  // the very first load of the opening view, which is DEFAULT_VIEW's range, once.
+  // Load the CSV whenever station, year or resolution changes. The From/To it
+  // opens with is `rangeForLoad`'s decision, which is keyed on the *period* --
+  // station and year -- and not on the resolution: switching Day for Hour is a
+  // different sampling of the same days, and clearing the range there made the
+  // Hour button look broken, because you pick November, press Hour to see the
+  // dawn, and the chart jumps back to the whole year.
   //
-  // The reset is keyed on the *view*, not on this effect running: `ranges` is in
-  // the dependency list because the channel table needs it, and it arrives after
-  // the CSV does, so the effect runs a second time for the same view. Clearing on
-  // every run would wipe DEFAULT_VIEW's range a moment after applying it, and
-  // silently leave the site opening on the whole year.
+  // It is also not keyed on this effect running: `ranges` is in the dependency
+  // list because the channel table needs it, and it arrives after the CSV, so the
+  // effect runs twice for the first period.
   useEffect(() => {
     if (!stationId || !year || !resolution) return
     let cancelled = false
@@ -290,19 +389,24 @@ export default function StationExplorer() {
       .then(([data, bandTable]) => {
         if (cancelled) return
         setRows(data)
-        const view = `${stationId}:${year}:${resolution}`
-        if (rangeView.current !== view) {
-          rangeView.current = view
-          if (isDefaultView(stationId, year) && !defaultRangeDone.current) {
-            defaultRangeDone.current = true
-            setFromDay(DEFAULT_VIEW.from)
-            setToDay(DEFAULT_VIEW.to)
-          } else {
-            setFromDay('')
-            setToDay('')
-          }
+        const opening = isDefaultView(stationId, year, resolution)
+          ? monthBounds(data, DEFAULT_VIEW.month)
+          : null
+        const next = rangeForLoad({
+          stationId,
+          year,
+          resolution,
+          previous: rangeView.current,
+          opening,
+          openingApplied: defaultRangeDone.current,
+        })
+        if (next.changed) {
+          rangeView.current = `${stationId}:${year}`
+          if (next.opening) defaultRangeDone.current = true
+          setFromDay(next.from)
+          setToDay(next.to)
         }
-        discoverChannels(data, bandTable, ranges).then((found) => {
+        discoverChannels(data, bandTable, ranges, station?.channel_units).then((found) => {
           if (cancelled) return
           setChannels(found)
           const available = found.map((c) => c.key)
@@ -314,7 +418,10 @@ export default function StationExplorer() {
               // First visit: the opening view's channels, or the first two
               // discovered, which are the voltages the station reports and the
               // most readable pair.
-              [key]: kept.length > 0 ? kept : defaultSelection(available, stationId, year),
+              [key]:
+                kept.length > 0
+                  ? kept
+                  : defaultSelection(available, stationId, year, resolution),
             }
           })
         })
@@ -325,9 +432,8 @@ export default function StationExplorer() {
     return () => {
       cancelled = true
     }
-  }, [stationId, year, resolution, ranges])
+  }, [stationId, year, resolution, ranges, station])
 
-  const station = stations.find((s) => s.station_id === stationId) ?? null
   const months = useMemo(() => availableMonths(rows), [rows])
   const inRange = useMemo(() => filterByRange(rows, fromDay, toDay), [rows, fromDay, toDay])
   const series = useMemo(() => seriesFor(selected, channels), [selected, channels])
@@ -400,13 +506,13 @@ export default function StationExplorer() {
       setToDay('')
       return
     }
-    // Bound the range by the data, not the calendar: a month a station reported
-    // only partly is bounded by the days it actually has, so choosing it never
-    // produces a range padded with empty days.
-    const inMonth = rows.filter((row) => row.nSamples > 0 && row.dateDay.slice(0, 7) === key)
-    if (inMonth.length === 0) return
-    setFromDay(inMonth[0].dateDay)
-    setToDay(inMonth[inMonth.length - 1].dateDay)
+    // Bound by the data, not the calendar: a month a station reported only partly
+    // is bounded by the days it actually has, so choosing it never produces a
+    // range padded with empty days. The same rule the opening default uses.
+    const bounds = monthBounds(rows, key)
+    if (!bounds) return
+    setFromDay(bounds.from)
+    setToDay(bounds.to)
   }
 
   if (loading) return <p className="muted">Loading station list…</p>
@@ -428,30 +534,45 @@ export default function StationExplorer() {
     resolution === 'hourly'
       ? 'each point is the mean of that hour’s readings'
       : 'each point is the mean of that day’s readings'
+  // Bench stations are listed, in their own group, and labelled. They were hidden
+  // from the site entirely until 0.7.2 because they are not solar production --
+  // which was true of what they are and not a reason to withhold 38,930 readings
+  // that are in the database, in the Parquet export and in the quality report. A
+  // reader who is told a station is a WiFi probe can decide what to do with it; a
+  // reader who is shown six of eight stations cannot.
+  const production = stations.filter((s) => s.published)
+  const other = stations.filter((s) => !s.published)
 
   return (
     <div className="explorer">
       <nav className="station-list" aria-label="Stations">
-        {stations.map((s) => (
-          <button
+        {production.map((s) => (
+          <StationButton
             key={s.station_id}
-            type="button"
-            className={s.station_id === stationId ? 'active' : ''}
-            onClick={() => {
+            station={s}
+            active={s.station_id === stationId}
+            onPick={() => {
               setStationId(s.station_id)
               setYear(s.years[s.years.length - 1])
             }}
-          >
-            <strong>{s.display_name}</strong>
-            <span className="muted">{s.location}</span>
-            <span className="badge">
-              {(s.n_readings ?? 0).toLocaleString()} readings
-            </span>
-            <span className="muted small">
-              {s.first_ts_utc?.slice(0, 10)} → {s.last_ts_utc?.slice(0, 10)}
-            </span>
-          </button>
+          />
         ))}
+        {other.length > 0 && (
+          <>
+            <h3 className="station-group">Not solar production</h3>
+            {other.map((s) => (
+              <StationButton
+                key={s.station_id}
+                station={s}
+                active={s.station_id === stationId}
+                onPick={() => {
+                  setStationId(s.station_id)
+                  setYear(s.years[s.years.length - 1])
+                }}
+              />
+            ))}
+          </>
+        )}
       </nav>
 
       <div className="explorer-main">
@@ -460,10 +581,15 @@ export default function StationExplorer() {
             <div className="station-heading">
               <h2>{station.display_name}</h2>
               <p className="muted">
-                {station.location} · {station.tz} · applet{' '}
-                <code>{station.applet}</code>
+                {station.location} · {station.tz} · applet <code>{station.applet}</code>
               </p>
             </div>
+
+            {!station.published && (
+              <div className="bench-banner" role="note">
+                <strong>Not solar production.</strong> {station.notes}
+              </div>
+            )}
 
             {/*
              * Order is reading order, and the reader arrives with three questions
@@ -559,7 +685,10 @@ export default function StationExplorer() {
 
             {channels.length > 0 && <ChannelTable channels={channels} />}
 
-            {station.notes && <p className="station-note muted">{station.notes}</p>}
+            {/* The banner above already carries this for a bench station. */}
+            {station.published && station.notes && (
+              <p className="station-note muted">{station.notes}</p>
+            )}
           </>
         )}
       </div>

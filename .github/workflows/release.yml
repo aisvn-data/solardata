@@ -1,10 +1,10 @@
 # solardata -- release the queryable database.
 #
-# data/processed/solardata.db is 158 MiB, over GitHub's 100 MiB per-file limit
-# for a git blob, so it cannot be committed. It ships here as a Release asset
-# instead.
+# data/processed/solardata.db is 166 MiB after VACUUM (181 MiB as the ingest
+# leaves it), over GitHub's 100 MiB per-file limit for a git blob, so it cannot be
+# committed. It ships here as a Release asset instead.
 #
-# Parquet (7.4 MiB) IS committed, so the processed data is available to anyone
+# Parquet (7.5 MiB) IS committed, so the processed data is available to anyone
 # who clones without running anything. This workflow exists for the case where
 # you want the SQLite file rather than a columnar export.
 #
@@ -13,6 +13,14 @@
 # where the assets are *attached*, never what gets checked out. Checking out a
 # named ref here is what made the previous version fail when the tag did not
 # exist yet: actions/checkout fell back to treating it as a branch pattern.
+#
+# The release notes are **generated from CHANGELOG.md**, not written here. They
+# used to be a fixed heredoc, which meant every release carried the same two
+# sentences and no record of what the release actually changed -- v0.7.1 shipped
+# with notes that never mentioned the white page it fixed. The changelog is
+# already the repository's record of what changed and why, in the Keep a Changelog
+# format, and the tag is its primary key: a section per version, extracted by the
+# step below. `CHANGELOG_ONLY` is for the case where a tag has no section yet.
 name: release
 
 on:
@@ -25,6 +33,11 @@ on:
         description: Tag to attach the assets to (created if it does not exist)
         required: true
         type: string
+      changelog_only:
+        description: Fail instead of falling back to generated notes, if the changelog has no section for the tag
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -95,23 +108,102 @@ jobs:
       # action. `softprops/action-gh-release@v2` still runs on the Node 20
       # runtime, which is what produced the deprecation warning; this removes
       # the dependency and the warning together.
+      #
+      # Four things this gets right that the previous version did not:
+      #
+      #   * `--target "${GITHUB_SHA}"`. `gh release create` creates the tag at the
+      #     *default branch's* HEAD when the tag does not exist, so a manual run
+      #     could publish a database built from one commit under a tag pointing at
+      #     another. On a tag push the tag already exists and this is a no-op.
+      #   * The notes come from the changelog section for this tag, so a release
+      #     says what it changed.
+      #   * `gh release edit` on a re-run, because `upload --clobber` replaces the
+      #     assets and leaves the notes as they were. A re-run used to be
+      #     incapable of updating anything but the binaries.
+      #   * The asset sizes are measured, not asserted in a comment that drifts.
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release.outputs.tag }}
+          # Set CHANGELOG_ONLY=1 to publish the section as it stands instead of
+          # falling back to GitHub's generated notes. Off by default: a version
+          # with no changelog section is a gap, and generated notes are better
+          # than an empty release.
+          CHANGELOG_ONLY: ${{ inputs.changelog_only || false }}
         run: |
-          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
-          `solardata.db.gz` is the canonical SQLite store for this tag.
+          set -euo pipefail
 
-          ```
-          gunzip solardata.db.gz
-          python -m etl --out-dir <dir containing solardata.db> query \
-            "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"
-          ```
+          # Measured, so the release page cannot claim 7 MiB for a 7.5 MiB
+          # directory (which is what it claimed from 0.6.0 to 0.7.2). Python rather
+          # than `du`, because `du` reports allocated blocks and rounds a 7.5 MiB
+          # directory up to 8 -- the same number the docs give, disagreed with.
+          metrics=$(python - <<'PY'
+          import sqlite3
+          from pathlib import Path
 
-          The Parquet interchange format (~7 MiB) is committed in
-          `data/processed/parquet/` and does not need downloading.
-          NOTES
+          conn = sqlite3.connect("file:data/processed/solardata.db?mode=ro", uri=True)
+          rows = conn.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+          conn.close()
+          parquet = sum(p.stat().st_size for p in Path("data/processed/parquet").rglob("*.parquet"))
+          print(f"{rows} {parquet / 1048576:.1f}")
+          PY
+          )
+          rows=$(echo "$metrics" | cut -d' ' -f1)
+          parquet_mb=$(echo "$metrics" | cut -d' ' -f2)
+          echo "assets: ${rows} readings, ${parquet_mb} MiB of parquet"
+          ls -lh data/processed/solardata.db.gz
+
+          # The changelog section for this tag: everything under `## [<version>]`
+          # up to the next `## [`. awk rather than sed because the section heading
+          # is a bracket expression, and this is the one place in the repository
+          # that has to agree with CHANGELOG.md's shape -- which
+          # `tests/test_changelog.py` enforces from the other side.
+          #
+          # The tag carries a `v` and the changelog heading does not, so the `v`
+          # is stripped first. Matching the tag as given is how this step would
+          # silently find nothing and fall through to the generated notes.
+          version="${TAG#v}"
+          {
+            echo "## solardata $TAG"
+            echo
+            echo "\`solardata.db.gz\` is the canonical SQLite store for this tag:"
+            echo "${rows} readings. Unpack and query it with:"
+            echo
+            echo '```'
+            echo "gunzip solardata.db.gz"
+            echo "python -m etl --out-dir <dir containing solardata.db> query \\"
+            echo '  "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"'
+            echo '```'
+            echo
+            echo "The Parquet interchange format (${parquet_mb} MiB) is committed in"
+            echo "\`data/processed/parquet/\` and does not need downloading."
+            echo
+            awk -v want="$version" '
+              /^## \[/ {
+                if (found) exit
+                if (index($0, "[" want "]") > 0) { found = 1; sub(/^## \[[^]]*\][^#]*/, ""); next }
+                next
+              }
+              found
+            ' CHANGELOG.md > "$RUNNER_TEMP/changelog.md"
+
+            if [ -s "$RUNNER_TEMP/changelog.md" ]; then
+              echo "---"
+              echo
+              cat "$RUNNER_TEMP/changelog.md"
+            elif [ "$CHANGELOG_ONLY" = "true" ]; then
+              echo "::error::CHANGELOG.md has no section for $TAG and CHANGELOG_ONLY is set"
+              exit 1
+            else
+              echo "_No CHANGELOG.md section for $TAG; the list below is generated from the commit and pull request history._"
+              echo
+              echo "## What's Changed"
+              gh pr list --state merged --limit 20 --json title,url \
+                --jq '.[] | "* \(.title) in \(.url)"' || true
+            fi
+          } > "$RUNNER_TEMP/notes.md"
+
+          head -3 "$RUNNER_TEMP/notes.md"
 
           files=(
             data/processed/solardata.db.gz
@@ -122,10 +214,12 @@ jobs:
           done
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists; replacing the assets."
+            echo "Release $TAG exists; replacing the assets and the notes."
             gh release upload "$TAG" "${files[@]}" --clobber
+            gh release edit "$TAG" --title "solardata $TAG" --notes-file "$RUNNER_TEMP/notes.md"
           else
             gh release create "$TAG" \
+              --target "${GITHUB_SHA}" \
               --title "solardata $TAG" \
               --notes-file "$RUNNER_TEMP/notes.md" \
               "${files[@]}"

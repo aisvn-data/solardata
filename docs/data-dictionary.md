@@ -25,7 +25,7 @@ because `phumy2`/`phumy2a`/`phumy2b` are three archive chunks of one station.
 | Column | Meaning |
 |---|---|
 | `station_id` | Stable slug used in every other table |
-| `is_production` | 0 for `test` and `voltage-phumy`; excluded from exports |
+| `is_production` | 0 for `test` and `voltage-phumy`: not solar production. Their rollups are still exported and browsable |
 | `first_ts_utc`, `last_ts_utc`, `n_readings` | Observed coverage, filled in after ingest |
 
 ### `source_files`
@@ -55,7 +55,7 @@ station did not have it, and NULL is not the same as 0.**
 | `current_a_chA`, `current_a_chB` | REAL | A | Headers `currentA`/`curA` and `currentB`/`curB` |
 | `power_w` | REAL | W | Banded ±2000 W |
 | `load_v`, `load1_v`, `load2_v` | REAL | V | Meaning disputed — see open question 5 |
-| `wind_v` | REAL | V | Reads 0 throughout; no plausible band, so never flagged |
+| `wind_v` | REAL | V | Wired and logging: 0-13.3 V hourly in `aisvn` 2021, up to 12,784 V in 2020, 0 for all of 2022. No plausible band, so never flagged |'
 | `temp_c` | REAL | 0.1 degC | Stored in **tenths** of a degree, banded 50–900. The applet wrote tenths before the 2020-06-17 recompile and plain degrees after, so the correction is applied at ingest (`config.UNIT_FIXES`); one column cannot hold both. `test` stores **hundredths**, banded 2149–3131, via the per-station override in `config.CHANNEL_UNITS` |
 | `lipo_v`, `lipo2_v` | REAL | V | Single-cell pack, banded 2.5-4.35 V. `aisvn2.lipo2_v` reads 6.3-7.1 V, which is a 2S pack; the band is still written for 1S and the disagreement is deliberate until the hardware is confirmed |
 | `adc_raw`, `voltage_adc`, `digital_adc`, `dump_adc` | REAL | count | Uncalibrated, no band, never flagged |
@@ -201,7 +201,9 @@ header — and they already had drifted once.
 
 What each channel actually recorded, per station, beside what it is banded to.
 The band is one global answer per column name and is not enough on its own:
-`battery_v` is banded 9–16 V for a 3S LiPo and `aisvn` reads up to 29.6 V. That is
+`battery_v` is banded 9–16 V for a 12 V lead-acid pack — the collector confirms
+`aisvn`'s is a lead car battery, not the 3S LiPo this band was once described as
+belonging to — and `aisvn` reads up to 29.6 V. That is
 either a second pack, an unconfirmed scale, or a band wrong for the site it is
 installed in, and the archive cannot say which — so both are reported and the
 disagreement is the finding.
@@ -210,25 +212,32 @@ disagreement is the finding.
 
 | Path | Format | Size | In git? | Purpose |
 |---|---|---|---|---|
-| `data/processed/solardata.db` | SQLite | 167 MiB | no | Canonical store, query in place. 19 MiB gzipped as a Release asset |
-| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 7.5 MiB | **yes** | Interchange; pandas/duckdb/dask. All 734,908 readings at the native 119 s cadence |
-| `public/data/{station}/daily/{year}.csv` | CSV | 0.1 MiB | **yes** | Daily rollups the site's Day view fetches |
-| `public/data/{station}/hourly/{year}.csv` | CSV | 1.7 MiB | **yes** | Hourly rollups the site's Hour view fetches |
-| `public/data/stations.json` | JSON | 5 KB | **yes** | Station metadata, coverage, which rollups exist |
-| `public/data/metrics.json` | JSON | 5 KB | **yes** | The plausibility bands, verbatim from the ETL |
-| `public/data/quality.json` | JSON | 80 KB | **yes** | The whole report, for the inspector tab |
+| `data/processed/solardata.db` | SQLite | 166 MiB VACUUMed | no | Canonical store, query in place. 19 MiB gzipped as a Release asset |
+| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 7.5 MiB | **yes** | Interchange; pandas/duckdb/dask. All 730,914 readings at the native 119 s cadence |
+| `public/data/{station}/daily/{year}.csv` | CSV | 0.28 MiB | **yes** | Daily rollups the site's Day view fetches. 15 files, 1,181 buckets |
+| `public/data/{station}/hourly/{year}.csv` | CSV | 5.2 MiB | **yes** | Hourly rollups the site's Hour view fetches. 15 files, 25,528 buckets |
+| `public/data/stations.json` | JSON | 5 KB | **yes** | Station metadata, coverage, which rollups exist, per-station unit overrides |
+| `public/data/metrics.json` | JSON | 4 KB | **yes** | The plausibility bands, verbatim from the ETL |
+| `public/data/quality.json` | JSON | 98 KB | **yes** | The whole report, for the inspector tab |
 | `data/processed/quality_report.md` | Markdown | ~10 KB | **yes** | The review artefact |
 | `data/processed/quality_report.json` | JSON | ~80 KB | **yes** | Machine-readable form of the same |
 | `data/baseline.json` | JSON | ~1 KB | **yes** | Expected counts, enforced by CI |
 
 `public/data/` is committed because the site is static: GitHub Pages serves the
 files straight from a clone, and a frontend-only change must not need the ingest.
-`solardata.db` is gitignored — at 167 MiB it is over GitHub's 100 MiB
+`solardata.db` is gitignored — at 166 MiB it is over GitHub's 100 MiB
 per-file limit. `release.yml` ships it VACUUMed and gzipped (19 MiB); the
-committed Parquet is 7.5 MiB for the same 734,908 rows and needs no download
+committed Parquet is 7.5 MiB for the same 730,914 rows and needs no download
 at all.
 Everything is rebuilt with `make build`; the database is also distributed as a
 Release asset.
+
+`stations.json` is the one export that grew: it now carries `channel_units` per
+station, so the browser can divide a channel by the unit that station actually
+logged. Seven of the eight have `{}`; `test` carries `temp_c` at `0.01 degC`
+where the rest of the archive uses tenths. A station without an override is a
+miss in the lookup, not an undefined property — see `discoverChannels` in
+`src/data.js` and the assertion in `scripts/check_render.mjs`.
 
 ## `data/baseline.json`
 

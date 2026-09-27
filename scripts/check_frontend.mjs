@@ -191,10 +191,21 @@ check('every published station declares the rollups that exist on disk', () => {
   }
 })
 
-check('bench stations are present but flagged unpublished', () => {
+check('bench stations are present but flagged as not production', () => {
+  // Their rollups are published and their readings browsable; `published: false`
+  // only separates them into the site's "Not solar production" group. Filtering
+  // the picker on `published` is what hid them, and the check that would have
+  // caught it is the one below.
   const bench = stations.filter((s) => !s.published).map((s) => s.station_id)
   assert.ok(bench.includes('test'), bench.join(','))
   assert.ok(bench.includes('voltage-phumy'), bench.join(','))
+  for (const id of bench) {
+    const station = stations.find((s) => s.station_id === id)
+    assert.ok(
+      station.years.length > 0,
+      `${id} has no published year, so the site cannot offer it at all`,
+    )
+  }
 })
 
 check('quality.json carries the counts the UI displays', () => {
@@ -446,20 +457,24 @@ function walk(dir) {
 walk(DATA)
 
 check('every daily CSV parses and its day matches its UTC day', () => {
-  // 13 station-years across 6 production stations, 1,124 daily rows. Pinned
-  // because a silent change here means the site is showing a different amount
-  // of data than the report claims. It was 1,127 before the 2020-06-17 schema
-  // alignment fix and the aisvn (25) row exclusions.
-  assert.equal(dailyFiles, 13, `expected 13 daily csv files, got ${dailyFiles}`)
-  assert.equal(dailyRows, 1124, `expected 1124 daily rows, got ${dailyRows}`)
+  // 15 station-years across all 8 stations, 1,181 daily rows. Pinned because a
+  // silent change here means the site is showing a different amount of data than
+  // the report claims. It was 13 files and 1,124 rows across 6 stations until
+  // 0.7.2, when `test` and `voltage-phumy` stopped being withheld; 1,127 and 1,124
+  // before that were the 2020-06-17 schema alignment fix and the aisvn (25) row
+  // exclusions. 1,181 is the whole of `readings_daily`, which `data/baseline.json`
+  // pins independently at 1,181 buckets.
+  assert.equal(dailyFiles, 15, `expected 15 daily csv files, got ${dailyFiles}`)
+  assert.equal(dailyRows, 1181, `expected 1181 daily rows, got ${dailyRows}`)
 })
 
 check('the hourly rollups are published alongside the daily ones', () => {
-  // Same 13 station-years, 24,210 hourly buckets. This is the file the Hour
-  // view reads; if it silently stops being written the view 404s rather than
-  // degrading, so it is pinned here instead.
-  assert.equal(hourlyFiles, 13, `expected 13 hourly csv files, got ${hourlyFiles}`)
-  assert.equal(hourlyRows, 24210, `expected 24210 hourly rows, got ${hourlyRows}`)
+  // Same 15 station-years, 25,528 hourly buckets, and the same number
+  // `data/baseline.json` pins. This is the file the Hour view reads; if it
+  // silently stops being written the view 404s rather than degrading, so it is
+  // pinned here instead.
+  assert.equal(hourlyFiles, 15, `expected 15 hourly csv files, got ${hourlyFiles}`)
+  assert.equal(hourlyRows, 25528, `expected 25528 hourly rows, got ${hourlyRows}`)
 })
 
 check('the hourly rollups agree with the daily ones on the same days', () => {
@@ -467,7 +482,7 @@ check('the hourly rollups agree with the daily ones on the same days', () => {
   // must be present in the other. A mismatch means the aggregate stage or the
   // export is bucketing differently, which is the bug the `ts_utc` vs `day`
   // year split would cause.
-  for (const station of stations.filter((s) => s.published)) {
+  for (const station of stations.filter((s) => s.years.length > 0)) {
     for (const year of station.years) {
       const daily = parseCsv(
         readFileSync(join(DATA, station.station_id, 'daily', `${year}.csv`), 'utf8'),
@@ -698,13 +713,13 @@ check('a day the collector scaled is no longer published in the wrong unit', () 
 })
 
 check('a flag is not a verdict, and a 100% flag rate is treated as a bad band', () => {
-  // 21 of aisvn's 101 days in 2020 sit above the 9-16 V 3S LiPo band. They are
+  // 21 of aisvn's 101 days in 2020 sit above the 9-16 V lead-acid band. They are
   // drawn, ringed and listed. The site must not quietly present the 80 in-band
   // days as the whole picture, and must not have deleted the other 21 either.
   //
   // This was 23 before the collector confirmed the recompile boundary: 2020-06-15
   // and 2020-06-16 were raw millivolts (12,385 and 12,483 "V") and flagged. They
-  // are now scaled to 12.385 V and 12.483 V, which is where a 3S LiPo sits, and
+  // are now scaled to 12.385 V and 12.483 V, which is where a 12 V lead pack rests, and
   // they are no longer anomalies. The 21 that remain are the real question --
   // a battery reading up to 29.6 V is a second pack or a scale nobody has
   // confirmed, and the band is what makes that visible.

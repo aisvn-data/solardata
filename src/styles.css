@@ -102,10 +102,36 @@ nav a.active { color: #102a43; font-weight: 700; }
 .station-list .badge { color: #2f855a; font-size: .75rem; font-weight: 700; }
 .station-list .small { font-size: .72rem; }
 
+/* The heading that separates the bench stations from the six that log solar
+   production. It is a heading rather than a disabled section because the bench
+   data is browsable: the reader is told what it is and then allowed to look. */
+.station-group {
+  color: #627d98;
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  margin: 18px 0 8px;
+  text-transform: uppercase;
+}
+.station-group + button .badge { color: #627d98; }
+
 .explorer-main { min-width: 0; }
 .station-heading h2 { margin-bottom: 4px; }
 .station-heading p { margin-bottom: 20px; }
 .station-note { font-size: .82rem; margin-top: 14px; }
+
+/* Stated at the top of a bench station's panel, because a reader who charts a
+   WiFi probe's temperature should not have to reach the footer to find out. */
+.bench-banner {
+  background: #f7fafc;
+  border: 1px solid #bcccdc;
+  border-left: 4px solid #627d98;
+  border-radius: 8px;
+  color: #486581;
+  font-size: .82rem;
+  margin: 0 0 16px;
+  padding: 10px 14px;
+}
 
 .controls {
   background: #fff;

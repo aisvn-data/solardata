@@ -87,7 +87,7 @@ export function loadBands() {
  *
  * The band in `metrics.json` answers "what should this hardware produce" and is
  * one global answer per column name. That is not enough here: `battery_v` is
- * banded 9-16 V for a 3S LiPo and `aisvn` reads 17.6-29.6 V on 23 of its 101 days
+ * banded 9-16 V for a 12 V lead-acid pack and `aisvn` reads 17.6-29.6 V on 23 of its 101 days
  * in 2020. Either that is a second pack, an unconfirmed scale, or a band wrong
  * for the site it is installed in, and the archive cannot say which. So the
  * observed range is reported beside the band, never instead of it, and the two
@@ -311,7 +311,7 @@ const NO_BAND = { unit: '', lo: null, hi: null }
  * of it a station uses, because a station that logs `solar2` has exactly one
  * "Solar 2" channel and pretending otherwise would be a second naming scheme.
  */
-export async function discoverChannels(rows, bands, ranges) {
+export async function discoverChannels(rows, bands, ranges, stationUnits) {
   if (!rows || rows.length === 0) return []
   const columns = valueColumns('daily') // the union; membership is what matters
   const present = Object.keys(columns).filter((channel) =>
@@ -320,7 +320,15 @@ export async function discoverChannels(rows, bands, ranges) {
   const KIND_ORDER = { voltage: 0, current: 1, power: 2, temperature: 3, count: 4, raw: 5 }
   return present
     .map((channel, index) => {
-      const band = bands?.[channel] ?? NO_BAND
+      const global = bands?.[channel] ?? NO_BAND
+      // A station that stores this channel in a different unit gets its own unit
+      // and band, from the pipeline's own `CHANNEL_UNITS` table via
+      // `stations.json`. The description, kind and colour stay the column's, so
+      // the picker still names the channel the same way everywhere.
+      const override = stationUnits?.[channel]
+      const band = override
+        ? { ...global, unit: override.unit, lo: override.lo, hi: override.hi }
+        : global
       // `energy_wh` is a derived integral and `boot_count_max` a rollup column
       // rather than a channel, so neither has a band or a range row of its own.
       // Both are described by the channel they are computed from.
@@ -330,14 +338,14 @@ export async function discoverChannels(rows, bands, ranges) {
       return {
         key: channel,
         channel,
-        label: channelLabel(channel, band),
+        label: channelLabel(channel, global),
         unit: meta.unit ?? '',
         // Display units, so a channel stored in tenths reads in degrees while its
         // band is still tested in tenths.
         divisor: displayDivisor(meta.unit),
         colour: PALETTE[index % PALETTE.length],
-        decimals: band.kind === 'count' || channel === 'boot_count_max' ? 0 : 1,
-        kind: band.kind ?? 'raw',
+        decimals: global.kind === 'count' || channel === 'boot_count_max' ? 0 : 1,
+        kind: global.kind ?? 'raw',
         band,
         range,
       }
@@ -408,10 +416,19 @@ export function seriesFor(keys, channels) {
  * reader sees is in degrees. So `pick` returns both, and the divisor is derived
  * from the unit string in `metrics.json` rather than hard-coded, so a channel
  * stored in hundredths or millivolts converts the same way.
+ *
+ * The unit is read as the scale it declares rather than special-cased per
+ * channel, because `test.temp_c` is hundredths and every other station's is
+ * tenths: `'0.1 degC'` means one stored unit is a tenth of a degree, so a stored
+ * 335 is 33.5 degC and the divisor is 10; `'0.01 degC'` means the divisor is
+ * 100. A lookup table naming the two would be a third place to forget about a
+ * unit. A unit with no coefficient -- 'V', 'A', 'count' -- is already in its
+ * display unit.
  */
 function displayDivisor(unit) {
-  if (unit === '0.1 degC') return 10
-  return 1
+  const scale = /^([\d.]+)/.exec(unit ?? '')
+  const oneUnit = scale ? Number(scale[1]) : 1
+  return Number.isFinite(oneUnit) && oneUnit > 0 ? 1 / oneUnit : 1
 }
 
 export function pick(row, metric) {

@@ -192,8 +192,15 @@ UNIT_FIXES: tuple[tuple[str, str, str, str | None, float, str], ...] = (
 #: a flag that is wrong every time is worse than no flag.
 #:
 #: This is the small, early version of the per-column `column_semantics` the
-#: `solardata_raw.db` layout is heading towards, where the unit belongs to a
-#: (station, column) pair rather than to a column name.
+#: planned `solardata_raw.db` layout would replace, where the unit belongs to a
+#: (station, column) pair rather than to a column name. That database is not
+#: built and no stage writes one; the plan and the four questions it has to
+#: answer first are in `docs/format-design.md`, under "solardata_raw.db".
+#: The override is read in two places -- `build_db._band_override`, which the
+#: aggregate calls, and `build_exports.build`, which ships it to the site as
+#: `stations.json`'s `channel_units` -- so the "twice, because one is the bug one
+#: level up" rule is really both of those: forget the export and the browser
+#: divides hundredths by ten and prints 280 degC for a warm afternoon.
 CHANNEL_UNITS: tuple[tuple[str, str, str, float, float, str], ...] = (
     (
         "test",
