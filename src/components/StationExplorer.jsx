@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   anyScaled,
   availableMonths,
@@ -114,6 +114,78 @@ function fmt(value) {
   return value.toFixed(2)
 }
 
+/**
+ * The view the site opens on: AISVN #1, three weeks of summer 2020, its two
+ * headline channels.
+ *
+ * A default, not a restriction — every control below is still the reader's, and
+ * nothing here decides what is interesting. It exists because the alternative
+ * was the site opening on whatever the largest station happens to be for the
+ * whole year, which asks a first-time reader to find a three-week window in
+ * 1,466 daily buckets on their own. These 21 days are where `aisvn`'s solar
+ * channel climbs from a night-time ~0 V to a ~20 V peak and comes back, so the
+ * daily mean and the band make visible sense side by side, and `wind_v` reads
+ * all of them because the collector wired the input and never populated it.
+ *
+ * Applied **once**, on the first rollup that loads, and only when that rollup
+ * is this view. Re-asserting it on every change would take the range back out of
+ * the reader's hands: a station that does not cover these days would open on an
+ * empty chart, and the "All" preset would be a control that undid itself.
+ */
+export const DEFAULT_VIEW = {
+  station: 'aisvn',
+  year: '2020',
+  from: '2020-06-20',
+  to: '2020-07-10',
+  channels: ['solar_v', 'wind_v'],
+}
+
+/** True while the loaded view is the one DEFAULT_VIEW describes. */
+function isDefaultView(stationId, year) {
+  return stationId === DEFAULT_VIEW.station && year === DEFAULT_VIEW.year
+}
+
+/**
+ * The station and year the site opens on, or null when there is nothing to open.
+ *
+ * The requested station, and failing that the one with the most readings — an
+ * opening view of nothing is worse than a fallback. Exported because the station
+ * name, the year and the range below are claims about the archive, and
+ * `check_render.mjs` is the only place that can resolve them against the real
+ * `stations.json` without a browser.
+ */
+export function openingView(stations) {
+  const published = stations.filter((s) => s.published && s.years.length > 0)
+  if (published.length === 0) return null
+  const preferred = published.find((s) => s.station_id === DEFAULT_VIEW.station)
+  const biggest = published.reduce((a, b) => ((b.n_readings ?? 0) > (a.n_readings ?? 0) ? b : a))
+  const opening = preferred ?? biggest
+  return {
+    stationId: opening.station_id,
+    year: opening.years.includes(DEFAULT_VIEW.year)
+      ? DEFAULT_VIEW.year
+      : opening.years[opening.years.length - 1],
+  }
+}
+
+/**
+ * The channels to select the first time a view is opened.
+ *
+ * DEFAULT_VIEW's channels when this is that view and it still has them — they
+ * are intersected with what the rollup discovered, because a channel the station
+ * did not log must never reach the chart. Everything else keeps the old rule: the
+ * first two channels discovered, which are the first two voltages and the most
+ * readable pair. `scripts/check_render.mjs` asserts that the intersection is not
+ * silently empty for the opening view, which is the failure this hides.
+ */
+export function defaultSelection(available, stationId, year) {
+  if (isDefaultView(stationId, year)) {
+    const preferred = DEFAULT_VIEW.channels.filter((key) => available.includes(key))
+    if (preferred.length > 0) return preferred
+  }
+  return available.slice(0, 2)
+}
+
 export default function StationExplorer() {
   const [stations, setStations] = useState([])
   const [bands, setBands] = useState({})
@@ -133,6 +205,12 @@ export default function StationExplorer() {
   const [hideFlagged, setHideFlagged] = useState(false)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
+  // The one-shot guard on DEFAULT_VIEW's range. A ref rather than state because
+  // it is bookkeeping for an effect, not something anything renders.
+  const defaultRangeDone = useRef(false)
+  // The view fromDay/toDay currently describe, so the loader below resets the
+  // range on a change of view and not on every run of its effect.
+  const rangeView = useRef(null)
 
   const viewKey = `${stationId}:${resolution}`
   const selected = selectionByView[viewKey] ?? []
@@ -144,12 +222,10 @@ export default function StationExplorer() {
         if (cancelled) return
         const published = list.filter((s) => s.published && s.years.length > 0)
         setStations(published)
-        if (published.length > 0) {
-          const biggest = published.reduce((a, b) =>
-            (b.n_readings ?? 0) > (a.n_readings ?? 0) ? b : a,
-          )
-          setStationId(biggest.station_id)
-          setYear(biggest.years[biggest.years.length - 1])
+        const opening = openingView(list)
+        if (opening) {
+          setStationId(opening.stationId)
+          setYear(opening.year)
         }
         setLoading(false)
       })
@@ -198,7 +274,14 @@ export default function StationExplorer() {
   }, [stationId])
 
   // Load the CSV whenever station, year or resolution changes. The range resets
-  // because the days that exist in 2021 have nothing to do with 2022.
+  // because the days that exist in 2021 have nothing to do with 2022 -- except on
+  // the very first load of the opening view, which is DEFAULT_VIEW's range, once.
+  //
+  // The reset is keyed on the *view*, not on this effect running: `ranges` is in
+  // the dependency list because the channel table needs it, and it arrives after
+  // the CSV does, so the effect runs a second time for the same view. Clearing on
+  // every run would wipe DEFAULT_VIEW's range a moment after applying it, and
+  // silently leave the site opening on the whole year.
   useEffect(() => {
     if (!stationId || !year || !resolution) return
     let cancelled = false
@@ -207,8 +290,18 @@ export default function StationExplorer() {
       .then(([data, bandTable]) => {
         if (cancelled) return
         setRows(data)
-        setFromDay('')
-        setToDay('')
+        const view = `${stationId}:${year}:${resolution}`
+        if (rangeView.current !== view) {
+          rangeView.current = view
+          if (isDefaultView(stationId, year) && !defaultRangeDone.current) {
+            defaultRangeDone.current = true
+            setFromDay(DEFAULT_VIEW.from)
+            setToDay(DEFAULT_VIEW.to)
+          } else {
+            setFromDay('')
+            setToDay('')
+          }
+        }
         discoverChannels(data, bandTable, ranges).then((found) => {
           if (cancelled) return
           setChannels(found)
@@ -218,9 +311,10 @@ export default function StationExplorer() {
             const kept = (current[key] ?? []).filter((k) => available.includes(k))
             return {
               ...current,
-              // First visit: start on the first two channels, which are the
-              // voltages the station reports and the most readable pair.
-              [key]: kept.length > 0 ? kept : available.slice(0, 2),
+              // First visit: the opening view's channels, or the first two
+              // discovered, which are the voltages the station reports and the
+              // most readable pair.
+              [key]: kept.length > 0 ? kept : defaultSelection(available, stationId, year),
             }
           })
         })
@@ -371,6 +465,23 @@ export default function StationExplorer() {
               </p>
             </div>
 
+            {/*
+             * Order is reading order, and the reader arrives with three questions
+             * in this order: what does this station record, which slice of it am I
+             * looking at, and what am I actually looking at. So the tiles lead, the
+             * controls narrow, the chart draws, and the caveats that govern how to
+             * read that chart sit directly under it — where they are read *after*
+             * the line has been interpreted, instead of being skipped above it.
+             */}
+            <StatTiles
+              station={station}
+              rows={plotted}
+              metric={primary}
+              stat={primaryStat}
+              summary={summary}
+              range={fromDay || toDay ? { from: fromDay || 'start', to: toDay || 'end' } : null}
+            />
+
             <TimeControls
               years={station.years}
               year={year}
@@ -396,13 +507,12 @@ export default function StationExplorer() {
               onHideFlaggedChange={setHideFlagged}
             />
 
-            <StatTiles
-              station={station}
+            <TimeSeriesChart
               rows={plotted}
-              metric={primary}
-              stat={primaryStat}
-              summary={summary}
-              range={fromDay || toDay ? { from: fromDay || 'start', to: toDay || 'end' } : null}
+              series={series}
+              resolution={resolution}
+              onHover={setHoverRow}
+              hoverRow={hoverRow}
             />
 
             <p className="chart-note muted">
@@ -412,6 +522,19 @@ export default function StationExplorer() {
                 : ' — switch to Hour for the intraday shape'}
               .
             </p>
+
+            {flagged.length > 0 && (
+              <p className="chart-note flagged" role="status">
+                {flagged.length} of {classified.plottable.length}{' '}
+                {resolution === 'hourly' ? 'hours' : 'days'} in this range are
+                outside their channel&apos;s recorded band or are built partly from
+                samples that are
+                {hideFlagged ? ', hidden at your request' : ', ringed on the chart'}.
+                The values are kept everywhere &mdash; only the drawing changes.
+                {Object.keys(bands).length === 0 &&
+                  ' The bands could not be loaded, so nothing could be flagged.'}
+              </p>
+            )}
 
             {anyScaled(inRange) && (
               <p className="chart-note scaled" role="status">
@@ -434,28 +557,7 @@ export default function StationExplorer() {
               </p>
             )}
 
-            {flagged.length > 0 && (
-              <p className="chart-note flagged" role="status">
-                {flagged.length} of {classified.plottable.length}{' '}
-                {resolution === 'hourly' ? 'hours' : 'days'} in this range are
-                outside their channel&apos;s recorded band or are built partly from
-                samples that are
-                {hideFlagged ? ', hidden at your request' : ', ringed on the chart'}.
-                The values are kept everywhere &mdash; only the drawing changes.
-                {Object.keys(bands).length === 0 &&
-                  ' The bands could not be loaded, so nothing could be flagged.'}
-              </p>
-            )}
-
             {channels.length > 0 && <ChannelTable channels={channels} />}
-
-            <TimeSeriesChart
-              rows={plotted}
-              series={series}
-              resolution={resolution}
-              onHover={setHoverRow}
-              hoverRow={hoverRow}
-            />
 
             {station.notes && <p className="station-note muted">{station.notes}</p>}
           </>
