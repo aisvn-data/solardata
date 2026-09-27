@@ -9,6 +9,117 @@ Nothing yet.
 
 ## [0.8.0] — 2026-09-27
 
+### Changed — the raw archive
+
+The collector has started repairing the source XLSX instead of excluding whole
+stretches in `config.py`. `data/raw/**` is the primary source of truth and, per
+`AGENTS.md` rule 1, not a file to edit — so this entry records what the edit
+changed, what it fixes, and the three things in it that are not settled. The
+previous version of every one of these files is in git history, so nothing is
+unrecoverable; what is not recoverable is the *meaning*, which is why the diff
+below is in words rather than a row count.
+
+- **`aisvn/IFTTT_aisvn.xlsx` is now in volts and amps.** `solar` 13558 → 13.558,
+  `battery` 12844 → 12.844, `current` 1080 → 1.08, `solar2` 4616 → 4.616, `LiPo`
+  4107 → 4.107; the placeholder `200` temperatures are blank; the redundant side
+  block, which was already in volts, is gone. This is the one file in the archive
+  that spanned both units — millivolts before the 2020-06-17 recompile and volts
+  after it — so it is the one that no single scale window could describe. The
+  repair takes `aisvn`'s out-of-band count from 832 readings to 1, and blanks the
+  1,359 `no_signal` placeholders that `config.NULL_WINDOWS` existed to null.
+- **`test`'s 11-column solar layout is gone from the archive.** One file deleted
+  outright, 24 rows cut from another, which is the stretch
+  `config.FILE_EXCLUSIONS` used to exclude. `station_setup` rejects drop from
+  6,144 to 4,121, and the reading count does not move — those cells never became
+  readings.
+- **`aisvn/IFTTT_aisvn (8).xlsx` gained a header row.** 2,000 → 2,001 rows.
+
+**Three things about this change are not settled, and one of them makes the
+published data wrong right now.** Recorded in
+[`docs/roadmap.md`](docs/roadmap.md) under "In progress"; summarised here because
+a release that ships 0.005 V instead of 5 V has to say so:
+
+1. **The confirmed regime now double-scales it.** `CONFIRMED_WINDOWS` still
+   divides `aisvn`'s whole record by 1000, so the rollup for 2020-06-15 reads
+   `solar_v_avg = 0.005` where it read `4.57`. The regime has to be narrowed to
+   the files still in millivolts, with a reason.
+2. **`power` is reconstructed for the pre-recompile window.** The station did
+   not report power at all before 2020-06-17 — the old 10-column layout had no
+   such column. The repair filled the gap with `solar_v × current_a × 0.85`,
+   which holds for exactly 1,800 rows, from the first data row to
+   `June 17, 2020 at 03:18PM`. From `03:20PM` — 15:20 local, the recompile — the
+   values are the station's own: the ratio `power/(V·I)` scatters over
+   −2.43 … +2.08 and only 0.24% of samples equal `V·I` exactly, which is what a
+   real DC measurement looks like and not what a product does. So the 0.85 factor
+   is a reconstruction over a window with no measurement in it, and it needs to
+   be recorded as one.
+3. **`load` had 195 real readings replaced by 0.** Not a unit conversion: the
+   column spans two units and did so before the repair too — millivolts up to
+   `June 17, 2020 at 12:09PM` (11,490–13,543) and volts from `June 17, 2020 at
+   03:20PM` (4.95–17.06). Of the 198 volt readings, 195 are now 0 and three
+   survive (11.90, 11.91, 11.95 on 2020-06-18). The millivolt half was left
+   untouched.
+
+The 10-column pre-recompile layout is also no longer in the raw archive, so
+`metric_defs` now records a single 11-column layout for `aisvn` where there were
+two, and the recompile finding is no longer checkable against the data.
+
+**On `power_w` being a measurement.** It is not, and a first pass at this entry
+said otherwise. Only two stations have a power column at all: `aisvn`
+(75,527 readings) and `phumy2` (415,117). The other six have none, so
+`power_w` is not a channel that "every other station" logs. `phumy2`'s is a pin
+that reads exactly 0 for 415,112 of 415,117 readings, which is open question 3 in
+`AGENTS.md` and was never a measurement. `aisvn`'s is a measurement from the
+recompile onwards, and a reconstruction before it.
+
+**Two more consequences of the same edit, found by auditing the built database.**
+`CONFIRMED_WINDOWS` is not one window for the whole record — it is seven `aisvn`
+rows at `×0.001` covering `2020-06-15T06:10:00Z .. 2020-06-17T08:20:00Z`, which
+is precisely the part of the file the repair converted: **1,480 readings, 1.91%
+of the station, all in `IFTTT_aisvn.xlsx`**. So the double-scaling is bounded,
+and the fix is to delete those seven rows.
+
+An eighth row, `aisvn temp_c ×0.1` over 04:12–08:20Z the same day, now runs the
+other way: the committed build had 317–341 there (tenths) and the current one has
+31.7–34.2 (degrees), so the rollup divides by ten again and those hours land at
+0.33 °C. Every other reading of the record is in tenths, mean 323.3. That scale
+needs inverting. (The count in the window also moved, 114 → 121, unexplained.)
+
+**The audit.** Of 363 files, **304 still hold at least one millivolt channel**:
+
+| station | files | channels still in millivolts | readings |
+|---|---:|---|---:|
+| `aisvn` | 1 | `solar_v`, `battery_v`, `lipo_v`, `solar2_v`, `load_v` | 1,480 / 757 / 334 / 236 |
+| `aisvn-solar` | 7 | `battery_v`, `lipo_v` | 13,006 / 13,786 |
+| `aisvn2` | 79 | `battery2_v`, `lipo2_v`, `solar3_v` | 164,096 / 161,790 / 65,490 |
+| `maker-webhooks` | 5 | `battery_v`, `lipo_v`, `solar_v`, `load_v`, `solar2_v` | 8,527 / 8,467 / 4,372 / 1,320 / 515 |
+| `phumy2` | 205 | `lipo2_v` | 415,112 |
+| `solar-2020-05` | 7 | `lipo_v` | 12,791 |
+| `test`, `voltage-phumy` | 0 | — | — |
+
+Every one of those 304 is *uniformly* millivolt for the channel in question,
+which is exactly what makes `CONFIRMED_WINDOWS` a correct description of them,
+and all of them are already compensated for in the rollups. Converting them in
+the raw would gain nothing and would remove the evidence that the firmware wrote
+millivolts, so they are left alone deliberately rather than overlooked. The
+answer to "should more raw files be updated" is: only where a file is **not**
+uniform, and after this change there is none.
+
+**The 100%-flagged channels, and the two that are not a scale question.**
+Dividing by 1000 brings 98–100% inside the recorded band for most of them. Two
+are not:
+
+- **`aisvn2.lipo2_v` is a stuck input.** 17 distinct values in 164,097 readings,
+  with 7,097 appearing 161,790 times. The same station's `solar3_v` has 2,131
+  distinct values over the same rows. The ×0.01 regime proposed for it is
+  fitting 2,307 excursions, and its window (2020-06-18 to 06-23) is wrong too —
+  the low values run to 2021-10-30.
+- **`aisvn-solar.battery_v` is a 2 V pack, not a 12 V bank.** Raw 0–2,574, mean
+  2,060, 2020-05-21 → 2020-06-12; ÷1000 gives 1.98–2.57 V, consistent with that
+  file's `solar_v` topping out at 3.5 V and its header being `time, solar,
+  battery, load_1, load_2, LiPo, wind, dump, boot`. It needs a per-station
+  *band*, not a scale — the `CHANNEL_UNITS` gap again.
+
 ### Added
 
 - **`test` and `voltage-phumy` are on the site.** Both were excluded from

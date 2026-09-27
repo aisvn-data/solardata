@@ -18,6 +18,109 @@ Last reviewed: 0.8.0.
 
 ---
 
+## In progress: the raw archive is being repaired in place
+
+The collector has started fixing the source XLSX rather than excluding whole
+stretches in `config.py` — which is the right direction, because an exclusion is a
+patch over the primary source of truth while a corrected cell is the truth. One
+file has been done, and it changes what the pipeline believes.
+
+**What `data/raw/aisvn/IFTTT_aisvn.xlsx` became.** The millivolt-as-integer
+columns are now volts and amps (`solar` 13558 → 13.558, `battery` 12844 → 12.844,
+`current` 1080 → 1.08, `solar2` 4616 → 4.616, `LiPo` 4107 → 4.107), the
+placeholder `200` temperatures are blank, and the redundant side block — which
+was already in volts — is gone. That is a real improvement, and it takes the
+`aisvn` out-of-band count from 832 readings to 1.
+
+**Three things about it are not settled, and the pipeline is currently wrong
+because of the first.**
+
+1. **The confirmed regime now double-scales it.** `build_regimes.CONFIRMED_WINDOWS`
+   carries seven `aisvn` rows at `×0.001` for
+   `2020-06-15T06:10:00Z .. 2020-06-17T08:20:00Z`. That window is exactly the
+   pre-recompile window, and it is exactly the part of `IFTTT_aisvn.xlsx` the
+   repair converted — **1,480 readings, 1.91% of the station, all in that one
+   file.** Applied to values that are already in volts, the published rollup for
+   2020-06-15 reads `solar_v_avg = 0.005` V where it read `4.57` V. The decision
+   is simply to delete those seven rows, with a reason saying the data they
+   described has been converted at source; nothing outside that window is
+   touched. An eighth row, `aisvn temp_c ×0.1` over 04:12–08:20Z the same day,
+   needs its scale inverted rather than deleted — see above.
+2. **`power` is reconstructed for the window before the recompile.** The station
+   never reported power before 2020-06-17 — the old 10-column layout had no such
+   column — and the repair filled 1,800 rows with `solar_v × current_a × 0.85`,
+   which holds exactly up to `June 17, 2020 at 03:18PM`. From `03:20PM`, the
+   recompile, the values are the station's own: `power/(V·I)` scatters from
+   −2.43 to +2.08 and only 0.24% of samples equal `V·I` exactly. A derived value
+   presented as a reading, over a window with no measurement in it. The 0.85
+   needs recording as an assumption.
+   (`power_w` is not a measured channel at other stations either: only `aisvn`
+   and `phumy2` have one at all, and `phumy2`'s reads 0 for 415,112 of 415,117
+   readings.)
+3. **`load` lost 195 real readings to a 0.** The column spans two units and did
+   so before the repair too — millivolts to `June 17, 2020 at 12:09PM`, volts
+   from `03:20PM` — but the repair did not convert it: 195 of the 198 volt
+   readings are now 0, and the millivolt half is untouched. A `0` here reads as
+   "no load present", which is a real state for that rail, so the loss is
+   invisible rather than obvious.
+
+**What the unit audit found, taking the current files as the source of truth.**
+Seven `aisvn` channels had a mV→V change at 2020-06-17 15:20 — `solar_v`,
+`battery_v`, `current_a`, `wind_v`, `solar2_v`, `lipo_v` and `load_v`. Six are
+now converted; `load_v` is not. Two other boundaries are not unit changes: the
+`aisvn.current_a` step at 2020-10-23 → 10-30 is the collector's pre-reinstall
+window in `BAD_WINDOWS`, and `aisvn2.current_a_chA` steps by ~200× between
+2021-04 and 2021-10, which is undocumented and is not a clean factor.
+
+**`aisvn.temp_c` is now published 10× too small, and was already inconsistent.**
+`CONFIRMED_WINDOWS` carries `aisvn temp_c ×0.1` for 04:12–08:20Z on 2020-06-17,
+which is exactly the window the repair converted from tenths to degrees. The
+committed build had 317–341 there (tenths); the current one has 31.7–34.2
+(degrees), and the rollup divides by ten again. Every other reading of the record
+is in tenths (mean 323.3), so those hours land at 0.33 °C in a June chart in Ho
+Chi City. The window's scale needs inverting from ×0.1 to ×10 — or, better, the
+repair's unit change and the regime table reconciled once rather than twice.
+
+Note the count in that window also moved, 114 → 121. Nothing explains that yet,
+and it is small enough to be a side effect of the same edit; worth a look before
+the regime is touched.
+
+**The 100%-flagged channels are almost all a band describing the wrong unit.**
+Dividing by 1000 brings 98–100% of them inside the recorded band:
+`phumy2.current2_a` and `lipo2_v`, `aisvn2.battery2_v`, `maker-webhooks.battery_v`,
+`current_a_chA`, `load_v` and `solar2_v`, `aisvn-solar.lipo_v`,
+`solar-2020-05.lipo_v`. Two are *not* a scale question at all:
+
+- **`aisvn2.lipo2_v` is a stuck input.** 17 distinct values in 164,097 readings;
+  7,097 appears 161,790 times (98.6%). The same station's `solar3_v` has 2,131
+  distinct values over the same rows. The 2,307 excursions to 258–358 are what
+  the detector proposed a ×0.01 window for, and that window is itself wrong —
+  the low values run to 2021-10-30, not 2020-06-23. Nothing to scale until the
+  hardware is known.
+- **`aisvn-solar.battery_v` is a 2 V pack, not a 12 V bank.** Raw 0–2,574, mean
+  2,060, over 2020-05-21 → 2020-06-12; ÷1000 gives 1.98–2.57 V, which is
+  self-consistent with that station's `solar_v` topping out at 3.5 V (open
+  question 2) and its header being `time, solar, battery, load_1, load_2, LiPo,
+  wind, dump, boot`. The 9–16 V band describes the other stations' hardware. This
+  needs a per-station *band*, not a scale — which is the same
+  `CHANNEL_UNITS`/`column_semantics` gap as `solardata_raw.db`.
+
+
+**The 10-column pre-recompile layout is now gone from the raw archive.** That
+layout was the evidence for the 2020-06-17 recompile — the record that made
+`CONFIRMED_WINDOWS`' boundary defensible. With the donor file rewritten to 11
+columns, `metric_defs` records a single 11-column layout for `aisvn` where there
+were two, and the remaining 38 files inherit from it. Nothing is *wrong*; the
+finding is just no longer checkable against the data.
+
+**Still to repair, from an audit of all 363 files:** 304 files across five folders
+still hold at least one millivolt channel. All of them are *uniformly*
+millivolt, which is what makes the confirmed regime windows a correct description
+of them, and they are the ones the pipeline already compensates for. The file that
+was worth repairing in place is the one that was not uniform — see above.
+
+---
+
 ## Planned
 
 ### `solardata_raw.db` — a verbatim layer beside the derived one
@@ -66,12 +169,12 @@ the answer. **Do not quietly decide any of them.**
 
 | | Question | What is known |
 |---|---|---|
-| 1 | The 3 unconfirmed scale regimes | `aisvn2.lipo2_v` ×0.01 over 2020-06-18 to 06-23, and ×0.001 for `maker-webhooks.solar2_v` and `test.solar2_v`. Both land inside their recorded bands when scaled, so the evidence is good and only the firmware is missing |
-| 2 | `aisvn-solar.solar_v` maxes at 3,532 mV | A panel should reach 15–20 V open circuit, so either that input is not a panel or the station never saw one. Flags nothing today, because 3.5 V is inside a 0–60 V band |
+| 1 | The 3 unconfirmed scale regimes | `maker-webhooks.solar2_v` and `test.solar2_v` at ×0.001, which land inside their recorded bands when scaled, so the evidence is good and only the firmware is missing. The third, `aisvn2.lipo2_v` ×0.01, **should be withdrawn**: the channel is stuck, not mis-scaled — see "In progress" above |
+| 2 | `aisvn-solar.solar_v` maxes at 3,532 mV | A panel should reach 15–20 V open circuit, so either that input is not a panel or the station never saw one. The whole file sits on a 2–3.5 V scale: `battery_v` reads 1.98–2.57 V, i.e. a 2 V pack, not a 12 V bank. The header is `time, solar, battery, load_1, load_2, LiPo, wind, dump, boot`. Self-consistent, and inconsistent with the bands written for the other stations |
 | 3 | `phumy2.power_w` is not a power measurement | The hardware was never implemented. 415,112 of 415,117 readings are exactly 0; the other five are 13,810–19,877 W, all flagged |
 | 4 | `maker-webhooks` resets its counter every 16 readings | 526 resets in 8,535 readings, 523 with no gap in sampling. A reboot looks like that, but a counter moving that fast may be something else |
-| 5 | The `phumy2` bridge ratio | `solar2_v` is confirmed as millivolts but steps from ~5,000 mV to ~1,200 mV when a bridge and load were fitted, so the stored value is a divider output. Without the ratio, `solar2_v` after the bridge is not a panel voltage and should not be charted as one |
-| 6 | `aisvn.load_v` behaviour change | 0 V works to 2020-07-10, then appears sporadically to 2020-10-30. Whether the later 0s are genuine or a stuck pin is unknown |
+| 5 | The `phumy2` bridge ratio, and with it `current2_a`'s unit | `solar2_v` is confirmed as millivolts but its maximum is 5,899 mV — 5.9 V — where a 12 V nominal panel sits at 17–20 V open circuit, so the channel is a divider output. That is also why `current2_a`'s unit cannot be settled from the archive: to read a current in amps you need a voltage to pair it with, and the only voltage this station logs is not the panel's. The two available arguments conflict — the same applet's voltage channel is confirmed at ×0.001, so consistency says milliamps-as-integer, which would make the station produce ~1.4 W |
+| 6 | `aisvn.load_v` behaviour change | 0 V works to 2020-07-10, then appears sporadically to 2020-10-30. Whether the later 0s are genuine or a stuck pin is unknown. The column also spans two units inside one file — mV to 2020-06-17 12:09 local, V from 15:20 |
 | 7 | What `wind_v` is connected to | Wired and logging: 0–13.3 V hourly in `aisvn` 2021, up to 12,784 V in 2020, exactly 0 for all of 2022. Not a plausible generator output either. It has no band, deliberately, because a band would have to be a guess |
 | 8 | The ten further millivolt channels the detector never proposed | `aisvn2.solar3_v` and `current_a_chA`/`chB`, `aisvn.load_v` and `solar2_v` after the recompile, `phumy2.current2_a`, `aisvn-solar.load1_v`/`load2_v`, `maker-webhooks.current_a_chA`/`chB`. Recorded in `build_regimes.CONFIRMED_WINDOWS` once the raw store lands |
 
@@ -84,6 +187,19 @@ rather than an oversight, and each has a reason.
 
 ### Release hygiene
 
+- **The project is moving from `kreier/solardata` to `aisvn-data/solardata`.**
+  Not done. The README badges point at the new home; the branches, the tags and
+  the releases are all on the old one. What has to happen, in order:
+
+  | step | why |
+  |---|---|
+  | 1. Merge to the new repository's default branch | a manual `workflow_dispatch` run is only offered for a workflow on the default branch, so until it is there the "Run workflow" button does not exist |
+  | 2. Push the `v0.8.0` tag (and the earlier tags, if they matter) to the new repository | a tag push runs the workflow as it exists at that commit, in whichever repository receives it |
+  | 3. Set `expected_repository: aisvn-data/solardata` on later manual runs | a release into the wrong repository publishes a 19 MiB database nobody reads, and is invisible from the right one |
+  | 4. Decide what happens to `kreier/solardata` — archive it, or leave it as the working fork | two repositories that both accept tags is two places a release can appear |
+
+  A pull request does not and should not trigger a release; the tag is the
+  trigger. `release.yml` documents all three gotchas above at the top of the file.
 - **`v0.7.2` was published by hand.** Tagged, released, with a hand-written title
   and GitHub's generated pull-request list, and it never ran `release.yml` — so
   nothing verified the database it would have shipped and no `solardata.db.gz`

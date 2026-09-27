@@ -372,6 +372,13 @@ list, with what is known about each, is in
    after the recompile, `phumy2.current2_a`, `aisvn-solar.load1_v`/`load2_v`, and
    `maker-webhooks.current_a_chA`/`chB`. These are recorded in
    `build_regimes.CONFIRMED_WINDOWS` once the raw store lands.
+
+   **Two of those ten need re-checking against the current files.** 0.8.0
+   converted `aisvn/IFTTT_aisvn.xlsx` to volts, so `aisvn`'s "millivolts for the
+   whole record" is no longer true and `CONFIRMED_WINDOWS` double-scales that
+   file; and a unit audit of the current files finds one boundary nobody had
+   recorded: `aisvn2.current_a_chA` steps by ~200× between 2021-04 and 2021-10,
+   which is not a clean factor and is not at any known recompile.
 2. **`aisvn-solar.solar_v` maxes at 3,532 mV.** A photovoltaic panel should reach
    15–20 V open circuit, so either that input is not a panel or the station never
    saw a real panel voltage. It flags nothing today, because 3.5 V is inside a
@@ -379,8 +386,11 @@ list, with what is known about each, is in
 3. **`phumy2.power_w` is not a power measurement.** The hardware was never
    implemented and the ESP32 pin reads what the collector describes as phantasy
    values: 415,112 of 415,117 readings are exactly 0 and the remaining five are
-   13,810–19,877 W, all flagged. Stored as milliwatts and kept, as instructed,
-   with no useful band.
+   13,810-19,877 W, all flagged. Stored as milliwatts and kept, as instructed,
+   with no useful band. Only two stations have a power channel at all — `aisvn`
+   and `phumy2` — so "the power channel" is `aisvn`'s alone, and the other six
+   stations have no such thing to be a measurement of.
+
 4. **`maker-webhooks` resets its submission counter every 16 readings** — 526
    resets in 8,535 readings, 523 of them with no gap in sampling. A genuine
    reboot looks like that when the station keeps sampling, but a counter that
@@ -396,6 +406,11 @@ list, with what is known about each, is in
    (28,192 readings: 80% of June, 78% of July, 19% of August, 0% from November
    onwards, where the channel is 9.5–24.7 V and never 0). What changed, and
    whether the 0 readings after July are genuine or a stuck pin, is unknown.
+   The column also **spans two units inside one file**: millivolts up to
+   2020-06-17 12:09 local, volts from 15:20 local — the recompile. That was true
+   before the 0.8.0 raw repair and is still true; the repair did not convert this
+   column, it replaced 195 of the 198 volt readings with 0, which is invisible
+   because 0 is a legitimate state for this rail.
 7. **The `aisvn` gaps.** No readings between 2020-10-25 and 2020-11-04, and
    September 2020 has only 12 readings. **Confirmed by the collector: the
    collector was down, no data was lost in the Sheets export.** No action

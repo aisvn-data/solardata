@@ -48,9 +48,18 @@ system setup.
 continuous one: June 2020 to February 2024 across three archive chunks. Header
 is `time, solar2, current2, power, temp, LiPo2, boot`, so `solar_v` and
 `battery_v` are legitimately NULL here — the channels are named `solar2` and
-there is no battery channel. `current2` reads 210–270 against a ±50 A band,
-i.e. milliamps. This station is entirely in the `out_of_range` flag for
-`current2_a`; that is the flag doing its job, not a data error.
+there is no battery channel. `current2` reads 210–270 against a ±50 A band, and
+this station is entirely in the `out_of_range` flag for `current2_a`; that is the
+flag doing its job, not a data error.
+
+The scale for `current2` is **not settled and the band cannot decide it**:
+÷1000 gives 0.21–0.27 A, which is too small for a station that also reports
+~12 V on the panel, while ÷100 gives 2.1–2.7 A, which is plausible for it. Both
+fall inside ±50 A, so the flag is 100% either way and only the collector can say
+which is the unit. `AGENTS.md` open question 3 assumes milliamps; that is an
+assumption, not a finding, and is now recorded as one. `lipo2_v` here is
+unambiguous: 1,980–4,200 against a 2.5–4.35 V band is millivolts, and ÷1000 puts
+415,107 of 415,112 readings inside it.
 
 **`aisvn` — AISVN #1.** The most interesting station and the one with the most
 unresolved questions. Eleven channels, and the column *meaning* changes during
