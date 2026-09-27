@@ -142,6 +142,10 @@ _EXACT: dict[str, str] = {
     "millis()": "millis_ms",
     "nix": "nix_raw",
     "wifi": "wifi_raw",
+    # The probe sheet in `test` names this column for the field it times rather
+    # than for the reading: `wifi_tx_ms` is a wifi transmit time, stored as the
+    # station's raw wifi count. The old sheets said `wifi`.
+    "wifi_tx_ms": "wifi_raw",
     "event": "event",
 }
 
@@ -165,6 +169,18 @@ def map_header(index: int, raw_name: str) -> HeaderMapping:
 
     if key in _REFUSED:
         return HeaderMapping(index, raw_name, None, "low", _REFUSED[key])
+
+    # A header that is *already* a canonical column name maps to itself. The
+    # repaired sheets spell their headers the way the collector names the fields
+    # -- `test` now says `temp_c` where it used to say `temp` -- and there is no
+    # ambiguity to resolve: the schema already has a column with that exact name.
+    #
+    # Placed after `_REFUSED` on purpose. A spelling listed there is refused for a
+    # stated reason, and a passthrough rule must not quietly reinstate it.
+    if key in METRIC_BY_COLUMN:
+        return HeaderMapping(
+            index, raw_name, key, "high", "header is already a canonical column name"
+        )
 
     # Numeric-suffix rules, e.g. solar3 -> solar3_v, lipo2 -> lipo2_v.  Only the
     # suffixes that actually occur in the archive are accepted: an unrecognised

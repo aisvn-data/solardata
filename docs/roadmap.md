@@ -149,7 +149,7 @@ two exceptions are carried separately in three places.
    what happens now, and it is why they could never be diffed against each other.
 2. **One file or two.** Two files is two places for the readings to disagree,
    which is a new failure mode rather than a smaller one.
-3. **What it is worth.** 730,914 rows already have a home with provenance down to
+3. **What it is worth.** 731,885 rows already have a home with provenance down to
    the file and the sheet row. The case for a verbatim layer is auditability —
    re-deriving the derived store from something nobody has to trust. Whether
    anyone will do that is not established.
@@ -158,6 +158,35 @@ two exceptions are carried separately in three places.
    specification exists elsewhere, it belongs in
    [`docs/format-design.md`](format-design.md) before anyone starts, because none
    of the four questions above are answerable from what is written down.
+
+### Voltage columns: float volts here, integer millivolts there
+
+**Status: decided for `solardata.db`, and the other half is not implemented.**
+
+Every voltage in `readings` and in both rollups is a **float number of volts**,
+whatever the hardware produced. That is the column's documented unit, it is what
+the plausibility bands are written in, and it is what the site draws. The
+collector repaired `aisvn`'s sheets into plain volts precisely so that a single
+unit describes the whole column: `load_v` is 0–13.716 V in
+`IFTTT_aisvn.xlsx` with no millivolt readings left, and the 195 volt readings that
+an earlier repair had overwritten with 0 are back.
+
+The **verbatim** store is where integer millivolts belong, and that step does not
+exist yet. The two are not the same decision: the derived store answers "what is
+this channel's value", and a float does that; the verbatim layer answers "what
+did the ADC say", and for a divider output that is a 16-bit integer in millivolts
+with its own scale factor beside it. So the plan is that
+`solardata_raw.db` — when it is built — carries `load_v`, `battery_v` and the
+rest as `INTEGER` millivolts with the divider ratio in `column_semantics`, and
+that the derived store reads volts from it.
+
+**Do not implement the conversion in `build_db` in the meantime.** Multiplying a
+column into millivolts at ingest is a unit decision taken in the wrong layer, and
+the cost is already documented: `aisvn-solar.battery_v` has to be ×2 at ingest
+*and* override its band *and* ship the override to the browser, in three places,
+because a plausibility band can only describe one unit and that column's is not
+the default one. A column-wide mV conversion would multiply that cost by the
+number of channels and change every stored value in the archive.
 
 ---
 
@@ -221,7 +250,7 @@ rather than an oversight, and each has a reason.
   unit belongs to a (station, column) pair and the schema has no place to say so.
   This is the `solardata_raw.db` problem above, in miniature.
 - **`readings` stores `ts_local` and `tz` per row.** 30 MiB of derivable data,
-  stored 730,914 times. Dropping it would take the database to ~128 MiB, which is
+  stored 731,885 times. Dropping it would take the database to ~128 MiB, which is
   still over GitHub's 100 MiB limit, so it would not make the file committable
   either. `docs/format-design.md` has the measured breakdown.
 - **A column-keyed band cannot describe two units.** `temp_c` is tenths on `aisvn`
@@ -252,6 +281,9 @@ Named so their absence is a decision rather than an oversight:
   at 364 files; it would not be at 36,400.
 - **No tests against the real archive in the default suite.** `pytest` uses
   fixtures; only `python -m etl verify` and the weekly `data.yml` run see the
-  730,914 rows. A channel that a fixture does not mention can still break.
+  731,885 rows. A channel that a fixture does not mention can still break — which
+  is not hypothetical: the header-order invariant in `tests/test_ingest.py` is the
+  one test that reads `data/raw`, and it exists because two `aisvn` files
+  disagreed about which of two identical-width columns was `load`.
 - **No cross-station calibration.** Each band is per column, per station, and
   nothing checks that two stations' `battery_v` are the same kind of thing.

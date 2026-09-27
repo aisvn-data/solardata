@@ -45,12 +45,14 @@ system setup.
 ### Notes on individual stations
 
 **`phumy2` — Phu My Hung #2.** The main production record and the only
-continuous one: June 2020 to February 2024 across three archive chunks. Header
-is `time, solar2, current2, power, temp, LiPo2, boot`, so `solar_v` and
+continuous one: June 2020 to **September 2026** across four archive chunks.
+Header is `time, solar2, current2, power, temp, LiPo2, boot`, so `solar_v` and
 `battery_v` are legitimately NULL here — the channels are named `solar2` and
-there is no battery channel. `current2` reads 210–270 against a ±50 A band, and
-this station is entirely in the `out_of_range` flag for `current2_a`; that is the
-flag doing its job, not a data error.
+there is no battery channel. `current2` reads 155–1,997 mA, which the collector
+has confirmed as milliamps, so the ×0.001 regime is applied in the rollup and
+`readings` holds the value as written. The reading-level `out_of_range` flag stays
+on, because it is a statement about the stored reading; the rollup's
+`current2_a_n_oor` is 0, because it is a statement about the published value.
 
 The scale for `current2` is **not settled and the band cannot decide it**:
 ÷1000 gives 0.21–0.27 A, which is too small for a station that also reports

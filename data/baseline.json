@@ -1,21 +1,21 @@
 {
   "description": "Expected output of `python -m etl ingest`. CI fails on any drift; see etl/verify.py and AGENTS.md.",
   "counts": {
-    "readings": 730914,
+    "readings": 731885,
     "files": 364,
     "stations": 8,
-    "duplicate_ts": 2249,
-    "malformed_rejects": 227680,
-    "notes": 12,
+    "duplicate_ts": 2250,
+    "malformed_rejects": 224297,
+    "notes": 11,
     "unconfirmed_regimes": 2,
     "headerless_without_donor": 0,
-    "hourly_buckets": 25528,
-    "daily_buckets": 1181
+    "hourly_buckets": 25566,
+    "daily_buckets": 1184
   },
   "recorded": {
-    "tool_version": "0.7.1",
-    "run_started_at": "2026-09-26T18:24:44Z",
-    "ingest_notes": "364 files; 730914 rows; 2249 duplicate timestamps absorbed; 229929 rejected",
-    "reason": "aisvn.temp_c is stored in tenths of a degree: the collector confirms the applet wrote tenths before the 2020-06-17 15:20 recompile and plain degrees after, so the x10 correction is applied at ingest rather than in the aggregate, where the plausibility band is tested. The 1,359 placeholder readings of 200 are nulled as no_signal (malformed_rejects +1,359). phumy2.temp_c and test.temp_c get the same treatment, the latter in hundredths per the collector, with a per-station band because one band cannot describe both units. aisvn's remaining 114 readings, 317 to 341, are genuine tenths and are left alone."
+    "tool_version": "0.8.0",
+    "run_started_at": "2026-09-27T09:07:59Z",
+    "ingest_notes": "364 files; 731885 rows; 2250 duplicate timestamps absorbed; 226547 rejected",
+    "reason": "aisvn column order normalised by the collector: load/power swap resolved, 1 reject fewer"
   }
 }

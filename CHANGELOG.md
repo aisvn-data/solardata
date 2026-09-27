@@ -5,7 +5,91 @@ the raw archive. The format follows [Keep a Changelog](https://keepachangelog.co
 versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
-Nothing yet.
+### Changed — the raw archive, again
+
+The collector has made a second round of repairs to the source XLSX. `data/raw/**`
+is the primary source of truth and not a file to edit, so as in 0.8.0 this entry
+records what each edit changed. Every previous version is in git history.
+
+- **`aisvn/IFTTT_aisvn.xlsx` is now in volts throughout, with the majority column
+  order.** `load` is 0–13.716 V with no millivolt readings left and the 195 real
+  volt readings that 0.8.0's repair had overwritten with 0 restored, so
+  `load_v` is one unit for the whole file. Its header had read `load, power` at
+  indices 4 and 5 where `(8)` and `(24)`–`(27)` read `power, load`; files (1)–(7)
+  are headerless, sit after this file, and were borrowing its order, so their two
+  channels were stored swapped — roughly 14,000 readings of `load_v` reading up to
+  70.6 and `power_w` up to 15.45, where the surrounding files have it the other
+  way round. Now resolved, and `tests/test_ingest.py::TestHeadersInOneFolderAgree`
+  fails if two files of one width ever disagree about a data column again.
+  `metric_defs` is keyed on width, which is enough for a folder that *gained* a
+  column and not enough for one that reorders two of them.
+- **`aisvn2` gains three more repaired files** (`(1)`, `(11)` and the base sheet).
+- **`phumy2b` adds a fourth file**, taking the station to 416,088 readings and the
+  archive to 731,885, through **2026-09-27**. Coverage is no longer "four years".
+
+### Added
+
+- `aisvn-solar.battery_v` is a **50/50 voltage divider**, so the input is
+  multiplied by 2 at ingest and stored and displayed in millivolts, with a
+  per-station band of 0–5,100 mV. It was being read as volts and flagged out of
+  range on every sample.
+- `aisvn2.lipo2_v` is a **disconnected 2S LiPo pin in millivolts** (0–7,097 mV
+  observed), with a per-station band of 0–8,000 mV. The column default describes a
+  single cell, so the whole channel was flagged.
+- `phumy2.current2_a` is confirmed **milliamps** and carries a ×0.001 regime. It
+  was absent from `CHANNEL_COLUMNS` in `build_aggregate`, which meant a confirmed
+  regime matched the lookup and was then dropped for want of a column to multiply —
+  so the scale existed in the database and was never applied.
+
+### Fixed
+
+- **A header spelled as a canonical column name now maps to itself.** The
+  collector's repair of `test/IFTTT_test (1)` and `(2)` renamed the probe's header
+  row from `nix, temp, wifi` to `nix, temp_c, wifi_tx_ms`. `map_header` refused
+  both spellings, so `test.temp_c` became NULL for **all 33,377 readings** and the
+  published daily rollup had three empty columns where its temperature had been —
+  a missing channel, which is the exact shape of "looks fine". A header that is
+  already a canonical column name now maps to itself, placed *after* `_REFUSED` so
+  a spelling that was refused for a stated reason cannot be reinstated by it.
+- **An out-of-range count is counted in the unit the value is published in.**
+  `_oor_exprs` tested the stored value and `_scale_rows` then multiplied the
+  bucket by a confirmed regime, so the two disagreed for every scaled bucket:
+  `phumy2` reported **all 416,088** of its `current2_a` samples out of range while
+  publishing 0.155–2.0 A against a ±50 A band, and the site uses those counts to
+  decide whether an aggregate is contaminated. The recount happens against the
+  hourly table *before* the daily rows are derived from it, since the daily count
+  is a sum of the hourly ones.
+- `aisvn`'s seven millivolt regimes and the `temp_c` regime are now **scale 1.0**.
+  The boundaries are still recorded — the archive still has them, and the evidence
+  for them has not changed — but the collector converted the file, so applying the
+  conversion again was dividing volts by a thousand. `aisvn.temp_c` is tenths
+  throughout, corrected at ingest over the whole record rather than from the
+  recompile onwards, which had left the first 1,480 readings in a different unit
+  from the rest of their own file.
+
+### Not changed, on purpose
+
+- **Voltages stay float volts.** The collector's note that `aisvn`'s `load` "is a
+  Volt value that needs to be converted to mV" is a statement about the *verbatim*
+  layer, not this one. `readings` and both rollups keep every voltage as a float
+  number of volts, because that is the column's documented unit, the one the
+  plausibility bands are written in, and the one the site draws — and because the
+  repair made the column uniformly volts, so there is nothing left to convert.
+  Integer millivolts, with the divider ratio beside them, are a step for
+  `solardata_raw.db`, which is not built yet. Doing it in `build_db` instead would
+  be a unit decision in the wrong layer, and `aisvn-solar.battery_v` already shows
+  the cost: a channel whose unit is not the column default has to be corrected at
+  ingest *and* override its band *and* ship that override to the browser, in three
+  places, because a band can only describe one unit. See
+  [`docs/roadmap.md`](docs/roadmap.md#voltage-columns-float-volts-here-integer-millivolts-there).
+
+### Known debt, recorded not fixed
+
+- `n_out_of_range` on `readings` is still counted in the **stored** unit, so a
+  confirmed millivolt or milliamp channel stays flagged on every reading while the
+  rollup beside it reports none. Both numbers are kept and they describe different
+  things — the reading as written, and the value as published — but the pair reads
+  as a contradiction until this is written down somewhere the reader will see it.
 
 ## [0.8.0] — 2026-09-27
 

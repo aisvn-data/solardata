@@ -52,12 +52,19 @@ CHANNEL_COLUMNS: dict[str, tuple[str, ...]] = {
     "lipo_v": ("lipo_v_avg", "lipo_v_min", "lipo_v_max"),
     "lipo2_v": ("lipo2_v_avg", "lipo2_v_min", "lipo2_v_max"),
     "load_v": ("load_v_avg",),
-    "lipo_v_unused": (),
-    "current2_a": (),
+    # phumy2's current, confirmed by the collector as milliamps. It was an empty
+    # tuple here, which read as "this channel has nothing to scale" -- and so a
+    # confirmed regime for it was written to the table, matched by the lookup, and
+    # then dropped for want of a column to multiply. A 415,117-reading
+    # out_of_range flag survived the confirmation, which is the flag doing its job
+    # on a column the pipeline had been told the unit of.
+    "current2_a": ("current2_a_avg",),
 }
 
-#: ``wind_v``, ``current_a*`` and ``temp_c`` have no confirmed millivolt regime
-#: in the archive, so they are absent above deliberately rather than by accident.
+#: ``wind_v``, ``current_a*`` and ``temp_c`` are absent above: no confirmed regime
+#: applies a scale to them, so there is nothing to multiply. They were the
+#: millivolt channels of the `aisvn` recompile, and those rows now carry a scale of
+#: 1.0 -- the boundary is still recorded, the conversion is not applied.
 
 
 def _value_exprs() -> list[str]:
@@ -200,11 +207,19 @@ def build(conn: sqlite3.Connection, *, verbose: bool = True) -> tuple[int, int, 
         GROUP BY h.station_id, day
     """
 
+    # Order matters here and it is not incidental. The daily rollup is a `SUM` of
+    # the hourly out-of-range counts, and the hourly counts themselves have to be
+    # recounted against the *scaled* values. So: scale and recount the hourly rows
+    # first, and only then derive the daily rows from them. Deriving first and
+    # recounting after leaves the daily table holding the pre-scale counts, which is
+    # the exact bug `_rescale_oor_counts` exists to fix.
+    scaled_hourly = _scale_rows(conn, "readings_hourly", "ts_utc", lookup)
+    _rescale_oor_counts(conn, "readings_hourly", "ts_utc", lookup)
+
     conn.execute("DELETE FROM readings_daily")
     daily = conn.execute(daily_sql).rowcount
 
-    scaled_hourly = _scale_rows(conn, "readings_hourly", "ts_utc", lookup)
-    scaled_daily = _scale_rows(conn, "readings_daily", "day", lookup)
+    scaled_daily = _scale_rows(conn, "readings_daily", "day", lookup, multiply=False)
 
     conn.commit()
     if verbose and (scaled_hourly or scaled_daily):
@@ -288,12 +303,28 @@ class RegimeLookup:
         return self.for_span(station_id, column, start, start + timedelta(days=1))
 
 
-def _scale_rows(conn: sqlite3.Connection, table: str, key: str, lookup: RegimeLookup) -> int:
+def _scale_rows(
+    conn: sqlite3.Connection,
+    table: str,
+    key: str,
+    lookup: RegimeLookup,
+    *,
+    multiply: bool = True,
+) -> int:
     """Apply confirmed scales to the rollup rows in place.
 
     ``key`` is the column holding the instant: ``ts_utc`` for hourly, ``day`` for
     daily.  Both rollup tables are ``WITHOUT ROWID``, so there is no ``rowid``
     to address rows by and the update keys on the primary key instead.
+
+    ``multiply=False`` records the regime on the row -- ``scaled_channels`` and
+    ``regime_ids`` -- without touching the value.  That is what the daily table
+    needs, and the reason is the build order: the daily rows are derived from the
+    hourly table *after* the hourly values have been scaled, so each hour is
+    already correct.  Multiplying the day's mean again applies the same regime
+    twice, and `phumy2`'s daily `current2_a` came out at 0.00023 A -- a 0.23 A
+    reading divided by a thousand, published by the site, for as long as the
+    rollups were built in that order.
     """
     if not lookup.windows:
         return 0
@@ -353,20 +384,22 @@ def _scale_rows(conn: sqlite3.Connection, table: str, key: str, lookup: RegimeLo
             for name in CHANNEL_COLUMNS.get(column, ()):
                 if name not in present:
                     continue
-                assignments.append(f"{name} = {name} * ?")
-                params.append(scale)
+                if multiply:
+                    assignments.append(f"{name} = {name} * ?")
+                    params.append(scale)
                 touched_any = True
             if not touched_any:
                 # Nothing to scale for this channel in this table.
                 continue
             scaled_channels.append(column)
             regime_ids.append(str(regime_id))
-        if not assignments:
+        if not scaled_channels:
             continue
+        # The value assignments are absent on the metadata-only pass, so the SET
+        # list is built from whatever there is rather than assuming both.
+        sets = [*assignments, "scaled_channels = ?", "regime_ids = ?"]
         conn.execute(
-            f"UPDATE {table} SET {', '.join(assignments)},"
-            " scaled_channels = ?, regime_ids = ?"
-            f" WHERE station_id = ? AND {key} = ?",
+            f"UPDATE {table} SET {', '.join(sets)} WHERE station_id = ? AND {key} = ?",
             [
                 *params,
                 ",".join(scaled_channels),
@@ -378,3 +411,168 @@ def _scale_rows(conn: sqlite3.Connection, table: str, key: str, lookup: RegimeLo
         touched += 1
     conn.commit()
     return touched
+
+
+def _band_for(channel: str, station_id: str) -> tuple[float, float] | None:
+    """The plausibility band for one channel at one station, in the stored unit.
+
+    Pulled out of :func:`_oor_exprs` so the SQL aggregate and the Python recount
+    below cannot drift apart. There is one home for the numbers --
+    ``etl/normalize/metrics.py`` -- and a per-station override in
+    ``config.CHANNEL_UNITS``; this is the join of the two.
+    """
+    metric = METRIC_BY_COLUMN[channel]
+    if metric.lo is None or metric.hi is None:
+        return None
+    for station, column, _unit, lo, hi, _why in CHANNEL_UNITS:
+        if station == station_id and column == channel:
+            return (lo, hi)
+    return (float(metric.lo), float(metric.hi))
+
+
+def _rescale_oor_counts(
+    conn: sqlite3.Connection, table: str, key: str, lookup: RegimeLookup
+) -> int:
+    """Recount out-of-range samples for channels whose values were rescaled.
+
+    ``_oor_exprs`` counts a sample out of band by testing the value in
+    ``readings`` -- the *stored* value, in the unit the column documents.
+    ``_scale_rows`` then multiplies the bucket's aggregates by a confirmed regime.
+    The two therefore disagree for every bucket a scale touched: ``phumy2`` 2020
+    reports 89,062 ``current2_a`` samples out of range while the value it publishes
+    is 0.155-2.0 A on a +/-50 A band, so the row is marked contaminated by a
+    conversion the collector has since confirmed. The site uses these counts to
+    decide whether an aggregate can be trusted, so a stale count is not cosmetic.
+
+    The count is a count of *samples*, and a scale is applied to a *bucket*, so it
+    cannot be fixed by rescaling the number already stored -- the samples behind it
+    have to be re-tested. This walks the readings for the affected
+    ``(station, channel)`` pairs, applies the same span test ``_scale_rows`` uses
+    so a straddling bucket is still left alone, and rewrites the count.
+
+    Only channels with a confirmed non-1.0 regime are touched. Everything else
+    keeps the count the SQL gave it, which is already right.
+    """
+    targets: dict[str, set[str]] = {}
+    for station_id, column in lookup.windows:
+        if column not in COUNTED or column not in CHANNEL_COLUMNS:
+            continue
+        if _band_for(column, station_id) is None:
+            continue
+        targets.setdefault(station_id, set()).add(column)
+    if not targets:
+        return 0
+
+    width = 13 if key == "ts_utc" else 10
+    present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+    # The extent of the data in each bucket, the same straddle test _scale_rows uses.
+    # Built once per station, in one grouped query, because the scale is a property
+    # of the bucket rather than of the reading.
+    extents: dict[tuple[str, str], tuple[datetime, datetime]] = {}
+    for row in conn.execute(
+        f"SELECT station_id, substr(ts_utc, 1, {width}) AS bucket,"
+        f" MIN(ts_utc) AS lo, MAX(ts_utc) AS hi FROM readings"
+        f" WHERE station_id IN ({','.join('?' * len(targets))})"
+        f" GROUP BY station_id, bucket",
+        sorted(targets),
+    ):
+        extents[(row["station_id"], row["bucket"])] = (
+            datetime.fromisoformat(row["lo"].replace("Z", "")),
+            datetime.fromisoformat(row["hi"].replace("Z", "")) + timedelta(seconds=1),
+        )
+
+    # Which scale applies to which bucket, per channel. Decided here in Python from
+    # the extents above, then joined against `readings` so the recount is one scan
+    # per channel. Doing it the obvious way instead -- a COUNT per bucket -- is
+    # O(buckets x rows) with no index on `substr(ts_utc, 1, 13)`, and phumy2's
+    # 416,088 readings across 25,566 buckets do not finish in half an hour.
+    conn.execute(
+        "CREATE TEMP TABLE IF NOT EXISTS oor_scale ("
+        " station_id TEXT, channel TEXT, bucket TEXT, scale REAL,"
+        " PRIMARY KEY (station_id, channel, bucket))"
+    )
+    conn.execute("DELETE FROM oor_scale")
+    for station_id, channels in targets.items():
+        rows_for: list[tuple[str, str, str, float]] = []
+        for channel in sorted(channels):
+            for (sid, bucket), (start, end) in extents.items():
+                if sid != station_id:
+                    continue
+                scale, regime_id = lookup.for_span(sid, channel, start, end)
+                if scale == 1.0 or regime_id is None:
+                    # No conversion here, so the SQL count is already the truth.
+                    continue
+                rows_for.append((sid, channel, bucket, scale))
+        if rows_for:
+            conn.executemany("INSERT INTO oor_scale VALUES (?, ?, ?, ?)", rows_for)
+    conn.commit()
+
+    total = 0
+    for channel in sorted({c for cs in targets.values() for c in cs}):
+        column = f"{channel}_n_oor"
+        if column not in present:
+            continue
+        for station_id in sorted(targets):
+            band = _band_for(channel, station_id)
+            if band is None:
+                continue
+            lo, hi = band
+            # One grouped pass over the station's readings, with the per-bucket
+            # scale fetched as a correlated lookup into `oor_scale` -- whose primary
+            # key makes that an index hit rather than a scan.
+            #
+            # Both shapes of this query are wrong at O(buckets x rows) without an
+            # index on `substr(ts_utc, 1, 13)`: joining the scale map onto the
+            # readings re-scans the table once per bucket, and phumy2's 416,088
+            # readings across 14,686 buckets do not finish in half an hour. A single
+            # `GROUP BY` is what the SQL out-of-range aggregate already does, so this
+            # costs the same as the count it is correcting.
+            #
+            # Where a bucket has no scale the subquery yields NULL, the comparison is
+            # NULL, and the sample is not counted -- those buckets keep the value the
+            # original aggregate gave them and are filtered out below.
+            scale_of = (
+                f"(SELECT s.scale FROM oor_scale s WHERE s.station_id = ?"
+                f" AND s.channel = ? AND s.bucket = substr(readings.ts_utc, 1, {width}))"
+            )
+            # Positional note, because getting it wrong is silent: `scale_of` is
+            # spliced in *twice*, so the parameters are station, channel, lo for the
+            # first copy and station, channel, hi for the second -- not
+            # station, channel, station, channel, lo, hi. Shifting them by two puts
+            # the band in the subquery's `channel` slot, where SQLite coerces it to
+            # 0.0, and the test degenerates into "value > 0", which is true of
+            # every current reading and reports all 416,088 of them out of band.
+            counted = conn.execute(
+                f"SELECT substr(ts_utc, 1, {width}) AS bucket,"
+                f" SUM(CASE WHEN {channel} IS NOT NULL"
+                f"  AND ({channel} * {scale_of} < ? OR {channel} * {scale_of} > ?)"
+                f" THEN 1 ELSE 0 END) AS n"
+                f" FROM readings WHERE station_id = ? GROUP BY bucket",
+                (station_id, channel, lo, station_id, channel, hi, station_id),
+            ).fetchall()
+            if not counted:
+                continue
+            scaled = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT bucket FROM oor_scale WHERE station_id = ? AND channel = ?",
+                    (station_id, channel),
+                )
+            }
+            updates = []
+            for r in counted:
+                if r["bucket"] not in scaled:
+                    continue
+                label = f"{r['bucket']}:00:00Z" if key == "ts_utc" else r["bucket"]
+                updates.append((r["n"] or 0, station_id, label))
+            if not updates:
+                continue
+            conn.executemany(
+                f"UPDATE {table} SET {column} = ? WHERE station_id = ? AND {key} = ?",
+                updates,
+            )
+            total += len(updates)
+    conn.execute("DROP TABLE oor_scale")
+    conn.commit()
+    return total

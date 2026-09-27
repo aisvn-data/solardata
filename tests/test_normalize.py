@@ -69,6 +69,32 @@ class TestHeaderMapping(unittest.TestCase):
         self.assertIsNone(mapping.column)
         self.assertIn("ambiguous", mapping.reason)
 
+    def test_a_header_named_after_a_canonical_column_maps_to_itself(self):
+        # The collector's repair of `test/IFTTT_test (1)` and `(2)` renamed the
+        # probe's header row from `nix, temp, wifi` to `nix, temp_c, wifi_tx_ms`.
+        # Nothing in the code knows that, and the failure it produced was total and
+        # silent: `temp_c` was not in `_EXACT`, so the column went unmapped, all
+        # 33,377 readings lost the value, and the published daily rollup simply had
+        # three empty columns where its temperature used to be. A missing channel
+        # is the exact shape of "looks fine" this project is built to avoid.
+        for raw in ("temp_c", "solar_v", "lipo2_v", "boot_count", "nix_raw"):
+            mapping = map_header(1, raw)
+            self.assertEqual(mapping.column, raw, raw)
+            self.assertEqual(mapping.confidence, "high", raw)
+
+        # The renamed wifi column is not a canonical name, so it needs its own
+        # entry rather than the passthrough rule.
+        self.assertEqual(map_header(1, "wifi_tx_ms").column, "wifi_raw")
+
+    def test_a_refused_spelling_stays_refused_under_the_passthrough_rule(self):
+        # The passthrough sits after `_REFUSED` so it cannot reinstate a spelling
+        # that was refused for a stated reason. `millis` is the one that would be
+        # easiest to get wrong: a reader sees a column called `millis` and a
+        # `millis_ms` in the schema, and "fixes" the mapping that documents why it
+        # is ambiguous.
+        self.assertIsNone(map_header(1, "millis").column)
+        self.assertIsNone(map_header(1, "solar_reading").column)
+
     def test_every_mapped_column_exists_in_the_registry(self):
         header = (
             "time",

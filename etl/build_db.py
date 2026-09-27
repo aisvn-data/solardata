@@ -394,12 +394,20 @@ def _unit_fix(station_id: str, column: str, ts_utc: str) -> float:
     Applied to the parsed number before the sentinel and plausibility checks, so
     a value is band-tested in the unit it will be stored in. See
     ``config.UNIT_FIXES`` for why this cannot live in the aggregate.
+
+    ``valid_from`` may be ``None``, which means "from the start of the record" --
+    a correction the collector says applies to every reading of a channel, rather
+    than to a window inside it. Comparing ``None <= ts_utc`` would raise, and an
+    entry that has to be given a made-up start date is a window that will
+    quietly stop covering the first readings of a station.
     """
     total = 1.0
     for fix_station, fix_column, valid_from, valid_to, multiply, _why in UNIT_FIXES:
         if fix_station != station_id or fix_column != column:
             continue
-        if valid_from <= ts_utc and (valid_to is None or ts_utc < valid_to):
+        starts_ok = valid_from is None or valid_from <= ts_utc
+        ends_ok = valid_to is None or ts_utc < valid_to
+        if starts_ok and ends_ok:
             total *= multiply
     return total
 

@@ -71,21 +71,24 @@ CONFIRMED: tuple[tuple[str, str, float], ...] = (
 #: Regimes the collector has confirmed *with an explicit window*, as
 #: (station_id, column, scale, valid_from, valid_to, why).
 #:
-#: These are the channels whose scale changes partway through the record, which
-#: :data:`CONFIRMED` cannot express: it deliberately pins a whole channel, on the
-#: collector's word that the unit is constant. For `aisvn` it is not.
+#: These are the channels whose scale is not the same for the whole record, or
+#: whose window matters as a boundary. ``valid_to`` is the exclusive end and may
+#: be ``None`` for "to the end of the record"; ``scale`` may be ``1.0``, which
+#: means the window is kept as a statement about the archive and applies no
+#: conversion.
 #:
-#: The collector recompiled the applet on 2020-06-17 and the sheet *re-declares
-#: its own header mid-file* to say so. ``IFTTT_aisvn.xlsx`` row 1481 reads
+#: `aisvn` is the case that forces the window to exist. The collector recompiled
+#: the applet on 2020-06-17 and the sheet *re-declares its own header mid-file*
+#: to say so. ``IFTTT_aisvn.xlsx`` row 1481 read
 #: 03:18PM with ten columns and ``solar 13964, battery 13814, current 398,
 #: temp 336``; row 1482 is a second header row reading
 #: ``time, solar, battery, current, power, load, wind, temp, solar2, LiPo``; and
-#: row 1483 reads 03:20PM with eleven columns and ``solar 13.61, battery 13.54,
-#: current 0.36, temp 31.3``. Five channels step by ~1000x in the same
+#: row 1483 read 03:20PM with eleven columns and ``solar 13.61, battery 13.54,
+#: current 0.36, temp 31.3``. Five channels stepped by ~1000x in the same
 #: two-minute sample, which is a firmware change and not four coincidences.
 #:
-#: So for these channels the first stretch is millivolts and everything after is
-#: volts, and the boundary is an *instant*:
+#: So for these channels the first stretch was millivolts and everything after
+#: was volts, and the boundary is an *instant*:
 #:
 #:     2020-06-17T08:18:00Z  last millivolt sample  (03:18PM local)
 #:     2020-06-17T08:20:00Z  first volt sample      (03:20PM local)
@@ -99,77 +102,118 @@ CONFIRMED: tuple[tuple[str, str, float], ...] = (
 #: `current_a` is here for the same reason (milliamps before, amperes after)
 #: even though it has no rollup column, so it changes no published value today;
 #: the unit is the collector's statement and belongs recorded next to the others.
+#:
+#: **The seven `aisvn` scales below are 1.0, and the windows are kept.** The
+#: collector converted `IFTTT_aisvn.xlsx` to volts and amps at source, so the
+#: sheet no longer holds two units and there is nothing left to convert. Leaving
+#: `0.001` in place published 13.558 V as 0.0136 V, and the *straddling* buckets --
+#: the ones holding an hour either side of a boundary, which
+#: `build_aggregate.for_span` leaves unscaled by design -- were publishing raw
+#: millivolts alongside converted volts, which is where a chart showing 9,730 on
+#: a 0-12 V channel came from. The rows stay because the boundary is still a fact
+#: about the archive: the applet *was* recompiled mid-record, the sheet still
+#: re-declares its own header at row 1482, and a future reader looking at that
+#: row should find the statement rather than a table that has quietly forgotten
+#: it. A scale of 1.0 is the honest record of "this window no longer needs
+#: converting", and `for_span` skips a 1.0 rather than writing a no-op.
 CONFIRMED_WINDOWS: tuple[tuple[str, str, float, str, str, str], ...] = (
     (
         "aisvn",
         "solar_v",
-        0.001,
+        1.0,
         "2020-06-15T06:10:00Z",
         "2020-06-17T08:20:00Z",
         "collector: applet recompiled 2020-06-17 15:20 local; sheet row 1482 "
-        "re-declares the header and the channel switches from mV to V",
+        "re-declares the header and the channel switched from mV to V. The "
+        "collector has since converted IFTTT_aisvn.xlsx to volts, so this window "
+        "no longer needs a conversion; it is kept as the record of the boundary",
     ),
     (
         "aisvn",
         "solar2_v",
-        0.001,
+        1.0,
         "2020-06-15T06:10:00Z",
         "2020-06-17T08:20:00Z",
-        "collector: same recompile; row 1483 reads 4.47 V where row 1481 read 4474 mV",
+        "collector: same recompile; row 1483 read 4.47 V where row 1481 read "
+        "4474 mV. The file has been converted to volts, so no conversion applies",
     ),
     (
         "aisvn",
         "battery_v",
-        0.001,
+        1.0,
         "2020-06-15T06:10:00Z",
         "2020-06-17T08:20:00Z",
-        "collector: same recompile; row 1483 reads 13.54 V where row 1481 read 13814 mV",
+        "collector: same recompile; row 1483 read 13.54 V where row 1481 read "
+        "13814 mV. The file has been converted to volts",
     ),
     (
         "aisvn",
         "lipo_v",
-        0.001,
+        1.0,
         "2020-06-15T06:10:00Z",
         "2020-06-17T08:20:00Z",
-        "collector: same recompile; row 1483 reads 4.14 V where row 1481 read 4125 mV",
+        "collector: same recompile; row 1483 read 4.14 V where row 1481 read "
+        "4125 mV. The file has been converted to volts",
     ),
     (
         "aisvn",
         "load_v",
-        0.001,
+        1.0,
         "2020-06-15T06:10:00Z",
         "2020-06-17T08:20:00Z",
         "collector: same recompile; load moved one column right and row 1483 "
-        "reads 4.95 V where row 1481 read 0 mV",
+        "read 4.95 V where row 1481 read 0 mV. NOT YET CONVERTED: the column in "
+        "IFTTT_aisvn.xlsx still holds 236 millivolt readings (11,490-13,543) "
+        "beside three volt ones, and 195 real volt readings were replaced with 0 "
+        "in the same edit. This is the one channel of the seven still mixed, and "
+        "it is why this row is 1.0 rather than a scale: neither reading is right "
+        "for the column as it stands",
     ),
     (
         "aisvn",
         "wind_v",
-        0.001,
+        1.0,
         "2020-06-15T06:10:00Z",
         "2020-06-17T08:20:00Z",
         "collector: same recompile; wind moved one column right and is 0 either "
-        "side, so the scale is inferred from its neighbours rather than read",
+        "side, so the scale was inferred from its neighbours rather than read. "
+        "The file has been converted to volts; the column is now 0-12.784 V",
     ),
     (
         "aisvn",
         "current_a",
-        0.001,
+        1.0,
         "2020-06-15T06:10:00Z",
         "2020-06-17T08:20:00Z",
         "collector: mA before the recompile, A after. Independently confirmed -- "
         "mean |current| after the recompile is 2.6233 A against 2.6231 A implied "
-        "by power/voltage over the same samples",
+        "by power/voltage over the same samples. The file has been converted to "
+        "amperes",
     ),
     (
         "aisvn",
         "temp_c",
-        0.1,
+        1.0,
         "2020-06-17T04:12:00Z",
         "2020-06-17T08:20:00Z",
-        "collector: 200 is a placeholder until 11:12 local; the 114 readings "
-        "from 11:14 to 15:18 are tenths of a degree (335 = 33.5), and the "
-        "channel is plain degrees after the recompile",
+        "collector: 200 was a placeholder until 11:12 local, and the readings "
+        "from 11:14 to 15:18 were tenths of a degree. Both have been resolved at "
+        "source: the placeholders are blank and the tenths converted, so the "
+        "window no longer needs a conversion. The whole record is now plain "
+        "degrees, which config.UNIT_FIXES scales to tenths for the band",
+    ),
+    (
+        "phumy2",
+        "current2_a",
+        0.001,
+        "2020-06-15T02:29:00Z",
+        None,
+        "collector: 210-270 is milliamps, not more. phumy2 is not a station in "
+        "the sense the other channels are -- it runs from a LiPo pack for a month "
+        "on a 50 cm2 panel, so a fraction of an amp is the right magnitude and the "
+        "x100 reading that looked more plausible is not. /1000 gives 0.155-2.00 A, "
+        "which sits inside the -50..50 A band and ends a 415,117-reading "
+        "out_of_range flag",
     ),
 )
 

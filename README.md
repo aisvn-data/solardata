@@ -6,8 +6,8 @@
 
 Analyze, clean and display collected solar data.
 
-Four years of telemetry from several solar stations in Nha Be and Phu My Hung,
-Ho Chi City, Vietnam (May 2020 – February 2024): **730,914 readings across 8
+Six years of telemetry from several solar stations in Nha Be and Phu My Hung,
+Ho Chi City, Vietnam (May 2020 – September 2026): **731,885 readings across 8
 stations**, forwarded to Google Sheets by IFTTT and exported as 364 XLSX files.
 
 ## Status
@@ -24,19 +24,22 @@ stations**, forwarded to Google Sheets by IFTTT and exported as 364 XLSX files.
 | Website | Vite + React at `src/` — station explorer and data-quality inspector |
 | CI | `.github/workflows/` — frontend, lint, test, full build, baseline |
 
-730,914 readings across 8 stations, May 2020 → February 2024. The archive is
-messy in ways that matter: 305 of the 364 files have **no header row**, several
+731,885 readings across 8 stations, May 2020 → September 2026. The archive is
+messy in ways that matter: 299 of the 364 files have **no header row**, several
 sheets carry redundant side-by-side column blocks, the same column name means
 different things at different times, and `-992` is a disconnected-sensor
 sentinel rather than a number. All of that is catalogued in
 [`CHANGELOG.md`](CHANGELOG.md) and handled explicitly by the pipeline.
 
-The count moved once on purpose. It was 734,908 until the collector's account of
-the `test` station: two of its files hold an 11-column solar layout that the
-collector identifies as system setup rather than measurement, so both are excluded
-and every row of them is recorded in `rejects` with reason `station_setup` — 6,144
-cells that are gone from `readings` and still individually inspectable. What
-remains of `test` is 33,377 readings from a 4-column `nix`/`temp`/`wifi` probe.
+The count has moved deliberately, once per repair. It was 734,908 until the
+collector's account of the `test` station: two of its files hold an 11-column
+solar layout that the collector identifies as system setup rather than
+measurement, so both are excluded and every row of them is recorded in `rejects`
+with reason `station_setup` — 6,144 cells that are gone from `readings` and still
+individually inspectable. It was 730,914 until the collector started repairing the
+sheets themselves, and is 731,885 now that `phumy2b` contributes a further 971
+readings through 2026. What remains of `test` is 33,377 readings from a 4-column
+`nix`/`temp`/`wifi` probe.
 
 **`solardata.db` is not committed** — at 166 MiB VACUUMed it is over GitHub's
 100 MiB per-file limit. `release.yml` VACUUMs it and gzips it to a **19 MiB**
@@ -70,7 +73,7 @@ mean over the ~30 readings inside that hour, so the solar curve has a dawn and a
 dusk instead of being a flat average. Switching between them keeps the date
 range: they are two samplings of the same days, and a From/To is a statement
 about which days you want, not how finely to draw them. Hour is as fine as the
-site goes: the archive's native cadence is 119 seconds, and those 730,914
+site goes: the archive's native cadence is 119 seconds, and those 731,885
 unaggregated readings are the Parquet export — a download, not something a
 browser fetches.
 
