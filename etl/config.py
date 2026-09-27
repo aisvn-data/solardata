@@ -128,36 +128,55 @@ ROW_EXCLUSIONS: tuple[tuple[str, int, str], ...] = (
 
 #: Collector-confirmed unit corrections applied **at ingest**, before the
 #: plausibility check. (station_id, column, valid_from_utc, valid_to_utc|None,
-#: multiply_by, why). ``valid_to=None`` means "to the end of the record".
+#: multiply_by, why). ``valid_from=None`` means "from the start of the record"
+#: and ``valid_to=None`` means "to the end of it".
 #:
 #: This is not :data:`NULL_WINDOWS` and it is not a regime. Those act on a value
 #: that is already stored; this acts on the number the sheet wrote, because the
 #: collector has said what unit the channel was logging in and a plausibility
 #: band is only meaningful in the unit the value is stored in.
 #:
-#: `aisvn.temp_c` is the case that forces it. The channel wrote tenths of a
-#: degree before the 2020-06-17 15:20 local recompile and plain degrees after,
-#: so a genuine 33.5 degC reading arrives as ``335`` and the 5-45 degC band
-#: flags every real measurement in the archive. Correcting it in the aggregate
-#: would mean the flags were already wrong, and rule 2 says a flag a reader
-#: cannot trust is worse than no flag at all.
+#: `aisvn.temp_c` is the case that forces it. The channel wrote tenths of a degree
+#: before the 2020-06-17 15:20 local recompile and plain degrees after, so a
+#: genuine 33.5 degC reading arrives as ``335`` and the 50-900 tenths band flags
+#: every real measurement in the archive. Correcting it in the aggregate would
+#: mean the flags were already wrong, and rule 2 says a flag a reader cannot trust
+#: is worse than no flag at all.
 #:
-#: The result is that `readings.temp_c` is tenths of a degree throughout and the
-#: band for it is 50-900. The 114 readings the sheet wrote as tenths (335 =
-#: 33.5 degC) are already correct and are left alone by the correction, which is
-#: the check that this is the right reading of the archive: a rule that scaled
-#: them too would put them at 3,350 degC.
-UNIT_FIXES: tuple[tuple[str, str, str, str | None, float, str], ...] = (
+#: **The window is the whole record, not the part after the recompile.** The
+#: collector converted the 1,480 readings in `IFTTT_aisvn.xlsx` from tenths to
+#: plain degrees, so the sheet no longer contains the two units it once did and
+#: the correction has to cover the file the conversion was made in. The earlier
+#: version of this entry started at the recompile, which left the first 1,480
+#: stored in degrees and the rest in tenths -- the same column, two units, in one
+#: file. The result now is that `readings.temp_c` is tenths throughout and the
+#: band for it is 50-900.
+UNIT_FIXES: tuple[tuple[str, str, str | None, str | None, float, str], ...] = (
     (
         "aisvn",
         "temp_c",
-        "2020-06-17T08:20:00Z",
+        None,
         None,
         10.0,
         "collector: the applet was recompiled at 15:20 local and temp_c switched "
-        "from tenths of a degree to plain degrees. The 114 readings before it, "
-        "11:14 to 15:18 local, are already tenths (335 = 33.5 degC) and must not be "
-        "scaled again",
+        "from tenths of a degree to plain degrees. The collector has since "
+        "converted the 1,480 readings before the recompile to plain degrees as "
+        "well, so the sheet is one unit for the whole record and this applies to "
+        "all of it. readings.temp_c is tenths throughout; a rule that scaled those "
+        "1,480 again would put 33.4 degC at 3340",
+    ),
+    (
+        "aisvn-solar",
+        "battery_v",
+        None,
+        None,
+        2.0,
+        "collector: this input is the output of a 50/50 voltage divider across a "
+        "single-cell LiPo, so the sheet reads half the pack voltage. 2060 mV "
+        "measured is 4120 mV on the cell, which is a full 1S pack and is why the "
+        "raw average sits near 2 V. Multiplying by 2 puts the column in the unit "
+        "the band is written in (0-5100 mV), so the band tests the pack and not "
+        "the divider tap",
     ),
     (
         "phumy2",
@@ -211,6 +230,35 @@ CHANNEL_UNITS: tuple[tuple[str, str, str, float, float, str], ...] = (
         "collector: the probe logs hundredths of a degree and asked for that "
         "resolution specifically, so the values are kept as written rather than "
         "rounded to tenths. The band is 21.49 to 31.31 degC, the observed range",
+    ),
+    (
+        "aisvn-solar",
+        "battery_v",
+        "mV",
+        0.0,
+        5100.0,
+        "collector: a 50/50 voltage divider across a 1S LiPo, from the 5 V "
+        "regulator on the controller board -- the panel charging the cell "
+        "indirectly, not the cell terminal measured directly. The value is in "
+        "millivolts and stays in millivolts; UNIT_FIXES doubles it for the "
+        "divider, so the band is written against the pack: 0-5100 mV, where "
+        "4120 mV is a full 1S. Against the column default of 9-16 V every one of "
+        "the station's 13,788 readings was flagged, because 2-2.5 V is not a 12 V "
+        "lead bank and this station is not a 12 V station",
+    ),
+    (
+        "aisvn2",
+        "lipo2_v",
+        "mV",
+        0.0,
+        8000.0,
+        "collector: a disconnected pin on a 2S LiPo, in millivolts, 0-8000 mV. "
+        "The column is 17 distinct values in 164,097 readings with 7097 "
+        "repeated 161,790 times, which is a pin holding a value rather than a "
+        "battery being measured, and the band is the pin's range rather than a "
+        "1S cell's. Against the column default of 2.5-4.35 V -- a single cell -- "
+        "every reading was flagged, which is the flag saying the cell count is "
+        "wrong, not that the data is",
     ),
 )
 

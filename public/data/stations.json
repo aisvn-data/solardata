@@ -47,7 +47,13 @@
     "years": [
       "2020"
     ],
-    "channel_units": {}
+    "channel_units": {
+      "battery_v": {
+        "unit": "mV",
+        "lo": 0.0,
+        "hi": 5100.0
+      }
+    }
   },
   {
     "station_id": "aisvn2",
@@ -72,7 +78,13 @@
       "2020",
       "2021"
     ],
-    "channel_units": {}
+    "channel_units": {
+      "lipo2_v": {
+        "unit": "mV",
+        "lo": 0.0,
+        "hi": 8000.0
+      }
+    }
   },
   {
     "station_id": "maker-webhooks",
@@ -112,8 +124,8 @@
     "notes": "Split across three archive folders because Google Sheets split the sheet at 2000 rows. Continuous June 2020 - February 2024.",
     "is_production": 1,
     "first_ts_utc": "2020-06-15T02:29:00Z",
-    "last_ts_utc": "2024-02-01T20:18:00Z",
-    "n_readings": 415117,
+    "last_ts_utc": "2026-09-27T07:10:00Z",
+    "n_readings": 416088,
     "published": true,
     "granularities": [
       "daily",
@@ -124,7 +136,8 @@
       "2021",
       "2022",
       "2023",
-      "2024"
+      "2024",
+      "2026"
     ],
     "channel_units": {}
   },

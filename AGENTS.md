@@ -4,9 +4,9 @@ Guidance for AI agents and humans working in this repository.
 
 ## What this repository is
 
-`solardata` holds four years of solar telemetry collected by several stations in
-Nha Be and Phu My Hung, Ho Chi City, Vietnam, between May 2020 and February
-2024. The readings were forwarded to Google Sheets by IFTTT webhooks and the
+`solardata` holds six years of solar telemetry collected by several stations in
+Nha Be and Phu My Hung, Ho Chi City, Vietnam, between May 2020 and September
+2026. The readings were forwarded to Google Sheets by IFTTT webhooks and the
 Sheets were later exported as XLSX and chunked into files of 2000 rows.
 
 Two independent halves live here:
@@ -125,6 +125,26 @@ measurements while still ingesting every timestamp.
 sensor was disconnected". Aggregations must decide explicitly which they want;
 `COUNT(col)` versus `COUNT(*)` is usually the distinction that matters.
 
+### 8. A flag describes the value you stored, not the value you publish
+
+`readings.quality_flags` is written at ingest, against the value in the column's
+documented unit, and it is never revisited. A rollup's `<channel>_n_oor` describes
+the value that rollup publishes. When a confirmed regime multiplies a channel —
+`phumy2.current2_a` from 232 mA to 0.232 A — the two deliberately disagree, and both
+numbers are correct: the first says what the sheet wrote, the second says what the
+site draws. `_rescale_oor_counts` exists to keep the second from going stale, and
+it runs against the hourly table *before* the daily rows are derived, because the
+daily count is a sum of the hourly ones.
+
+Getting this wrong is not cosmetic. For four years the stale count marked all
+416,088 of `phumy2`'s `current2_a` samples as out of range, and the site uses that
+count to decide whether an aggregate is contaminated — so the whole station read
+as broken on a channel measuring 0.2 A. `current2_a` is also the clearest case of
+a channel whose *stored* unit is deliberately not its published one: the sheet
+wrote 232 mA, `readings` holds 232, and the rollup divides it by 1000. `load_v`
+is the opposite, and that is a decision, not an oversight — see the note on
+`solardata_raw.db` below.
+
 ## Where things live
 
 ```
@@ -167,8 +187,8 @@ A change that silently alters the reading count is a bug even if every test
 passes, so treat the report as the acceptance test for data changes — and let
 `verify` enforce it, because it is the only check that sees the real archive.
 
-Current baseline, for comparison: **730,914 readings** across 8 stations from
-364 files, 2,249 duplicate timestamps absorbed, 227,680 rejected cells, 12
+Current baseline, for comparison: **731,885 readings** across 8 stations from
+364 files, 2,250 duplicate timestamps absorbed, 224,297 rejected cells, 11
 recovered notes, 2 unconfirmed scale regimes.
 
 ### When the numbers *should* move
@@ -234,7 +254,7 @@ most people actually want. What *is* committed:
 
 | Path | Size | Why |
 |---|---|---|
-| `data/processed/parquet/` | 7.5 MiB | The interchange format; gives anyone the processed data from a clone. All 730,914 readings at the native cadence |
+| `data/processed/parquet/` | 7.5 MiB | The interchange format; gives anyone the processed data from a clone. All 731,885 readings at the native cadence |
 | `public/data/` | 5.6 MiB | The CSV/JSON rollups the site fetches, so GitHub Pages works from a clone: daily *and* hourly, for all 8 stations, plus the plausibility bands |
 
 | `data/processed/quality_report.md` | ~10 KB | The review artefact, readable in a pull request |
@@ -243,7 +263,7 @@ most people actually want. What *is* committed:
 | `data/raw/**` | 30.4 MiB | The primary source of truth |
 
 The Parquet export is **2.5× smaller than the gzipped database** for exactly the
-same 730,914 rows, which is why the database is a convenience rather than the
+same 731,885 rows, which is why the database is a convenience rather than the
 distribution channel. Measured breakdown of the 166 MiB, if you are ever
 optimising it:
 
@@ -359,26 +379,21 @@ list, with what is known about each, is in
 [`docs/roadmap.md`](docs/roadmap.md), which also carries the planned
 `solardata_raw.db` and the known debt.
 
-1. **The 3 remaining unconfirmed scale regimes**, and the 8 `aisvn` windows that
-   were confirmed this release. Confirmed: millivolts as integers for the whole
-   record, plus the `aisvn` recompile at 2020-06-17 15:20 local, where the sheet
-   re-declares its own header at row 1482 and five channels step ~1000× in the
-   same two-minute sample. Still open: `aisvn2.lipo2_v` ×0.01 over 2020-06-18 to
-   06-23, and ×0.001 for `maker-webhooks.solar2_v` and `test.solar2_v` — both of
-   which land squarely inside their recorded bands when scaled, so the evidence is
-   good and only the firmware is missing. The collector has also confirmed ten
-   further channels as millivolts/milliamps that the detector never proposed:
-   `aisvn2.solar3_v` and `current_a_chA`/`chB`, `aisvn.load_v` and `solar2_v`
-   after the recompile, `phumy2.current2_a`, `aisvn-solar.load1_v`/`load2_v`, and
-   `maker-webhooks.current_a_chA`/`chB`. These are recorded in
-   `build_regimes.CONFIRMED_WINDOWS` once the raw store lands.
+1. **The 2 remaining unconfirmed scale regimes.** Still open: `aisvn2.lipo2_v`
+   ×0.01 over 2020-06-18 to 06-23, and ×0.001 for `maker-webhooks.solar2_v` and
+   `test.solar2_v` — both of which land squarely inside their recorded bands when
+   scaled, so the evidence is good and only the firmware is missing. The `aisvn`
+   windows that used to be on this list are resolved: the collector converted
+   `IFTTT_aisvn.xlsx` at source, so all seven are now **scale 1.0** rather than
+   ×0.001, and `temp_c`'s ×10 correction moved to the whole record rather than
+   starting at the recompile, which had left the first 1,480 readings in a
+   different unit from the rest of their own file. The windows stay in
+   `CONFIRMED_WINDOWS` as 1.0 because the archive still has the boundary and the
+   evidence for it has not changed; only the application was wrong.
+   `phumy2.current2_a` is now confirmed as milliamps and applied.
 
-   **Two of those ten need re-checking against the current files.** 0.8.0
-   converted `aisvn/IFTTT_aisvn.xlsx` to volts, so `aisvn`'s "millivolts for the
-   whole record" is no longer true and `CONFIRMED_WINDOWS` double-scales that
-   file; and a unit audit of the current files finds one boundary nobody had
-   recorded: `aisvn2.current_a_chA` steps by ~200× between 2021-04 and 2021-10,
-   which is not a clean factor and is not at any known recompile.
+   `aisvn2.current_a_chA` steps by ~200× between 2021-04 and 2021-10, which is not
+   a clean factor and is not at any known recompile. Nobody has recorded it.
 2. **`aisvn-solar.solar_v` maxes at 3,532 mV.** A photovoltaic panel should reach
    15–20 V open circuit, so either that input is not a panel or the station never
    saw a real panel voltage. It flags nothing today, because 3.5 V is inside a
@@ -408,9 +423,13 @@ list, with what is known about each, is in
    whether the 0 readings after July are genuine or a stuck pin, is unknown.
    The column also **spans two units inside one file**: millivolts up to
    2020-06-17 12:09 local, volts from 15:20 local — the recompile. That was true
-   before the 0.8.0 raw repair and is still true; the repair did not convert this
-   column, it replaced 195 of the 198 volt readings with 0, which is invisible
-   because 0 is a legitimate state for this rail.
+   before the 0.8.0 raw repair, and 0.8.0's repair made it worse by replacing 195
+   of the 198 volt readings with 0, which is invisible because 0 is a legitimate
+   state for this rail. **Both are now repaired at source**: the column is 0–13.716
+   V throughout `IFTTT_aisvn.xlsx`, the 195 readings are back, and the file's header
+   now reads `power, load` like every other 11-column `aisvn` sheet, so files (1)–(7)
+   no longer borrow a swapped order. The behaviour change above is still a question
+   about the hardware, and is still open.
 7. **The `aisvn` gaps.** No readings between 2020-10-25 and 2020-11-04, and
    September 2020 has only 12 readings. **Confirmed by the collector: the
    collector was down, no data was lost in the Sheets export.** No action
@@ -441,8 +460,16 @@ list, with what is known about each, is in
    rather than 10. Three places, because applying it in two is the same bug one
    level up, and the third is a level further up where nothing else would fail.
    The `aisvn` placeholder readings of `200` are nulled as `no_signal`, not
-   flagged, and the window ends at 11:14 local precisely so the 114 genuine tenths
-   that follow survive.
+    flagged, and the window ends at 11:14 local precisely so the 114 genuine tenths
+    that follow survive. Three stations need an override and all three were
+    otherwise mis-flagged on every reading they had: `test` in hundredths,
+    `aisvn-solar.battery_v` in millivolts (a 50/50 divider, ×2 at ingest, band
+    0–5,100 mV) and `aisvn2.lipo2_v` in millivolts for a 2S pack (band
+    0–8,000 mV). `tests/test_export_policy.py` and
+    `scripts/check_render.mjs` both assert the exact set, because a fourth
+    silently appearing means one of the three is being applied somewhere it should
+    not be.
+
 10. **`battery_v` is a lead-acid car battery, not a 3S LiPo.** The collector
    confirms it. The band, 9-16 V, is right for a 12 V lead pack — it rests at
    12.4-12.8 V, charges to 14.4 V and reads ~10.1 V flat — and it is what makes

@@ -168,15 +168,26 @@ class TestExportPublicationPolicy(unittest.TestCase):
                 )
 
     def test_a_stations_own_unit_travels_with_the_manifest(self):
-        # `test` records `temp_c` in hundredths. The rollup column is the same
-        # `temp_deci_c_avg` for every station, so without this the site divides
-        # 2,807 hundredths by ten and prints 280 degC for a warm afternoon.
-        self.assertEqual(
-            self.by_id["test"]["channel_units"],
-            {"temp_c": {"unit": "0.01 degC", "lo": 2149.0, "hi": 3131.0}},
-        )
+        # A channel whose unit belongs to a (station, column) pair rather than to
+        # a column name. Three stations need it: `test` logs hundredths of a
+        # degree, `aisvn-solar` logs millivolts through a 50/50 divider, and
+        # `aisvn2`'s `lipo2_v` pin is in millivolts for a 2S pack where the
+        # column default describes a single cell. All three were flagged on every
+        # reading, which is the flag saying the band describes other hardware
+        # rather than that the data is wrong.
+        expected = {
+            "test": {"temp_c": {"unit": "0.01 degC", "lo": 2149.0, "hi": 3131.0}},
+            "aisvn-solar": {"battery_v": {"unit": "mV", "lo": 0.0, "hi": 5100.0}},
+            "aisvn2": {"lipo2_v": {"unit": "mV", "lo": 0.0, "hi": 8000.0}},
+        }
+        for station_id, units in expected.items():
+            self.assertEqual(
+                self.by_id[station_id]["channel_units"],
+                units,
+                f"{station_id}'s per-station units are {self.by_id[station_id]['channel_units']}",
+            )
         for record in self.manifest:
-            if record["station_id"] != "test":
+            if record["station_id"] not in expected:
                 self.assertEqual(
                     record["channel_units"],
                     {},

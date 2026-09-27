@@ -209,16 +209,25 @@ check('bench stations are present but flagged as not production', () => {
 })
 
 check('quality.json carries the counts the UI displays', () => {
-  // 730,914 since the collector's account of the test station removed its
+  // 731,885 since the collector's account of the test station removed its
   // 11-column solar layout. The site displays this number, so a change to it has
   // to fail here rather than appear quietly on the Data quality tab.
-  assert.equal(quality.totals.readings, 730914)
+  assert.equal(quality.totals.readings, 731885)
   assert.equal(quality.source_files.total, 364)
-  assert.equal(quality.source_files.without_header, 305)
+  // 299 of 364, and it was 305: the collector's replacement `phumy2b` files and the
+  // re-exported `aisvn` chunks carry header rows, and a header is the only thing
+  // that makes a file not headerless.
+  assert.equal(quality.source_files.without_header, 299)
   assert.ok(Array.isArray(quality.regimes))
   assert.ok(Array.isArray(quality.notes))
-  // 12: the ten recovered from data cells, plus one rationale per excluded file.
-  assert.ok(quality.notes.length >= 12, `expected >= 12 notes, got ${quality.notes.length}`)
+  // 11: the ten recovered from data cells, plus one rationale per excluded file.
+  // It was 12 while two test files were excluded, and one of them is gone from
+  // the archive, so the note went with it. Every note must still have a source
+  // row, which is the property that matters, not the count.
+  assert.ok(quality.notes.length >= 11, `expected >= 11 notes, got ${quality.notes.length}`)
+  for (const note of quality.notes) {
+    assert.ok(note.note && String(note.note).length > 0, `an empty note: ${JSON.stringify(note)}`)
+  }
   // And the exclusion is visible as a groupable category, not a silent hole.
   assert.ok(
     quality.rejects.by_reason.some((r) => r.reason === 'station_setup'),
@@ -235,6 +244,18 @@ check('a folder that changed layout keeps both layouts, not the last one', () =>
   // ingest was never wrong -- it maps each file with its own width-matched
   // header -- but this table is what the report and the channel-coverage tab
   // present as the schema.
+  //
+  // The width is the part of the key that carries the change, so the check is
+  // that it is recorded. `aisvn` no longer *has* two widths to record: the
+  // collector's conversion of `IFTTT_aisvn.xlsx` made all 39 files 11 columns.
+  //
+  // **The key cannot express a difference of column *order* at the same width**,
+  // and the archive now has one: five `aisvn` files put `power` at index 4 where
+  // the converted file puts `load`, so the two collide and files (1)-(7),
+  // which borrow their order from the converted file, store the two channels
+  // swapped. That is asserted where it can be seen -- against the real sheets, in
+  // `tests/test_ingest.py::TestHeadersInOneFolderAgree`, because it is a
+  // statement about the raw archive and this file cannot read an xlsx.
   const defs = quality.metric_defs
   assert.ok(defs.length > 0, 'quality.json has no metric_defs')
   for (const def of defs) {
@@ -243,14 +264,19 @@ check('a folder that changed layout keeps both layouts, not the last one', () =>
       `metric_defs row for ${def.station_id}/${def.source_dir}/${def.col_index} has no width`,
     )
   }
-  const aisvn = defs.filter((d) => d.station_id === 'aisvn' && d.col_index === 4)
-  assert.equal(aisvn.length, 2, `aisvn column 4 should have two layouts, got ${aisvn.length}`)
-  const byWidth = Object.fromEntries(aisvn.map((d) => [d.n_columns, d]))
-  assert.equal(byWidth[10].raw_name, 'load', 'the 10-column layout has load at index 4')
-  assert.equal(byWidth[10].canonical_col, 'load_v')
-  assert.equal(byWidth[11].raw_name, 'power', 'the 11-column layout has power at index 4')
-  assert.equal(byWidth[11].canonical_col, 'power_w')
-  assert.ok(byWidth[10].n_files < byWidth[11].n_files, 'the wider layout should cover more files')
+  const aisvnWidths = new Set(defs.filter((d) => d.station_id === 'aisvn').map((d) => d.n_columns))
+  for (const width of aisvnWidths) {
+    // One meaning per index per width: that is what the key guarantees, and it
+    // is exactly what an order-only difference would violate behind its back.
+    const atIndex4 = defs.filter(
+      (d) => d.station_id === 'aisvn' && d.n_columns === width && d.col_index === 4,
+    )
+    assert.equal(
+      new Set(atIndex4.map((d) => d.raw_name)).size,
+      1,
+      `aisvn width ${width}: index 4 is recorded as more than one column`,
+    )
+  }
   // `test` *was* two unrelated schemas in one folder -- 4 columns of
   // nix/temp/wifi probe and 11 columns of solar channels. The collector's account
   // is that the solar stretch was system setup rather than measurement, so those
@@ -310,14 +336,30 @@ check('a contaminated aggregate is distinguishable from a clean one', () => {
   const value = num(row.power_w_avg)
   assert.ok(value > 600 && value < 700, `expected ~662.57, got ${value}`)
   assert.ok(Math.abs(value) <= 2000, 'the aggregate is inside the band')
-  // And the row-level count is 30 of 30 and therefore useless on its own, because
-  // current2_a reads ~232 against a +/-50 A band for the whole period.
+  // The row-level count is 30 of 30 and therefore useless on its own. The readings
+  // really are stored as 232 against a +/-50 A band, so at ingest every one of them
+  // is flagged -- and that flag is about the *stored reading*, which rule 2 says is
+  // kept as it was written rather than quietly repaired.
   assert.equal(num(row.n_out_of_range), 30, 'the row-level count is saturated here')
-  assert.equal(num(row.current2_a_n_oor), 30)
+  // The rollup's per-metric count disagrees, and now it is the rollup that is
+  // right: `current2_a` is confirmed as milliamps, the published value is 0.232 A
+  // and the count is 0. A flag that the collector has since explained away must not
+  // keep marking a bucket contaminated, or every phumy2 aggregate is suspect and
+  // the count stops meaning anything. The two numbers describe different things --
+  // the reading as stored, and the value as published -- and both are worth having.
+  assert.equal(num(row.current2_a_n_oor), 0, 'the confirmed mA scale must clear the rollup count')
   // It is a single bucket in the whole station-year, so a reader is not looking
   // at a channel that is broadly broken.
   const contaminated = hourly.filter((r) => num(r.power_w_n_oor) > 0)
   assert.ok(contaminated.length < 10, `${contaminated.length} buckets flagged on power_w`)
+  // And the same must hold across the station: no bucket is marked out of range on
+  // a channel whose regime the collector has confirmed, because the value it
+  // publishes is inside the band. This is the regression that produced 416,088
+  // "contaminated" current2_a samples on a channel reading 0.2 A.
+  for (const channel of ['current2_a', 'solar2_v', 'lipo2_v']) {
+    const marked = hourly.filter((r) => num(r[`${channel}_n_oor`]) > 0).length
+    assert.ok(marked < 10, `${marked} phumy2 2020 buckets flagged on ${channel}`)
+  }
 })
 
 check('every channel a station records is offered, not a fixed six', () => {
@@ -457,24 +499,24 @@ function walk(dir) {
 walk(DATA)
 
 check('every daily CSV parses and its day matches its UTC day', () => {
-  // 15 station-years across all 8 stations, 1,181 daily rows. Pinned because a
+  // 16 station-years across all 8 stations, 1,184 daily rows. Pinned because a
   // silent change here means the site is showing a different amount of data than
   // the report claims. It was 13 files and 1,124 rows across 6 stations until
   // 0.7.2, when `test` and `voltage-phumy` stopped being withheld; 1,127 and 1,124
   // before that were the 2020-06-17 schema alignment fix and the aisvn (25) row
-  // exclusions. 1,181 is the whole of `readings_daily`, which `data/baseline.json`
-  // pins independently at 1,181 buckets.
-  assert.equal(dailyFiles, 15, `expected 15 daily csv files, got ${dailyFiles}`)
-  assert.equal(dailyRows, 1181, `expected 1181 daily rows, got ${dailyRows}`)
+  // exclusions; 15 and 1,181 until 0.8.0, when phumy2b gained a 2026 file. Each
+  // count is also pinned independently by `data/baseline.json`.
+  assert.equal(dailyFiles, 16, `expected 16 daily csv files, got ${dailyFiles}`)
+  assert.equal(dailyRows, 1184, `expected 1184 daily rows, got ${dailyRows}`)
 })
 
 check('the hourly rollups are published alongside the daily ones', () => {
-  // Same 15 station-years, 25,528 hourly buckets, and the same number
+  // Same 16 station-years, 25,566 hourly buckets, and the same numbers
   // `data/baseline.json` pins. This is the file the Hour view reads; if it
   // silently stops being written the view 404s rather than degrading, so it is
   // pinned here instead.
-  assert.equal(hourlyFiles, 15, `expected 15 hourly csv files, got ${hourlyFiles}`)
-  assert.equal(hourlyRows, 25528, `expected 25528 hourly rows, got ${hourlyRows}`)
+  assert.equal(hourlyFiles, 16, `expected 16 hourly csv files, got ${hourlyFiles}`)
+  assert.equal(hourlyRows, 25566, `expected 25566 hourly rows, got ${hourlyRows}`)
 })
 
 check('the hourly rollups agree with the daily ones on the same days', () => {
@@ -676,40 +718,112 @@ check('a band does not flag the real readings a distribution test used to drop',
   for (const day of mustSurvive) {
     assert.ok(!flagged.has(day), `${day} was wrongly flagged as out of band`)
   }
-  // Two days are out of band, not four, and that is the point.
+  // One day is out of band, and it is a real fault rather than a unit artefact.
   //
-  // 2020-06-15 and 2020-06-16 were previously raw millivolts in a column
-  // documented as volts -- 4,570 "V" and 20,890 "V" -- and therefore flagged.
-  // The applet was recompiled on 2020-06-17 15:20 local, those two days are
-  // entirely inside the millivolt window, and the collector confirmed the
-  // boundary, so they are now scaled and sit at 4.57 V and 6.54 V.
+  // This was four, then two, and the removals are the point of the exercise.
+  // 2020-06-15 and 2020-06-16 were raw millivolts in a column documented as volts
+  // -- 4,570 "V" and 20,890 "V" -- so they were flagged, and the millivolt regime
+  // that covered them was then confirmed. 2020-06-17 was the recompile day: it
+  // held both units, the rollup refused to pick a side, and it stayed flagged so
+  // the site could see it.
   //
-  // 2020-06-17 is the day the recompile happened, so the day holds both units and
-  // the rollup deliberately leaves it unscaled rather than pick a side. It is
-  // still out of band, and it should be: the site has to be able to see it.
-  assert.deepEqual([...flagged].sort(), ['2020-06-17', '2020-10-01'])
+  // None of that applies any more. The collector converted `IFTTT_aisvn.xlsx` at
+  // source, so the file holds one unit, the straddling bucket is a straddling
+  // bucket no longer, and the seven `aisvn` regimes are 1.0. What is left is
+  // 2020-10-01, which is the collector's own pre-reinstall window -- a hardware
+  // fault, which is the only kind of flag this column should still raise.
+  assert.deepEqual([...flagged].sort(), ['2020-10-01'])
 })
 
-check('a day the collector scaled is no longer published in the wrong unit', () => {
+check('no day is published in a unit its own file no longer uses', () => {
+  // The regression behind the 9,730 on a 0-12 V channel. `build_aggregate` scales a
+  // bucket only when it lies entirely inside a confirmed window, and leaves a
+  // straddling one raw by design. While `IFTTT_aisvn.xlsx` held millivolts that
+  // was honest: the bucket really did hold two units. Once the collector converted
+  // the file, the same rule published raw millivolts beside converted volts, so a
+  // wind channel read 9,730 and a battery 4,307 on a day whose neighbours read
+  // 9.73 and 13.4.
+  //
+  // So: nothing aisvn publishes may sit two orders of magnitude above the band
+  // its channel is recorded against. A real fault overshoots the band by a
+  // factor of two or three -- `aisvn`'s battery peaks at 29.6 V against a 16 V
+  // band, and that is a finding. A unit error overshoots by 1000, and that is a
+  // defect in the build. The bands come from metrics.json, the same table the
+  // site draws against, so this is the same criterion rather than a second one.
+  const metrics = JSON.parse(readFileSync(join(DATA, 'metrics.json'), 'utf8')).bands
+  const aisvnYears = stations.find((s) => s.station_id === 'aisvn').years
+  for (const year of aisvnYears) {
+    const rows = parseCsv(readFileSync(join(DATA, 'aisvn', 'daily', `${year}.csv`), 'utf8'))
+    for (const [channel, band] of Object.entries(metrics)) {
+      const column = `${channel}_avg`
+      if (!band || band.hi === null || !(column in rows[0])) continue
+      const peak = Math.max(
+        ...rows.map((r) => num(r[column])).filter((v) => v !== null).map(Math.abs),
+      );
+      assert.ok(
+        peak < band.hi * 100,
+        `aisvn ${year} ${column}: peak ${peak} is more than 100x the ${band.hi} ` +
+          'band, which is a unit change rather than a fault',
+      )
+    }
+  }
+  // And the channel that has no band at all, checked against a generous ceiling:
+  // a wind input on a 12 V system has no business reading four figures.
+  for (const year of aisvnYears) {
+    const rows = parseCsv(readFileSync(join(DATA, 'aisvn', 'daily', `${year}.csv`), 'utf8'))
+    const peak = Math.max(...rows.map((r) => num(r.wind_v_avg)).filter((v) => v !== null));
+    assert.ok(peak < 100, `aisvn ${year} wind_v_avg peaks at ${peak}, which is not volts`)
+  }
+})
+
+check('aisvn publishes volts, and says which days it converted', () => {
   // The 2020-06-15 and 2020-06-16 rows used to read 4,570 and 6,539 in a column
   // whose unit is volts, because the applet was logging millivolts and the
-  // regime covering that window was still unconfirmed. It is confirmed now, and
-  // these two numbers are the whole reason the band test existed.
+  // regime covering that window was still unconfirmed. It was then confirmed and
+  // those two days were scaled.
+  //
+  // **Neither step applies now.** The collector converted `IFTTT_aisvn.xlsx` at
+  // source, so the file is one unit and the seven `aisvn` regimes are 1.0: there
+  // is nothing to convert and nothing to record as converted. The check is now the
+  // stronger statement -- every published `aisvn` value is already in the unit its
+  // column documents, with no day relying on a rollup conversion at all.
   const rows = parseCsv(readFileSync(join(DATA, 'aisvn', 'daily', '2020.csv'), 'utf8'))
-  const scaled = rows.filter((r) => r.scaled_channels && r.scaled_channels.includes('solar_v'))
-  assert.ok(scaled.length >= 2, `expected at least two scaled days, got ${scaled.length}`)
-  for (const row of scaled) {
-    const value = num(row.solar_v_avg)
-    assert.ok(value !== null && value < 100, `${row.day}: solar_v_avg ${value} is not volts`)
-  }
-  // And the day the recompile happened is left alone rather than half-scaled.
-  const boundary = rows.find((r) => r.day === '2020-06-17')
-  assert.ok(boundary, '2020-06-17 is missing')
-  assert.equal(
-    boundary.scaled_channels,
-    '',
-    'a day containing both units must not be scaled by either',
+  const scaled = rows.filter((r) => r.scaled_channels)
+  assert.deepEqual(
+    scaled.map((r) => r.day),
+    [],
+    `aisvn 2020 still converts ${scaled.length} day(s) in the rollup; the file is one unit now`,
   )
+  for (const day of ['2020-06-15', '2020-06-16', '2020-06-17']) {
+    const row = rows.find((r) => r.day === day)
+    assert.ok(row, `${day} is missing`)
+    const value = num(row.solar_v_avg)
+    assert.ok(
+      value !== null && value > 1 && value < 60,
+      `${day}: solar_v_avg ${value} is not volts in a 0-60 V band`,
+    )
+  }
+  // The boundary day is where the two units used to meet, so it is the day that
+  // would move first if the file were converted unevenly: a partially converted
+  // day averages millivolts and volts together and lands nowhere near either
+  // neighbour. Assert the continuity rather than a number, because a number here
+  // would be a guess about the weather.
+  const at = (day, column) => num(rows.find((r) => r.day === day)?.[column]);
+  const neighbours = [at('2020-06-15', 'solar_v_avg'), at('2020-06-18', 'solar_v_avg')];
+  const boundary = at('2020-06-17', 'solar_v_avg');
+  const low = Math.min(...neighbours);
+  const high = Math.max(...neighbours);
+  assert.ok(
+    boundary >= low - 3 && boundary <= high + 3,
+    `2020-06-17 solar_v_avg is ${boundary}, outside the ${low}..${high} its ` +
+      'neighbours span, which is what a half-converted day looks like',
+  );
+  for (const day of ['2020-06-15', '2020-06-16', '2020-06-17', '2020-06-18']) {
+    assert.ok(
+      at(day, 'battery_v_avg') > 9 && at(day, 'battery_v_avg') < 16,
+      `${day}: battery_v_avg ${at(day, 'battery_v_avg')} is not volts in a 9-16 V band`,
+    );
+  }
 })
 
 check('a flag is not a verdict, and a 100% flag rate is treated as a bad band', () => {

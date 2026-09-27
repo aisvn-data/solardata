@@ -288,12 +288,18 @@ class TestCommittedBaseline(unittest.TestCase):
         # Was 734,908 until the collector's account of the test station was
         # applied: its 11-column solar layout is system setup, not measurement,
         # so 3,994 readings left and 2,150 more were duplicates of rows already
-        # held in the other excluded file.
-        self.assertEqual(counts["readings"], 730914)
+        # held in the other excluded file. Then 730,914, until 0.8.0 when
+        # phumy2b was replaced and now runs to 2026-09-27, adding 971 readings
+        # and one file.
+        self.assertEqual(counts["readings"], 731885)
         self.assertEqual(counts["files"], 364)
         self.assertEqual(counts["stations"], 8)
-        self.assertEqual(counts["duplicate_ts"], 2249)
-        self.assertEqual(counts["notes"], 12)
+        # +1 with the new phumy2b: the 2026 file's boundary row repeats one from
+        # the chunk before it, which the primary key absorbs.
+        self.assertEqual(counts["duplicate_ts"], 2250)
+        # Was 12 until 0.8.0, when one of the two excluded test files was deleted
+        # from the archive and took its rationale note with it.
+        self.assertEqual(counts["notes"], 11)
         # Was 11 until the collector confirmed the aisvn recompile boundary and
         # eight millivolt windows with it, then 3, then 2 once test.solar2_v
         # lost its data. Every remaining one needs the firmware, not more data.
@@ -301,18 +307,28 @@ class TestCommittedBaseline(unittest.TestCase):
         self.assertEqual(counts["headerless_without_donor"], 0)
 
     def test_malformed_rejects_cover_the_excluded_and_nulled_cells(self):
-        # Five reasons, and all five must stay visible rather than be dropped:
+        # Four reasons, and all four must stay visible rather than be dropped:
         #   220,074  the phumy2.solar2_v stuck-at-zero window (2022-10 .. 2023-12)
-        #     1,359  aisvn.temp_c's commissioning placeholder, every reading of 200
-        #     6,144  the test station's 11-column solar layout, excluded as setup
         #       100  the pre-reinstall rows in aisvn/IFTTT_aisvn (25).xlsx
         #         3  repeated header rows
+        #     4,121  the test station's 11-column solar layout, excluded as setup
         # The station_setup rows are the reason this test exists in its current
         # form: a whole-file exclusion is the coarsest decision the pipeline
         # makes, and "we did not ingest this file" is only defensible if every
-        # row of it can still be pointed at.
+        # row of it can still be pointed at. It was 6,144 until 0.8.0, when the
+        # collector deleted one of the two files and 24 rows of the other, so the
+        # remaining 4,121 are the ones still in the archive and still recorded.
+        #
+        # The 1,359 `aisvn.temp_c` commissioning placeholders are gone too: the
+        # collector blanked that column rather than leaving 200 for the pipeline
+        # to null, which is the same decision taken one stage earlier.
+        #
+        # Down one more from 224,298 when the collector re-exported
+        # `IFTTT_aisvn.xlsx` with `power, load` in the majority order: the swapped
+        # `load` column held one cell the `power` mapping now reads, so one reject
+        # became a reading.
         counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
-        self.assertEqual(counts["malformed_rejects"], 227680)
+        self.assertEqual(counts["malformed_rejects"], 224297)
 
     def test_the_excluded_test_files_are_recorded_row_by_row(self):
         # `test` is the station whose solar layout the collector calls system
@@ -343,8 +359,11 @@ class TestCommittedBaseline(unittest.TestCase):
         self.assertEqual(remaining[0], 33377, "test should keep only the probe readings")
         self.assertGreaterEqual(remaining[1], "2020-07-01", "no solar readings may survive")
         self.assertEqual(solar, 0, "the excluded layout's channels must be absent")
-        self.assertEqual(excluded, 6144, "every excluded row is individually recorded")
-        self.assertEqual(files, 2, "both 11-column files are excluded")
+        # One file, not two, and 4,121 rows rather than 6,144: the collector
+        # deleted one of the two 11-column files from the archive and cut 24 rows
+        # of the other. What is left must still be recorded row by row.
+        self.assertEqual(excluded, 4121, "every excluded row is individually recorded")
+        self.assertEqual(files, 1, "one 11-column file remains to be excluded")
 
     def test_the_stuck_channel_window_is_not_silently_zero(self):
         # phumy2.solar2_v reads 0.0 at every hour of 2023, which is a

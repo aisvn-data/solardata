@@ -304,14 +304,26 @@ await check("a station that stores a channel in another unit is drawn in that un
     { temp_c: { unit: '0.01 degC', lo: 2149, hi: 3131 } },
     `test's per-station unit is ${JSON.stringify(test.channel_units)}`,
   )
-  // A station with no override carries an empty object, so the lookup is a
-  // miss rather than an undefined property.
-  for (const station of stations.filter((s) => s.station_id !== 'test')) {
-    assert.deepEqual(
-      station.channel_units,
-      {},
-      `${station.station_id} has a unit override it should not have`,
-    )
+  // A station with no override carries an empty object, so the lookup is a miss
+  // rather than an undefined property. Three stations need one: `test` logs
+  // hundredths of a degree, `aisvn-solar` millivolts through a 50/50 divider, and
+  // `aisvn2`'s lipo2_v pin is in millivolts for a 2S pack where the column default
+  // describes a single cell. Each was flagged on every reading it had.
+  const overrides = Object.fromEntries(
+    stations
+      .filter((s) => Object.keys(s.channel_units ?? {}).length > 0)
+      .map((s) => [s.station_id, Object.keys(s.channel_units).sort()]),
+  );
+  assert.deepEqual(overrides, {
+    test: ['temp_c'],
+    'aisvn-solar': ['battery_v'],
+    aisvn2: ['lipo2_v'],
+  });
+  for (const station of stations) {
+    assert.ok(
+      typeof station.channel_units === 'object' && station.channel_units !== null,
+      `${station.station_id} has no channel_units object`,
+    );
   }
 
   const bands = await loadBands()

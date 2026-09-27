@@ -329,6 +329,144 @@ class TestIngest(unittest.TestCase):
         self.assertEqual(summary.rows_ingested, 10)  # unchanged
 
 
+class TestOorCountsFollowTheConfirmedScale(unittest.TestCase):
+    """An out-of-range count has to be counted in the unit the value is published in.
+
+    `_oor_exprs` counts a sample out of band by testing the value in `readings`, and
+    `_scale_rows` then multiplies the bucket's aggregates by a confirmed regime. For
+    every bucket a scale touches, the two disagree: `phumy2` reported all 416,088 of
+    its `current2_a` samples out of range while publishing 0.155-2.0 A on a +/-50 A
+    band. The site uses these counts to decide whether an aggregate is contaminated,
+    so a stale count marks a station broken on the strength of a conversion the
+    collector has since confirmed.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        out = self.tmp / "out"
+        self.settings = Settings(
+            raw_dir=self.tmp / "raw",
+            out_dir=out,
+            db_path=out / "solardata.db",
+            parquet_dir=out / "parquet",
+            export_dir=self.tmp / "exports",
+            report_json=out / "q.json",
+            report_md=out / "q.md",
+        )
+        folder = self.settings.raw_dir / "aisvn"
+        folder.mkdir(parents=True, exist_ok=True)
+        # Ten readings of 230 "mA" and 12 "V" -- each far outside its own band at
+        # the raw scale, and both comfortably inside once multiplied by 0.001.
+        # `current2` rather than `current`, because `CHANNEL_COLUMNS` is what says
+        # which rollup columns a scale touches, and `current_a` is not one of them.
+        rows = [
+            [
+                "time",
+                "solar",
+                "battery",
+                "current",
+                "current2",
+                "power",
+                "load",
+                "wind",
+                "temp",
+            ],
+            *[
+                [
+                    f"July 14, 2020 at {3 + i // 30:02d}:{(i * 2) % 60:02d}AM",
+                    "12",
+                    "13",
+                    "0.5",
+                    "230",
+                    "20",
+                    "0",
+                    "0",
+                    "300",
+                ]
+                for i in range(10)
+            ],
+        ]
+        write_xlsx(folder / "IFTTT_aisvn.xlsx", rows)
+        ingest(self.settings, verbose=False)
+
+    def _rollups(self, *, confirm: bool) -> dict[str, dict]:
+        from etl.build_aggregate import build
+
+        conn = connect(self.settings.db_path)
+        try:
+            if confirm:
+                # Written directly rather than by running the detector: the contract
+                # under test is that the *aggregate* honours a confirmed regime for the
+                # count as well as the value, and the detector's opinion on whether
+                # 230 is a plausible amp reading is not the subject here.
+                conn.execute(
+                    "INSERT INTO regimes (station_id, column, valid_from, scale,"
+                    " status, detected_by, confidence, notes)"
+                    " VALUES ('aisvn', 'current2_a', '2020-07-13T00:00:00Z', 0.001,"
+                    " 'confirmed', 'test', 'high', 'the collector says milliamps')"
+                )
+                conn.commit()
+            build(conn, verbose=False)
+            return {
+                name: dict(
+                    conn.execute(
+                        f"SELECT * FROM readings_{name} WHERE station_id = 'aisvn'"
+                    ).fetchone()
+                )
+                for name in ("hourly", "daily")
+            }
+        finally:
+            conn.close()
+
+    def test_a_confirmed_scale_clears_the_out_of_range_count(self):
+        # The bug, stated as a number. The raw 230 A is off the +/-50 A band, so
+        # this is exactly what the SQL aggregate alone produces.
+        raw = self._rollups(confirm=False)
+        self.assertEqual(raw["hourly"]["current2_a_n_oor"], 10)
+        self.assertEqual(raw["daily"]["current2_a_n_oor"], 10)
+
+        scaled = self._rollups(confirm=True)
+        self.assertAlmostEqual(scaled["hourly"]["current2_a_avg"], 0.230, places=6)
+        self.assertEqual(scaled["hourly"]["current2_a_n_oor"], 0)
+        # And the daily row, which is a SUM of the hourly counts, has to follow --
+        # otherwise the two tables disagree about the same day, which is the shape
+        # of "corrected" with nothing corrected.
+        self.assertEqual(scaled["daily"]["current2_a_n_oor"], 0)
+
+    def test_the_daily_value_is_not_scaled_twice(self):
+        # The daily rollup is derived from the hourly table, and the hourly values
+        # are scaled before that happens. Scaling the day's mean again applies the
+        # same regime to both levels: `phumy2`'s daily `current2_a` came out at
+        # 0.00023 A for a reading that is 0.23 A, published by the site. The daily
+        # row still has to *record* the regime, because that is what tells a reader
+        # the number is in a converted unit.
+        scaled = self._rollups(confirm=True)
+        self.assertAlmostEqual(scaled["daily"]["current2_a_avg"], 0.230, places=6)
+        self.assertEqual(scaled["daily"]["current2_a_avg"], scaled["hourly"]["current2_a_avg"])
+        self.assertIn("current2_a", scaled["daily"]["scaled_channels"])
+
+    def test_an_unconfirmed_regime_leaves_the_count_alone(self):
+        # Only a *confirmed* regime is applied (rule 3), and the count has to obey
+        # the same rule: a detector proposal must not quietly clear a flag.
+        from etl.build_aggregate import build
+
+        conn = connect(self.settings.db_path)
+        try:
+            conn.execute(
+                "INSERT INTO regimes (station_id, column, valid_from, scale, status,"
+                " detected_by, confidence) VALUES ('aisvn', 'current_a',"
+                " '2020-07-13T00:00:00Z', 0.001, 'unconfirmed', 'test', 'medium')"
+            )
+            conn.commit()
+            build(conn, verbose=False)
+            row = conn.execute(
+                "SELECT current2_a_n_oor FROM readings_hourly WHERE station_id = 'aisvn'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["current2_a_n_oor"], 10)
+
+
 class TestHeaderlessSchemaInheritance(unittest.TestCase):
     """The regression that mattered: headerless files must not lose their data.
 
@@ -727,6 +865,67 @@ class TestDonorWidthMatching(unittest.TestCase):
         ).fetchone()
         conn.close()
         self.assertEqual(row["schema_donor"], "aisvn/IFTTT_aisvn.xlsx")
+
+
+class TestHeadersInOneFolderAgree(unittest.TestCase):
+    """Two files of the same width must not disagree about what a column is.
+
+    `metric_defs` is keyed on ``(station_id, source_dir, n_columns, col_index)``.
+    That is enough to hold a folder that *gained* a column -- the pre- and
+    post-recompile `aisvn` layouts are 10 and 11 columns and both survive -- and
+    it is **not** enough to hold a folder whose files are the same width in a
+    different column *order*. The two collide on one key and the later write
+    replaces the earlier one, so the table reports one meaning for a folder that
+    holds two, and every headerless file in it inherits whichever donor was
+    chosen.
+
+    That is not hypothetical. The collector converted `IFTTT_aisvn.xlsx` and for a
+    while its header read ``load, power`` at indices 4 and 5, where `(8)` and
+    `(24)`-`(27)` read ``power, load``. Files (1)-(7) are headerless and sit after
+    the converted file, so they borrowed its order and their two channels were
+    stored swapped. The collector has since re-exported the file in the majority
+    order, and this is what catches a regression back to the old one.
+
+    Asserted against the real archive rather than a fixture, because the fixture
+    would have to reproduce the archive to fail, and the archive is what is wrong.
+    """
+
+    def test_no_two_files_of_one_width_disagree_about_a_column(self):
+        from etl.readers.xlsx import detect_block
+
+        raw_dir = Path(__file__).resolve().parent.parent / "data" / "raw"
+        if not raw_dir.is_dir():
+            self.skipTest("no data/raw; clone the repository to run this")
+
+        by_layout: dict[tuple[str, int], dict[int, str]] = {}
+        for path in sorted(raw_dir.rglob("*.xlsx")):
+            block = detect_block(path)
+            if not block.header:
+                continue  # a headerless file has no opinion of its own
+            folder = str(path.parent.relative_to(raw_dir))
+            # Index 0 is the timestamp column and is excluded from every mapping by
+            # `map_headers`, so how the sheet spells it cannot change a reading.
+            # `phumy2` writes `date` on some chunks and `time` on others, and that
+            # difference is cosmetic -- asserting on it would be asserting on a
+            # label the pipeline never reads. Only the data columns are a contract.
+            names = {i: n for i, n in enumerate(block.header) if n and i > 0}
+            key = (folder, block.n_columns)
+            previous = by_layout.setdefault(key, {})
+            for index, name in names.items():
+                other = previous.get(index)
+                if other is None:
+                    previous[index] = name
+                    continue
+                if other != name:
+                    self.fail(
+                        f"{folder}: a {block.n_columns}-column file says column "
+                        f"{index} is {name!r} where an earlier one says {other!r} "
+                        f"({path.name}). metric_defs is keyed on width, so one of "
+                        "the two meanings replaces the other and every headerless "
+                        "file inherits whichever donor it was given. Either make the "
+                        "column order identical, or give the two layouts different "
+                        "widths."
+                    )
 
 
 class TestTimezoneIsHoChiMinh(unittest.TestCase):
