@@ -35,9 +35,6 @@ from etl.config import CHANNEL_UNITS
 from etl.normalize.metrics import METRIC_BY_COLUMN
 from etl.rollup_schema import CHANNELS, COUNTED, channel_column, oor_columns
 
-from etl.normalize.metrics import METRIC_BY_COLUMN
-from etl.rollup_schema import CHANNELS, COUNTED, channel_column, oor_columns
-
 #: Which rollup columns each canonical channel feeds, so one scale decision can
 #: be applied to every aggregate of that channel.
 #:
