@@ -301,17 +301,18 @@ class TestCommittedBaseline(unittest.TestCase):
         self.assertEqual(counts["headerless_without_donor"], 0)
 
     def test_malformed_rejects_cover_the_excluded_and_nulled_cells(self):
-        # Four reasons, and all four must stay visible rather than be dropped:
+        # Five reasons, and all five must stay visible rather than be dropped:
         #   220,074  the phumy2.solar2_v stuck-at-zero window (2022-10 .. 2023-12)
+        #     1,359  aisvn.temp_c's commissioning placeholder, every reading of 200
         #     6,144  the test station's 11-column solar layout, excluded as setup
         #       100  the pre-reinstall rows in aisvn/IFTTT_aisvn (25).xlsx
         #         3  repeated header rows
         # The station_setup rows are the reason this test exists in its current
         # form: a whole-file exclusion is the coarsest decision the pipeline
-        # makes, and "we did not ingest these two files" is only defensible if
-        # every row of them can still be pointed at.
+        # makes, and "we did not ingest this file" is only defensible if every
+        # row of it can still be pointed at.
         counts = json.loads(self.PATH.read_text(encoding="utf-8"))["counts"]
-        self.assertEqual(counts["malformed_rejects"], 226321)
+        self.assertEqual(counts["malformed_rejects"], 227680)
 
     def test_the_excluded_test_files_are_recorded_row_by_row(self):
         # `test` is the station whose solar layout the collector calls system

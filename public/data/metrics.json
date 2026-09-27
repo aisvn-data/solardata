@@ -100,9 +100,9 @@
       "description": "Wind turbine input (unused, reads 0)"
     },
     "temp_c": {
-      "unit": "degC",
-      "lo": 5.0,
-      "hi": 45.0,
+      "unit": "0.1 degC",
+      "lo": 50.0,
+      "hi": 900.0,
       "kind": "temperature",
       "description": "Ambient temperature (Ho Chi City)"
     },

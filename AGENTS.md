@@ -168,7 +168,7 @@ passes, so treat the report as the acceptance test for data changes — and let
 `verify` enforce it, because it is the only check that sees the real archive.
 
 Current baseline, for comparison: **730,914 readings** across 8 stations from
-364 files, 2,249 duplicate timestamps absorbed, 226,321 rejected cells, 12
+364 files, 2,249 duplicate timestamps absorbed, 227,680 rejected cells, 12
 recovered notes, 2 unconfirmed scale regimes.
 
 ### When the numbers *should* move
@@ -367,10 +367,15 @@ These are recorded, not solved. Do not quietly decide them in code.
    row of them is recorded in `rejects` with reason `station_setup`. What remains
    is 33,377 readings from the 4-column `nix`/`temp`/`wifi` probe, 2020-07-05 to
    2020-08-21. `voltage-phumy` is an ADC calibration sheet.
-9. **`aisvn.temp_c` is in tenths before 2020-06-17 15:20 local and degrees
-   after.** 1,359 readings are the placeholder `200`, 114 are tenths (335 =
-   33.5 °C), and 55,261 after the recompile are plain degrees. The rollup will
-   store tenths throughout; until then the two are mixed in one column.
+9. **`aisvn.temp_c` is stored in tenths of a degree**, and `phumy2.temp_c` in
+   tenths, but `test.temp_c` in **hundredths** — the collector asked for that
+   resolution on the probe. A plausibility band is keyed by column, so it can
+   only describe one unit; `config.CHANNEL_UNITS` carries a per-station override
+   and it is applied both in `coerce_cell` and in the aggregate's per-metric
+   counts. Two places, because applying it in one is the same bug one level up.
+   The `aisvn` placeholder readings of `200` are nulled as `no_signal`, not
+   flagged, and the window ends at 11:14 local precisely so the 114 genuine tenths
+   that follow survive.
 
 ## Conventions
 

@@ -81,9 +81,27 @@ COUNTED: tuple[str, ...] = tuple(
 )
 
 
+#: Channels whose *stored* unit is not the unit the column name suggests.
+#:
+#: ``temp_c`` is stored in tenths of a degree, because the collector confirmed
+#: that ``aisvn`` wrote tenths before the 2020-06-17 recompile and plain degrees
+#: after, and one rollup column cannot hold both. Naming the column
+#: ``temp_c_avg`` would put 31.4 degC in a field documented as degrees, which is
+#: the same mismatch ``metric_defs`` had and that cost two commits to unpick.
+#: The prefix makes the unit readable in the CSV header and in the SQL.
+#:
+#: Only the *value* columns are renamed. ``<channel>_n_oor`` keeps the plain
+#: channel name because it is a count rather than a value, and it is computed
+#: before the correction is applied: it counts samples outside the band, in the
+#: band''s own unit, which is where ``coerce_cell`` did the test.
+COLUMN_PREFIX: dict[str, str] = {
+    "temp_c": "temp_deci_c",
+}
+
+
 def channel_column(channel: str, stat: str) -> str:
     """``('battery_v', 'min')`` -> ``'battery_v_min'``."""
-    return f"{channel}_{stat}"
+    return f"{COLUMN_PREFIX.get(channel, channel)}_{stat}"
 
 
 def value_columns() -> tuple[str, ...]:

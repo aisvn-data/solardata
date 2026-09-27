@@ -77,6 +77,8 @@ def coerce_number(
     metric: Metric | None,
     *,
     free_text_out: list[str] | None = None,
+    multiply: float = 1.0,
+    band: tuple[float, float] | None = None,
 ) -> CellResult:
     """Turn one raw cell string into a typed value plus quality flags.
 
@@ -87,6 +89,16 @@ def coerce_number(
         free_text_out: if given, long non-numeric strings are appended here so
             the caller can route them to the ``notes`` table instead of losing
             them.
+        multiply: a collector-confirmed unit correction applied to the parsed
+            number *before* the sentinel and plausibility checks, so both see
+            the value in the column's canonical unit.
+
+            It has to be here rather than in the aggregate. ``aisvn.temp_c``
+            wrote tenths of a degree before the 2020-06-17 recompile and plain
+            degrees after, so a 33.5 °C reading arrives as ``335`` and a band of
+            5-45 flags every genuine measurement in the archive. Correcting it
+            after ingest would mean the flags were already wrong, and rule 2
+            says a flag a reader cannot trust is worse than no flag.
     """
     text = (raw or "").strip()
     if not text:
@@ -106,18 +118,30 @@ def coerce_number(
     # 2. Sentinel. Compared as a number, not as text, because the XLSX reader
     #    normalises integral floats to their integer spelling: a cell holding
     #    342.0 arrives as "342", so a string-keyed table misses it silently.
+    #
+    #    Checked in the *raw* unit, before `multiply`. The sentinels are collector
+    #    artefacts of the transport, not of the channel: 342.1 is what the
+    #    hardware wrote when its ADC railed, and it wrote the same 342.1 whatever
+    #    unit the column was in. Scaling first turns it into 3421.0, which is
+    #    neither a sentinel nor in any band, and it lands in the store as data.
     if number in SENTINELS:
         return CellResult(None, (FLAG_SENTINEL,))
 
-    # 3. Plausibility.  Only a flag -- the value is kept, because during a
+    # 3. The collector-confirmed unit correction, applied before the plausibility
+    #    check so the band is tested in the unit the value will be stored in.
+    if multiply != 1.0:
+        number = round(number * multiply, 6)
+
+    # 4. Plausibility.  Only a flag -- the value is kept, because during a
     #    firmware change the "implausible" values are exactly the interesting
     #    ones and a human still has to adjudicate them.
-    if (
-        metric is not None
-        and metric.lo is not None
-        and metric.hi is not None
-        and not (metric.lo <= number <= metric.hi)
-    ):
+    #
+    #    `band` overrides the metric's own range when the station's declared
+    #    unit differs from the column's default. Everything here is in the unit
+    #    the value will be *stored* in, which is the only unit in which a range
+    #    means anything.
+    lo, hi = band if band is not None else (metric.lo, metric.hi) if metric else (None, None)
+    if lo is not None and hi is not None and not (lo <= number <= hi):
         return CellResult(number, (FLAG_OUT_OF_RANGE,))
 
     return CellResult(number)
@@ -128,20 +152,27 @@ def coerce_cell(
     metric: Metric | None,
     *,
     free_text_out: list[str] | None = None,
+    multiply: float = 1.0,
+    band: tuple[float, float] | None = None,
 ) -> CellResult:
     """Coerce one raw cell according to its metric's declared kind.
 
     Text-kind metrics such as ``event`` hold words, not numbers.  Routing them
-    through :func:`coerce_number` would null every value and flag the whole
+    through :func:`coerce_number`` would null every value and flag the whole
     column, which is how ``solar-2020-05``'s 12,920 ``solar_reading`` labels
     were being lost.
+
+    ``band`` overrides the metric's own range for a station whose declared unit
+    differs from the column's default -- ``test`` logs temperature in hundredths
+    of a degree where every other station uses tenths. See
+    ``config.CHANNEL_UNITS``.
     """
     text = (raw or "").strip()
     if not text:
         return CellResult(None)
     if metric is not None and metric.kind == "text":
         return CellResult(text)
-    return coerce_number(text, metric, free_text_out=free_text_out)
+    return coerce_number(text, metric, free_text_out=free_text_out, multiply=multiply, band=band)
 
 
 def is_clip_candidate(value: float | None) -> bool:

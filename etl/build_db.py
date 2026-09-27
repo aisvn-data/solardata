@@ -23,6 +23,7 @@ from pathlib import Path
 from etl import __version__, stations
 from etl.config import (
     BAD_WINDOWS,
+    CHANNEL_UNITS,
     FILE_EXCLUSIONS,
     FLAG_DUPLICATE_TS,
     FLAG_MISALIGNED,
@@ -31,6 +32,7 @@ from etl.config import (
     REASON_ROW_FLOOR,
     REASON_SETUP,
     ROW_EXCLUSIONS,
+    UNIT_FIXES,
     Settings,
 )
 from etl.db import connect, finish_run, init_schema, log_build, start_run
@@ -386,6 +388,36 @@ def _null_windows(
     return tuple(flags), reasons, columns
 
 
+def _unit_fix(station_id: str, column: str, ts_utc: str) -> float:
+    """The collector-confirmed multiplier for this cell, or 1.0.
+
+    Applied to the parsed number before the sentinel and plausibility checks, so
+    a value is band-tested in the unit it will be stored in. See
+    ``config.UNIT_FIXES`` for why this cannot live in the aggregate.
+    """
+    total = 1.0
+    for fix_station, fix_column, valid_from, valid_to, multiply, _why in UNIT_FIXES:
+        if fix_station != station_id or fix_column != column:
+            continue
+        if valid_from <= ts_utc and (valid_to is None or ts_utc < valid_to):
+            total *= multiply
+    return total
+
+
+def _band_override(station_id: str, column: str) -> tuple[float, float] | None:
+    """A per-station plausibility range, where the station's unit differs.
+
+    The band table is keyed by column and so describes one unit for every
+    station logging it. ``test`` records temperature in hundredths of a degree
+    where every other station uses tenths, so without this all 33,377 of its
+    readings are flagged against a range they cannot satisfy.
+    """
+    for fix_station, fix_column, _unit, lo, hi, _why in CHANNEL_UNITS:
+        if fix_station == station_id and fix_column == column:
+            return lo, hi
+    return None
+
+
 def _file_exclusion_reason(rel_path: str) -> str | None:
     """The reason this source file is excluded, or ``None`` to ingest it.
 
@@ -563,7 +595,13 @@ def _insert_file(
             if column is None:
                 continue
             metric = METRIC_BY_COLUMN.get(column)
-            result = coerce_cell(cells[index], metric, free_text_out=free_text)
+            result = coerce_cell(
+                cells[index],
+                metric,
+                free_text_out=free_text,
+                multiply=_unit_fix(station.station_id, column, ts_utc),
+                band=_band_override(station.station_id, column),
+            )
             row[column] = result.value
             flags.append(result.flags)
 

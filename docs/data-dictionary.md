@@ -56,10 +56,10 @@ station did not have it, and NULL is not the same as 0.**
 | `power_w` | REAL | W | Banded ±2000 W |
 | `load_v`, `load1_v`, `load2_v` | REAL | V | Meaning disputed — see open question 5 |
 | `wind_v` | REAL | V | Reads 0 throughout; no plausible band, so never flagged |
-| `temp_c` | REAL | degC | Banded 5–45 degC |
-| `lipo_v`, `lipo2_v` | REAL | V | Single-cell pack, banded 2.5–4.35 V |
+| `temp_c` | REAL | 0.1 degC | Stored in **tenths** of a degree, banded 50–900. The applet wrote tenths before the 2020-06-17 recompile and plain degrees after, so the correction is applied at ingest (`config.UNIT_FIXES`); one column cannot hold both. `test` stores **hundredths**, banded 2149–3131, via the per-station override in `config.CHANNEL_UNITS` |
+| `lipo_v`, `lipo2_v` | REAL | V | Single-cell pack, banded 2.5-4.35 V. `aisvn2.lipo2_v` reads 6.3-7.1 V, which is a 2S pack; the band is still written for 1S and the disagreement is deliberate until the hardware is confirmed |
 | `adc_raw`, `voltage_adc`, `digital_adc`, `dump_adc` | REAL | count | Uncalibrated, no band, never flagged |
-| `boot_count` | INTEGER | count | Monotonic logger counter; **resets on reboot** |
+| `boot_count` | INTEGER | count | Successful submissions since the last reboot. Increments by exactly 1 on 98.0% of consecutive pairs; ~650 resets across the archive, and no timestamp carries two different values |
 | `millis_ms` | INTEGER | ms | `millis()` since boot |
 | `nix_raw`, `wifi_raw` | REAL | count | `test` bench only |
 | `event` | TEXT | — | IFTTT event name, `solar-2020-05` only |
@@ -91,6 +91,22 @@ is why a flat lookup is not enough to explain every flagged row.
 `duplicate_ts` appears **only** as a `rejects.reason`, never in
 `readings.quality_flags`: the primary key absorbs the second copy, so no
 `readings` row exists to carry the flag.
+
+`rejects.reason` is a **stable category, never a sentence**, and the archive is
+where the cost of breaking that rule shows: storing the collector's ~300-character
+note as the reason on every cell the `NULL_WINDOWS` path nulled put one paragraph
+into 220,074 rows, cost 80.6 MiB, and made `rejects` as large as `readings`. The
+prose lives once, in `etl/config.py`, and `report.collect` republishes it to
+`quality.json` as `null_windows` and `bad_windows` next to the number of rows each
+explains. `check_frontend.mjs` has a check by name for this.
+
+| `rejects.reason` | Rows | What it means |
+|---|---:|---|
+| `null_window` | 221,433 | A `NULL_WINDOWS` entry: the stored number was a false claim — 0.0 V from a panel, or 200 as a stand-in for "no temperature". Value nulled |
+| `station_setup` | 6,144 | A `FILE_EXCLUSIONS` entry: the whole source file is the collector's system setup rather than measurement. Every data row is recorded individually, with its sheet row and timestamp |
+| `duplicate_ts` | 2,249 | Absorbed by the `(station_id, ts_utc)` primary key; the instant is in `raw_value` |
+| `pre_reinstall` | 100 | A `ROW_EXCLUSIONS` entry: rows before a hardware reinstall the collector confirmed unusable |
+| `repeated header row` | 3 | A header row repeated inside a headerless chunk |
 
 ### `metric_defs`
 

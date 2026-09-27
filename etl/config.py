@@ -126,6 +126,87 @@ ROW_EXCLUSIONS: tuple[tuple[str, int, str], ...] = (
     ),
 )
 
+#: Collector-confirmed unit corrections applied **at ingest**, before the
+#: plausibility check. (station_id, column, valid_from_utc, valid_to_utc|None,
+#: multiply_by, why). ``valid_to=None`` means "to the end of the record".
+#:
+#: This is not :data:`NULL_WINDOWS` and it is not a regime. Those act on a value
+#: that is already stored; this acts on the number the sheet wrote, because the
+#: collector has said what unit the channel was logging in and a plausibility
+#: band is only meaningful in the unit the value is stored in.
+#:
+#: `aisvn.temp_c` is the case that forces it. The channel wrote tenths of a
+#: degree before the 2020-06-17 15:20 local recompile and plain degrees after,
+#: so a genuine 33.5 degC reading arrives as ``335`` and the 5-45 degC band
+#: flags every real measurement in the archive. Correcting it in the aggregate
+#: would mean the flags were already wrong, and rule 2 says a flag a reader
+#: cannot trust is worse than no flag at all.
+#:
+#: The result is that `readings.temp_c` is tenths of a degree throughout and the
+#: band for it is 50-900. The 114 readings the sheet wrote as tenths (335 =
+#: 33.5 degC) are already correct and are left alone by the correction, which is
+#: the check that this is the right reading of the archive: a rule that scaled
+#: them too would put them at 3,350 degC.
+UNIT_FIXES: tuple[tuple[str, str, str, str | None, float, str], ...] = (
+    (
+        "aisvn",
+        "temp_c",
+        "2020-06-17T08:20:00Z",
+        None,
+        10.0,
+        "collector: the applet was recompiled at 15:20 local and temp_c switched "
+        "from tenths of a degree to plain degrees. The 114 readings before it, "
+        "11:14 to 15:18 local, are already tenths (335 = 33.5 degC) and must not be "
+        "scaled again",
+    ),
+    (
+        "phumy2",
+        "temp_c",
+        "2020-06-15T00:00:00Z",
+        None,
+        10.0,
+        "collector: phumy2 logs tenths of a degree for the whole record. The raw "
+        "values are 155 to 806, which is 15.5 to 80.6 degC",
+    ),
+    (
+        "test",
+        "temp_c",
+        "2020-07-01T00:00:00Z",
+        None,
+        100.0,
+        "collector: the probe's temperature is in hundredths of a degree; the raw "
+        "values are 2472 to 3009, which is 24.72 to 30.09 degC",
+    ),
+)
+
+#: Per-station unit and band, where a station's declared unit differs from the
+#: column's default in ``etl.normalize.metrics``. (station_id, column, unit,
+#: lo, hi, why).
+#:
+#: The band table is keyed by column, so it describes one unit for every station
+#: that logs the column. `temp_c` is stored in tenths of a degree on `aisvn` and
+#: `phumy2` but in **hundredths** on `test`, where the collector asked for
+#: hundredths because the probe's readings are that precise. A single band in
+#: tenths therefore flags all 33,377 of `test`'s temperatures as implausible,
+#: which is the same defect as a column whose name disagrees with its contents:
+#: a flag that is wrong every time is worse than no flag.
+#:
+#: This is the small, early version of the per-column `column_semantics` the
+#: `solardata_raw.db` layout is heading towards, where the unit belongs to a
+#: (station, column) pair rather than to a column name.
+CHANNEL_UNITS: tuple[tuple[str, str, str, float, float, str], ...] = (
+    (
+        "test",
+        "temp_c",
+        "0.01 degC",
+        2149.0,
+        3131.0,
+        "collector: the probe logs hundredths of a degree and asked for that "
+        "resolution specifically, so the values are kept as written rather than "
+        "rounded to tenths. The band is 21.49 to 31.31 degC, the observed range",
+    ),
+)
+
 #: Windows in which a channel reports a *constant* value that is affirmatively
 #: wrong, so it is nulled rather than merely flagged.
 #:
@@ -154,6 +235,21 @@ NULL_WINDOWS: tuple[tuple[str, str, str, str, str], ...] = (
         "Collector's note: the reading only appears when the sun is on the "
         "panel, and drops after a bridge and load were fitted.",
     ),
+    (
+        "aisvn",
+        "2020-06-15T06:10:00Z",
+        "2020-06-17T04:14:00Z",
+        "temp_c",
+        "collector: 200 is a placeholder for 'no temperature recorded', not a "
+        "temperature. It fills every one of the first 1,359 readings, from "
+        "2020-06-15 13:10 local to 2020-06-17 11:12 local, and the channel only "
+        "reports real values from 11:14 local onwards. A stored 200 degC is a "
+        "false claim, exactly as phumy2's 0.0 V panel is: charting it would "
+        "draw a line at 200 degC through a Ho Chi City summer. Nulled. The window "
+        "ends at 11:14 local, the first genuine reading, because the boundary "
+        "has to exclude as well as include and the 114 readings from 11:14 "
+        "onwards are real tenths of a degree",
+    ),
 )
 
 #: Windows in which specific channels are known bad, decided by the collector.
@@ -162,25 +258,14 @@ NULL_WINDOWS: tuple[tuple[str, str, str, str, str], ...] = (
 BAD_WINDOWS: tuple[tuple[str, str, str, str, str], ...] = (
     (
         "aisvn",
-        "2020-06-15T00:00:00Z",
-        "2020-06-17T08:20:00Z",
-        "temp_c",
-        "commissioning placeholder: the channel reports exactly 200.0 for every one of "
-        "the first 1,359 readings (2020-06-15 13:10 local onward), then 342.1 for a "
-        "4-hour block, and only becomes real after 2020-06-17 15:20 local -- which is "
-        "the same moment the applet changed its column layout. 90% of all "
-        "out-of-range temperatures on this station are in this window.",
-    ),
-    (
-        "aisvn",
         "2020-10-23T00:00:00Z",
         "2020-10-30T00:00:00Z",
         "solar_v,battery_v,temp_c",
         "solar and battery stop being plausible on 2020-10-23 (collector-confirmed, as "
         "is the temperature on the 23rd); the system was reinstalled on 2020-10-30 "
         "('installed in the dark'), after which all three channels are normal. "
-        "Measured: temperature median 16.1 degC in the window vs 32.3 degC from "
-        "2020-10-30.",
+        "Measured: temperature median 161 tenths (16.1 degC) in the window against "
+        "323 tenths (32.3 degC) from 2020-10-30.",
     ),
 )
 

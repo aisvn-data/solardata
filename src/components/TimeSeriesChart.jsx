@@ -262,16 +262,18 @@ export default function TimeSeriesChart({
 
 /** How a flagged value should be described in one line. */
 function levelText(breach) {
+  const d = breach.divisor ?? 1
   if (breach.level === 'contaminated') {
     if (breach.oor > 0 && breach.band?.lo !== null && breach.band?.lo !== undefined) {
       return `built entirely from ${breach.oor} out-of-band ${breach.oor === 1 ? 'sample' : 'samples'}`
     }
-    return 'outside the recorded band'
+    return `outside the recorded ${breach.band.lo / d}–${breach.band.hi / d} band`
   }
   if (breach.level === 'partial') {
     return `built from ${breach.n - breach.oor} good and ${breach.oor} out-of-band ${breach.oor === 1 ? 'sample' : 'samples'}`
   }
-  return `outside this station's recorded range (${breach.range ? fmt(breach.range.min) : ''}…${breach.range ? fmt(breach.range.max) : ''})`
+  const r = breach.range
+  return `outside this station's recorded range (${r ? fmt(r.min / d) : ''}…${r ? fmt(r.max / d) : ''})`
 }
 
 function fmt(value) {
@@ -304,7 +306,7 @@ function Readout({ row, series }) {
         )}
       </span>
       {series.map((item) => {
-        const { value, channel, stat } = pick(row, item)
+        const { value, display, stat } = pick(row, item)
         const breach = (row.breaches ?? []).find((b) => b.metric === item.key)
         return (
           <span key={item.key} className="readout-item">
@@ -314,11 +316,9 @@ function Readout({ row, series }) {
             {value === null ? (
               <em className="muted">no data</em>
             ) : (
-              `${value.toFixed(item.decimals ?? 1)}${item.unit ? ` ${item.unit}` : ''}`
+              `${display.toFixed(item.decimals ?? 1)}${item.unit ? ` ${item.unit}` : ''}`
             )}
-            {breach && (
-              <em className={`breach ${breach.level}`}> {levelText(breach)}</em>
-            )}
+            {breach && <em className={`breach ${breach.level}`}> {levelText(breach)}</em>}
           </span>
         )
       })}
@@ -364,14 +364,14 @@ function FlaggedTable({ rows, series }) {
                 <code>{breach.channel}</code>
               </td>
               <td>
-                {fmt(breach.value)} {breach.band?.unit ?? ''}
+                {fmt(breach.display)} {breach.band?.unit ?? ''}
               </td>
               <td className={`breach-cell ${breach.level}`}>
                 {breach.level === 'contaminated'
-                  ? `outside the ${breach.band?.lo}–${breach.band?.hi} band, or built entirely from flagged samples`
+                  ? `outside the ${breach.band?.lo / (breach.divisor ?? 1)}–${breach.band?.hi / (breach.divisor ?? 1)} band, or built entirely from flagged samples`
                   : breach.level === 'partial'
-                    ? `${breach.oor} of ${breach.n} samples outside the ${breach.band?.lo}–${breach.band?.hi} band`
-                    : `outside this station's range ${fmt(breach.range?.min)}–${fmt(breach.range?.max)}`}
+                    ? `${breach.oor} of ${breach.n} samples outside the ${breach.band?.lo / (breach.divisor ?? 1)}–${breach.band?.hi / (breach.divisor ?? 1)} band`
+                    : `outside this station's range ${fmt(breach.range?.min / (breach.divisor ?? 1))}–${fmt(breach.range?.max / (breach.divisor ?? 1))}`}
               </td>
               <td>
                 {breach.n}

@@ -5,7 +5,7 @@
     "files": 364,
     "stations": 8,
     "duplicate_ts": 2249,
-    "malformed_rejects": 226321,
+    "malformed_rejects": 227680,
     "notes": 12,
     "unconfirmed_regimes": 2,
     "headerless_without_donor": 0,
@@ -14,8 +14,8 @@
   },
   "recorded": {
     "tool_version": "0.7.1",
-    "run_started_at": "2026-09-26T17:50:11Z",
-    "ingest_notes": "364 files; 730914 rows; 2249 duplicate timestamps absorbed; 228570 rejected",
-    "reason": "exclude the test station's 11-column solar layout as system setup per the collector, by source file rather than by date: IFTTT_test.xlsx and IFTTT_test (1).xlsx are the only 11-column files in that folder, and (1).xlsx uniquely contributes 4,120 readings dated 2020-07-01 to 07-08, after the probe had already begun. test keeps 33,377 probe readings and no solar channel. readings 734908 -> 730914, duplicate_ts 4399 -> 2249 (2,150 excluded rows were duplicates), malformed_rejects +6,141 (6,144 rows recorded individually as station_setup), notes +2 (one rationale per file), unconfirmed_regimes 3 -> 2 (test.solar2_v no longer has data)."
+    "run_started_at": "2026-09-26T18:24:44Z",
+    "ingest_notes": "364 files; 730914 rows; 2249 duplicate timestamps absorbed; 229929 rejected",
+    "reason": "aisvn.temp_c is stored in tenths of a degree: the collector confirms the applet wrote tenths before the 2020-06-17 15:20 recompile and plain degrees after, so the x10 correction is applied at ingest rather than in the aggregate, where the plausibility band is tested. The 1,359 placeholder readings of 200 are nulled as no_signal (malformed_rejects +1,359). phumy2.temp_c and test.temp_c get the same treatment, the latter in hundredths per the collector, with a per-station band because one band cannot describe both units. aisvn's remaining 114 readings, 317 to 341, are genuine tenths and are left alone."
   }
 }

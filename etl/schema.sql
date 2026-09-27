@@ -263,9 +263,9 @@ CREATE TABLE IF NOT EXISTS readings_hourly (
     load1_v_avg REAL,
     load2_v_avg REAL,
     wind_v_avg REAL,
-    temp_c_avg REAL,
-    temp_c_min REAL,
-    temp_c_max REAL,
+    temp_deci_c_avg REAL,
+    temp_deci_c_min REAL,
+    temp_deci_c_max REAL,
     -- The two bench ADC channels, uncalibrated. solar-2020-05 is a bench sheet
     -- whose only measurements are these and a LiPo pack; without them that station
     -- offers a single channel, which reads as broken rather than small. Neither has
@@ -333,9 +333,9 @@ CREATE TABLE IF NOT EXISTS readings_daily (
     load1_v_avg REAL,
     load2_v_avg REAL,
     wind_v_avg REAL,
-    temp_c_avg REAL,
-    temp_c_min REAL,
-    temp_c_max REAL,
+    temp_deci_c_avg REAL,
+    temp_deci_c_min REAL,
+    temp_deci_c_max REAL,
     -- The two bench ADC channels, uncalibrated. solar-2020-05 is a bench sheet
     -- whose only measurements are these and a LiPo pack; without them that station
     -- offers a single channel, which reads as broken rather than small. Neither has

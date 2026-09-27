@@ -171,7 +171,7 @@
         "with_header": 5,
         "rows_ingested": 77526,
         "duplicate_ts": 22,
-        "rejected": 123,
+        "rejected": 1482,
         "first_ts": "2020-06-15T06:10:00Z",
         "last_ts": "2022-02-22T21:42:00Z"
       },
@@ -233,31 +233,32 @@
     ]
   },
   "quality_flags": {
-    "out_of_range": 380675,
+    "out_of_range": 380656,
     "out_of_range,no_signal:solar2_v": 220062,
-    "sentinel,out_of_range": 16060,
+    "sentinel,out_of_range": 16059,
     "out_of_range,sentinel": 12525,
     "out_of_range,bad_window:solar_v,bad_window:battery_v,bad_window:temp_c": 1609,
-    "out_of_range,bad_window:temp_c": 1472,
+    "out_of_range,no_signal:temp_c": 1358,
     "out_of_range,sentinel,no_signal:solar2_v": 7,
-    "sentinel": 5,
-    "out_of_range,sentinel,bad_window:temp_c": 1,
+    "sentinel": 6,
+    "out_of_range,sentinel,no_signal:temp_c": 1,
     "out_of_range,sentinel,bad_window:solar_v,bad_window:battery_v,bad_window:temp_c": 1
   },
   "flag_totals": {
-    "out_of_range": 632412,
+    "out_of_range": 632278,
     "no_signal:solar2_v": 220069,
     "sentinel": 28599,
-    "bad_window:temp_c": 3083,
     "bad_window:solar_v": 1610,
-    "bad_window:battery_v": 1610
+    "bad_window:battery_v": 1610,
+    "bad_window:temp_c": 1610,
+    "no_signal:temp_c": 1359
   },
   "rejects": {
-    "total": 228570,
+    "total": 229929,
     "by_reason": [
       {
         "reason": "null_window",
-        "n": 220074
+        "n": 221433
       },
       {
         "reason": "station_setup",
@@ -464,6 +465,16 @@
       ],
       "why": "solar2_v reads 0.0 at every hour of the day for the whole of 2023, including noon; a working panel is 100% zero at night and ~2% at midday (see 2020). The input was disconnected, so 0.0 is a false reading rather than a measurement. The channel recovers in 2024-01. Collector's note: the reading only appears when the sun is on the panel, and drops after a bridge and load were fitted.",
       "n_rejected": 220074
+    },
+    {
+      "station_id": "aisvn",
+      "valid_from": "2020-06-15T06:10:00Z",
+      "valid_to": "2020-06-17T04:14:00Z",
+      "columns": [
+        "temp_c"
+      ],
+      "why": "collector: 200 is a placeholder for 'no temperature recorded', not a temperature. It fills every one of the first 1,359 readings, from 2020-06-15 13:10 local to 2020-06-17 11:12 local, and the channel only reports real values from 11:14 local onwards. A stored 200 degC is a false claim, exactly as phumy2's 0.0 V panel is: charting it would draw a line at 200 degC through a Ho Chi City summer. Nulled. The window ends at 11:14 local, the first genuine reading, because the boundary has to exclude as well as include and the 114 readings from 11:14 onwards are real tenths of a degree",
+      "n_rejected": 1359
     }
   ],
   "channel_ranges": [
@@ -566,14 +577,14 @@
     {
       "station_id": "aisvn",
       "column": "temp_c",
-      "unit": "degC",
+      "unit": "0.1 degC",
       "kind": "temperature",
-      "n": 63411,
+      "n": 62052,
       "min": 0.0,
-      "max": 341.0,
-      "mean": 36.20150194761161,
-      "band_lo": 5.0,
-      "band_hi": 45.0
+      "max": 633.0,
+      "mean": 320.6203087732869,
+      "band_lo": 50.0,
+      "band_hi": 900.0
     },
     {
       "station_id": "aisvn",
@@ -950,14 +961,14 @@
     {
       "station_id": "phumy2",
       "column": "temp_c",
-      "unit": "degC",
+      "unit": "0.1 degC",
       "kind": "temperature",
       "n": 415112,
-      "min": 15.5,
-      "max": 80.6,
-      "mean": 29.48312190444988,
-      "band_lo": 5.0,
-      "band_hi": 45.0
+      "min": 155.0,
+      "max": 806.0,
+      "mean": 294.8312190444988,
+      "band_lo": 50.0,
+      "band_hi": 900.0
     },
     {
       "station_id": "solar-2020-05",
@@ -1010,36 +1021,24 @@
     {
       "station_id": "test",
       "column": "temp_c",
-      "unit": "degC",
+      "unit": "0.1 degC",
       "kind": "temperature",
       "n": 33377,
-      "min": 21.49,
-      "max": 31.31,
-      "mean": 27.699676723492225,
-      "band_lo": 5.0,
-      "band_hi": 45.0
+      "min": 2149.0,
+      "max": 3131.0,
+      "mean": 2769.9676723492225,
+      "band_lo": 50.0,
+      "band_hi": 900.0
     },
     {
       "station_id": "test",
       "column": "wifi_raw",
       "unit": "count",
       "kind": "raw",
-      "n": 31228,
+      "n": 33377,
       "min": 1605.0,
       "max": 56708.0,
-      "mean": 4599.904092481107,
-      "band_lo": null,
-      "band_hi": null
-    },
-    {
-      "station_id": "test",
-      "column": "wind_v",
-      "unit": "V",
-      "kind": "voltage",
-      "n": 266,
-      "min": -984.0,
-      "max": 13445.0,
-      "mean": 7080.326015037594,
+      "mean": 4630.188393204901,
       "band_lo": null,
       "band_hi": null
     },
@@ -1091,16 +1090,6 @@
   "bad_windows": [
     {
       "station_id": "aisvn",
-      "valid_from": "2020-06-15T00:00:00Z",
-      "valid_to": "2020-06-17T08:20:00Z",
-      "columns": [
-        "temp_c"
-      ],
-      "why": "commissioning placeholder: the channel reports exactly 200.0 for every one of the first 1,359 readings (2020-06-15 13:10 local onward), then 342.1 for a 4-hour block, and only becomes real after 2020-06-17 15:20 local -- which is the same moment the applet changed its column layout. 90% of all out-of-range temperatures on this station are in this window.",
-      "n_flagged": 1473
-    },
-    {
-      "station_id": "aisvn",
       "valid_from": "2020-10-23T00:00:00Z",
       "valid_to": "2020-10-30T00:00:00Z",
       "columns": [
@@ -1108,7 +1097,7 @@
         "battery_v",
         "temp_c"
       ],
-      "why": "solar and battery stop being plausible on 2020-10-23 (collector-confirmed, as is the temperature on the 23rd); the system was reinstalled on 2020-10-30 ('installed in the dark'), after which all three channels are normal. Measured: temperature median 16.1 degC in the window vs 32.3 degC from 2020-10-30.",
+      "why": "solar and battery stop being plausible on 2020-10-23 (collector-confirmed, as is the temperature on the 23rd); the system was reinstalled on 2020-10-30 ('installed in the dark'), after which all three channels are normal. Measured: temperature median 161 tenths (16.1 degC) in the window against 323 tenths (32.3 degC) from 2020-10-30.",
       "n_flagged": 1610
     }
   ],
@@ -1235,7 +1224,7 @@
       "col_index": 6,
       "raw_name": "temp",
       "canonical_col": "temp_c",
-      "unit": "degC",
+      "unit": "0.1 degC",
       "confidence": "high",
       "inferred": 0,
       "reason": "exact header match",
@@ -1365,7 +1354,7 @@
       "col_index": 7,
       "raw_name": "temp",
       "canonical_col": "temp_c",
-      "unit": "degC",
+      "unit": "0.1 degC",
       "confidence": "high",
       "inferred": 1,
       "reason": "exact header match",
@@ -1898,7 +1887,7 @@
       "col_index": 4,
       "raw_name": "temp",
       "canonical_col": "temp_c",
-      "unit": "degC",
+      "unit": "0.1 degC",
       "confidence": "high",
       "inferred": 1,
       "reason": "exact header match",
@@ -1976,7 +1965,7 @@
       "col_index": 4,
       "raw_name": "temp",
       "canonical_col": "temp_c",
-      "unit": "degC",
+      "unit": "0.1 degC",
       "confidence": "high",
       "inferred": 1,
       "reason": "exact header match",
@@ -2054,7 +2043,7 @@
       "col_index": 4,
       "raw_name": "temp",
       "canonical_col": "temp_c",
-      "unit": "degC",
+      "unit": "0.1 degC",
       "confidence": "high",
       "inferred": 1,
       "reason": "exact header match",
@@ -2158,7 +2147,7 @@
       "col_index": 2,
       "raw_name": "temp",
       "canonical_col": "temp_c",
-      "unit": "degC",
+      "unit": "0.1 degC",
       "confidence": "high",
       "inferred": 1,
       "reason": "exact header match",
@@ -2294,7 +2283,7 @@
     {
       "station_id": "aisvn",
       "column": "temp_c",
-      "unit": "degC",
+      "unit": "0.1 degC",
       "valid_from": "2020-06-17T04:12:00Z",
       "valid_to": "2020-06-17T08:20:00Z",
       "scale": 0.1,
@@ -4133,9 +4122,9 @@
       "n_batt": 77526,
       "batt_min": -0.99,
       "batt_max": 15310.0,
-      "n_temp": 63411,
+      "n_temp": 62052,
       "temp_min": 0.0,
-      "temp_max": 341.0,
+      "temp_max": 633.0,
       "n_power": 75527
     },
     {
@@ -4186,8 +4175,8 @@
       "batt_min": null,
       "batt_max": null,
       "n_temp": 415112,
-      "temp_min": 15.5,
-      "temp_max": 80.6,
+      "temp_min": 155.0,
+      "temp_max": 806.0,
       "n_power": 415117
     },
     {
@@ -4212,8 +4201,8 @@
       "batt_min": null,
       "batt_max": null,
       "n_temp": 33377,
-      "temp_min": 21.49,
-      "temp_max": 31.31,
+      "temp_min": 2149.0,
+      "temp_max": 3131.0,
       "n_power": 0
     },
     {

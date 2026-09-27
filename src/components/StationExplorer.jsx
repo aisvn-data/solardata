@@ -59,8 +59,9 @@ function ChannelTable({ channels }) {
           </tr>
         </thead>
         <tbody>
-          {channels.map((channel) => {
+            {channels.map((channel) => {
             const r = channel.range
+            const d = channel.divisor ?? 1
             const hasBand = channel.band && channel.band.lo !== null
             return (
               <tr key={channel.key}>
@@ -70,13 +71,13 @@ function ChannelTable({ channels }) {
                 </td>
                 <td className="num">{(r?.n ?? 0).toLocaleString()}</td>
                 <td className="num">
-                  {r ? `${fmt(r.min)} … ${fmt(r.max)}` : '—'}
+                  {r ? `${fmt(r.min / d)} … ${fmt(r.max / d)}` : '—'}
                   {r?.unit ? ` ${r.unit}` : ''}
                 </td>
                 <td className="num">
                   {hasBand ? (
-                    <span className={disagrees(r, channel.band) ? 'band-warn' : ''}>
-                      {channel.band.lo} … {channel.band.hi}
+                    <span className={disagrees(r, channel.band, d) ? 'band-warn' : ''}>
+                      {fmt(channel.band.lo / d)} … {fmt(channel.band.hi / d)}
                     </span>
                   ) : (
                     <span className="muted">none</span>
@@ -100,7 +101,7 @@ function ChannelTable({ channels }) {
 }
 
 /** True when the station's own readings fall outside the recorded band. */
-function disagrees(range, band) {
+function disagrees(range, band, divisor = 1) {
   if (!range || !band || band.lo === null) return false
   return range.min < band.lo || range.max > band.hi
 }

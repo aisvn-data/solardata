@@ -185,7 +185,7 @@ const VALUE_COLUMNS = {
     load1_v: ['load1_v_avg', 'mean'],
     load2_v: ['load2_v_avg', 'mean'],
     wind_v: ['wind_v_avg', 'mean'],
-    temp_c: ['temp_c_avg', 'mean'],
+    temp_c: ['temp_deci_c_avg', 'mean'],
     voltage_adc: ['voltage_adc_avg', 'mean'],
     digital_adc: ['digital_adc_avg', 'mean'],
   },
@@ -206,7 +206,7 @@ const VALUE_COLUMNS = {
     load1_v: ['load1_v_avg', 'mean'],
     load2_v: ['load2_v_avg', 'mean'],
     wind_v: ['wind_v_avg', 'mean'],
-    temp_c: ['temp_c_avg', 'mean'],
+    temp_c: ['temp_deci_c_avg', 'mean'],
     voltage_adc: ['voltage_adc_avg', 'mean'],
     digital_adc: ['digital_adc_avg', 'mean'],
   },
@@ -332,8 +332,11 @@ export async function discoverChannels(rows, bands, ranges) {
         channel,
         label: channelLabel(channel, band),
         unit: meta.unit ?? '',
+        // Display units, so a channel stored in tenths reads in degrees while its
+        // band is still tested in tenths.
+        divisor: displayDivisor(meta.unit),
         colour: PALETTE[index % PALETTE.length],
-        decimals: band.kind === 'count' || channel === 'boot_count_max' ? 0 : 3,
+        decimals: band.kind === 'count' || channel === 'boot_count_max' ? 0 : 1,
         kind: band.kind ?? 'raw',
         band,
         range,
@@ -395,17 +398,40 @@ export function seriesFor(keys, channels) {
  * `solar2_v` is charted on the "Solar voltage" control without the UI needing
  * to know which numbered variant it is.
  */
+/**
+ * A channel's stored unit is not always its display unit.
+ *
+ * `temp_c` is stored in tenths of a degree, because the collector confirmed that
+ * `aisvn` wrote tenths before the 2020-06-17 recompile and plain degrees after
+ * and one column cannot hold both. The *band* is in the stored unit -- it comes
+ * from the ETL and is applied to the number as stored -- while everything a
+ * reader sees is in degrees. So `pick` returns both, and the divisor is derived
+ * from the unit string in `metrics.json` rather than hard-coded, so a channel
+ * stored in hundredths or millivolts converts the same way.
+ */
+function displayDivisor(unit) {
+  if (unit === '0.1 degC') return 10
+  return 1
+}
+
 export function pick(row, metric) {
   const value = row.values[metric.channel]
   if (value === null || value === undefined) {
-    return { channel: null, value: null, stat: null }
+    return { channel: null, value: null, display: null, stat: null }
   }
-  return { channel: metric.channel, value, stat: row.stats[metric.channel] }
+  return {
+    channel: metric.channel,
+    // Stored unit, for the band test.
+    value,
+    // Display unit, for the chart and the readout.
+    display: value / (metric.divisor ?? 1),
+    stat: row.stats[metric.channel],
+  }
 }
 
 /** The plotted value for a metric, or null. A null is a gap, not a zero. */
 export function get(row, metric) {
-  return pick(row, metric).value
+  return pick(row, metric).display
 }
 
 /** How a statistic should be named in the readout. */
@@ -488,10 +514,13 @@ export function classify(row, series) {
   const n = row.nSamples ?? 0
   const found = []
   for (const item of series) {
-    const { channel, value } = pick(row, item)
+    const { channel, value, display } = pick(row, item)
     const oor = row.oor?.[channel] ?? 0
     const band = item.band
     const hasBand = band && band.lo !== null && band.hi !== null
+    // The band and the range are both in the *stored* unit, which is what `value`
+    // is. `temp_c` is stored in tenths and banded 50-900, so comparing 633
+    // against 45 would flag every real reading; comparing against 900 does not.
     const outsideBand = hasBand && value !== null && (value < band.lo || value > band.hi)
     let level = 'clean'
     if (n > 0 && oor >= n) level = 'contaminated'
@@ -504,9 +533,12 @@ export function classify(row, series) {
     found.push({
       metric: item.key,
       channel,
+      // Stored value for the test, display value for the reader.
       value,
+      display,
       level,
       band,
+      divisor: item.divisor ?? 1,
       oor,
       n,
       range: outsideRange ? range : null,

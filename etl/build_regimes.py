@@ -16,12 +16,21 @@ from etl.normalize.metrics import METRIC_BY_COLUMN
 from etl.normalize.units import detect_per_file
 
 #: Only watch channels where a mis-scaling actually happened in the archive.
+#:
+#: `temp_c` is deliberately absent. Its unit is settled: the collector confirmed
+#: that `aisvn` wrote tenths before the 2020-06-17 recompile and degrees after,
+#: that `phumy2` writes tenths throughout and that the `test` probe writes
+#: hundredths. Those corrections are applied at ingest by ``config.UNIT_FIXES``,
+#: so by the time this runs there is nothing left for the detector to find on
+#: that channel -- and it actively misfires. Left in, it proposes `test.temp_c`
+#: x0.1 (the band is in tenths, the values are in hundredths) and would scale a
+#: 27.63 degC reading to 276.3. A detector that keeps proposing corrections the
+#: collector has already ruled on is noise that has to be re-read every time.
 WATCHED = (
     "battery_v",
     "battery2_v",
     "solar_v",
     "solar2_v",
-    "temp_c",
     "lipo_v",
     "lipo2_v",
     "load_v",

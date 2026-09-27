@@ -365,7 +365,7 @@ class TestHeaderlessSchemaInheritance(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["solar_v"], 20.0)
         self.assertEqual(row["battery_v"], 14.4)
-        self.assertEqual(row["temp_c"], 34.0)
+        self.assertEqual(row["temp_c"], 340.0)  # tenths of a degree: 34.0 degC
         self.assertEqual(row["boot_count"], 114)
 
     def test_donor_is_recorded_for_audit(self):
@@ -678,7 +678,7 @@ class TestDonorWidthMatching(unittest.TestCase):
         conn.close()
         # Correctly aligned: temp gets 32.5, load gets 0.0, power gets 17.56,
         # boot gets the counter, LiPo gets 4.12.
-        self.assertEqual(row["temp_c"], 32.5)
+        self.assertEqual(row["temp_c"], 325.0)  # tenths of a degree: 32.5 degC
         self.assertEqual(row["load_v"], 0.0)
         self.assertEqual(row["power_w"], 17.56)
         self.assertEqual(row["boot_count"], 10)
@@ -746,7 +746,12 @@ class TestTimezoneIsHoChiMinh(unittest.TestCase):
             rows = conn.execute(
                 "SELECT CAST(substr(ts_local, 12, 2) AS INTEGER) AS h, AVG(temp_c) AS t"
                 " FROM readings WHERE station_id = 'phumy2'"
-                "   AND temp_c BETWEEN 20 AND 40"
+                # 200 to 400 tenths is 20 to 40 degC. The column is stored in
+                # tenths of a degree, per the collector's confirmation, so the
+                # bounds scale with it. In degrees they would be 200-400 degC and
+                # the query would return nothing -- which is exactly the failure
+                # this assertion is here to make visible.
+                "   AND temp_c BETWEEN 200 AND 400"
                 " GROUP BY h"
             ).fetchall()
         finally:

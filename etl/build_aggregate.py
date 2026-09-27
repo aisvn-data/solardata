@@ -31,9 +31,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from etl.normalize.metrics import METRIC_BY_COLUMN
-from etl.rollup_schema import CHANNELS, COUNTED, channel_column, oor_columns
-
+from etl.config import CHANNEL_UNITS
 from etl.normalize.metrics import METRIC_BY_COLUMN
 from etl.rollup_schema import CHANNELS, COUNTED, channel_column, oor_columns
 
@@ -81,16 +79,37 @@ def _oor_exprs() -> tuple[list[str], list[float]]:
     ``public/data/metrics.json``. Writing the numbers into the SQL as literals
     would be a second copy that drifts silently, and the whole reason the site
     uses these bands rather than its own threshold is that there is only one.
+
+    A station whose declared unit differs from the column's default gets its own
+    band, chosen with a CASE on ``station_id``. ``test`` logs temperature in
+    hundredths of a degree where every other station uses tenths, so a single
+    range would count all 33,377 of its readings as implausible -- and the count
+    is what the site uses to decide whether an aggregate is contaminated, so a
+    wrong count marks a whole station.
     """
+    overrides: dict[str, list[tuple[str, float, float]]] = {}
+    for station, column, _unit, lo, hi, _why in CHANNEL_UNITS:
+        overrides.setdefault(column, []).append((station, lo, hi))
+
     exprs: list[str] = []
     params: list[float] = []
     for channel in COUNTED:
         metric = METRIC_BY_COLUMN[channel]
-        exprs.append(
-            f"SUM(CASE WHEN {channel} IS NOT NULL"
-            f" AND ({channel} < ? OR {channel} > ?) THEN 1 ELSE 0 END)"
-        )
-        params.extend([float(metric.lo), float(metric.hi)])
+        default = (float(metric.lo), float(metric.hi))
+        station_bands = overrides.get(channel)
+        if station_bands:
+            # CASE station_id WHEN ... THEN <in range> ... ELSE <default> END
+            branches = []
+            for station, lo, hi in station_bands:
+                branches.append(f"WHEN '{station}' THEN ({channel} < ? OR {channel} > ?)")
+                params.extend([lo, hi])
+            branches.append(f"ELSE ({channel} < ? OR {channel} > ?)")
+            params.extend([default[0], default[1]])
+            test = "CASE station_id " + " ".join(branches) + " END"
+        else:
+            test = f"({channel} < ? OR {channel} > ?)"
+            params.extend([default[0], default[1]])
+        exprs.append(f"SUM(CASE WHEN {channel} IS NOT NULL AND {test} THEN 1 ELSE 0 END)")
     return exprs, params
 
 

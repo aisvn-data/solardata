@@ -352,11 +352,27 @@ check('every channel a station records is offered, not a fixed six', () => {
     assert.ok(r.n > 0 && r.min !== null && r.max !== null, `${r.column} has no range`)
     assert.ok('band_lo' in r && 'band_hi' in r, `${r.column} has no band`)
   }
-  // The disagreement this exists to surface: phumy2 reads far above the 45 degC
-  // band for ambient temperature, and no amount of hiding that helps.
+  // The disagreement this exists to surface. It used to be phumy2.temp_c, which
+  // read 80.6 against a 45 C band until the collector confirmed that the channel
+  // is stored in tenths of a degree -- at which point the band and the readings
+  // agree, which is the whole point of the confirmations. The disagreement that
+  // remains is aisvn2.lipo2_v: 6.3 to 7.1 V against a band written for a single
+  // cell, and that one still needs the hardware.
   const temp = forPhumy2.find((r) => r.column === 'temp_c')
-  assert.ok(temp.max > temp.band_hi, 'phumy2 temp_c should exceed its band')
+  assert.ok(temp.max <= temp.band_hi, 'phumy2 temp_c should now sit inside its band')
   assert.ok(temp.n > 400000, 'temp_c should be the dominant phumy2 channel')
+  // And the unit is visible rather than implied, because a channel stored in
+  // tenths and documented in degrees is the exact mismatch that cost two commits
+  // in metric_defs.
+  assert.equal(temp.unit, '0.1 degC')
+  const aisvn2Lipo = quality.channel_ranges.find(
+    (r) => r.station_id === 'aisvn2' && r.column === 'lipo2_v',
+  )
+  assert.ok(aisvn2Lipo, 'aisvn2 lipo2_v should be reported')
+  assert.ok(
+    aisvn2Lipo.max > aisvn2Lipo.band_hi,
+    'aisvn2 lipo2_v should still exceed its 1S band; that is an open question',
+  )
 })
 
 check('a reject reason is a category, never a sentence', () => {
@@ -488,8 +504,17 @@ check('a day of genuine zeros is not confused with a day of NULLs', () => {
   assert.equal(withSolar.length, 0, `${withSolar.length} rows unexpectedly have solar_v`)
   const withPower = rows.filter((r) => num(r.power_w_avg) === 0)
   assert.ok(withPower.length > 200, `only ${withPower.length} zero-power days`)
-  const withTemp = rows.filter((r) => num(r.temp_c_avg) !== null)
+  // The column is `temp_deci_c_avg` and holds tenths of a degree. The name is the
+  // point: `temp_c_avg` in a header would have put 294.8 in a field documented
+  // as degrees, which is the same mismatch metric_defs had.
+  assert.ok('temp_deci_c_avg' in rows[0], 'the temperature column must name its unit')
+  assert.ok(!('temp_c_avg' in rows[0]), 'no column may be named as degrees and hold tenths')
+  const withTemp = rows.filter((r) => num(r.temp_deci_c_avg) !== null)
   assert.ok(withTemp.length > 200, `only ${withTemp.length} days with temperature`)
+  // And the values really are tenths: phumy2's 15.5 to 80.6 degC, so 155 to 806.
+  const temps = rows.map((r) => num(r.temp_deci_c_avg)).filter((v) => v !== null)
+  assert.ok(Math.min(...temps) >= 100, `expected tenths from 100, got ${Math.min(...temps)}`)
+  assert.ok(Math.max(...temps) <= 900, `expected tenths up to 806, got ${Math.max(...temps)}`)
 })
 
 // --------------------------------------------------------- flagged-value bands
@@ -581,8 +606,12 @@ check('the bands reach the browser verbatim from the ETL', () => {
   assert.equal(bands.solar_v.hi, 60)
   assert.equal(bands.battery_v.lo, 9)
   assert.equal(bands.battery_v.hi, 16)
-  assert.equal(bands.temp_c.lo, 5)
-  assert.equal(bands.temp_c.hi, 45)
+  // 50 to 900 tenths of a degree, not 5 to 45 degrees. The unit is part of the
+  // band, and the site divides by it for display -- which is why the assertion is
+  // on the unit as well as the numbers.
+  assert.equal(bands.temp_c.unit, '0.1 degC')
+  assert.equal(bands.temp_c.lo, 50)
+  assert.equal(bands.temp_c.hi, 900)
   assert.equal(bands.power_w.lo, -2000)
   assert.equal(bands.power_w.hi, 2000)
   // A channel with no band must say so rather than be missing, so the UI can
