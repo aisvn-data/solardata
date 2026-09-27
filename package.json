@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run check && vite build",
+    "build": "npm run check:all && vite build",
     "preview": "vite preview",
-    "check": "node scripts/check_frontend.mjs"
+    "check": "node scripts/check_frontend.mjs",
+    "check:render": "vite build --ssr scripts/check_render.mjs --outDir node_modules/.render-check --logLevel error && node node_modules/.render-check/check_render.js",
+    "check:all": "npm run check && npm run check:render"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.1.1",

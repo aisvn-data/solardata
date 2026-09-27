@@ -399,10 +399,12 @@ export default function QualityInspector() {
  * They are listed so their absence from the table above is visibly deliberate
  * rather than an oversight; see `AGENTS.md`'s open questions.
  */
-const FLAG_MEANINGS = {  sentinel: 'Raw cell was -992 or -1: the input was floating. Stored as NULL.',
+const FLAG_MEANINGS = {
+  sentinel: 'Raw cell was -992 or -1: the input was floating. Stored as NULL.',
   out_of_range:
-    'Value kept, but outside the channel’s plausible band. Ringed on the chart, never removed. Usually how a scale change gets noticed.',
-  'bad_window': 'A named window in etl/config.py where the reading is kept but should not be believed.',
+    'Value kept, but outside the channel's plausible band. Ringed on the chart, never removed. Usually how a scale change gets noticed.',
+  bad_window:
+    'A named window in etl/config.py where the reading is kept but should not be believed.',
   no_signal:
     'A named window in etl/config.py where the input was disconnected, so the stored value is a false reading. Nulled, with a rejects row carrying the reason.',
   schema_misaligned:
@@ -424,11 +426,13 @@ function flagMeaning(flag) {
 const REJECT_REASONS = {
   null_window:
     'A named window in etl/config.py where the input was disconnected, so the stored value was a false reading. The cell is nulled and recorded here. The reasoning is on the Windows tab — once per window, not once per cell.',
+  station_setup:
+    'A whole source file the collector identified as system setup rather than measurement. Every data row in it is recorded here, with its sheet row and timestamp.',
   duplicate_ts: 'Same station, same instant: absorbed by the primary key.',
-  repeated_header: 'A header row repeated inside a headerless chunk.',
+  'repeated header row': 'A header row repeated inside a headerless chunk, skipped so it is not read as a measurement.',
+  pre_reinstall:
+    'Rows before a hardware reinstall the collector confirmed unusable. See etl/config.py.',
   unparseable: 'The cell could not be parsed into the schema.',
-  'pre-reinstall window':
-    'Rows before a hardware reinstall that the collector confirmed as unusable. See etl/config.py.',
 }
 
 function rejectMeaning(reason) {
