@@ -42,6 +42,17 @@ jobs:
       - name: Check the chart helpers and exported data
         run: node scripts/check_frontend.mjs
 
+      # A prop that disagrees with its call site is invisible to every other
+      # check here, and the symptom is a white page rather than a failed
+      # assertion: `check_frontend` exercises the pure helpers in src/data.js and
+      # the CSV files, and `vite build` cannot check a prop name because the
+      # project is plain JSX with no types. This has shipped three times -- a
+      # picker where every control was disabled, then `metrics` -> `channels`
+      # renamed on one side of a prop boundary only, and then a merge that
+      # reintroduced the second. So the tree is rendered.
+      - name: Render the component tree
+        run: npm run check:render
+
       - name: Build
         run: npm run build
 

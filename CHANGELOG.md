@@ -7,79 +7,39 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **`temp_c` held two different units in one column, and the plausibility band
-  was wrong for all of it.** The applet was recompiled on 2020-06-17 at 15:20
-  local, and `aisvn.temp_c` wrote **tenths of a degree before it and plain degrees
-  after** — so a genuine 33.5 °C reading was stored as `335` and compared against
-  a 5–45 °C band. Every real measurement on the station was flagged. The three
-  populations, all now accounted for:
+- **The site was a white screen: `metrics` was renamed to `channels` on the
+  child's destructuring and not at the call site**, so `TimeControls` read
+  `undefined.length` and threw on every render. `npm run build` and
+  `npm run dev` both started cleanly, because nothing in this project checks a
+  prop name — the frontend is plain JSX with no types, and a component that
+  throws at render time still builds perfectly.
 
-  | n | raw | what it is |
-  |---:|---|---|
-  | 1,359 | `200.0` | a placeholder for "no temperature recorded" → **NA** |
-  | 114 | `317`–`341` | genuine tenths, 31.7–34.1 °C — **left exactly as they are** |
-  | 55,261 | `31.3`, `63.3`, … | plain degrees → **×10** |
+  This is the **third** time the same defect has shipped, and the first two were
+  not caught either:
 
-  The 114 are the check that this is the right reading. A rule that scaled them
-  as well would put 33.5 °C at 3,350 °C, so their survival is evidence rather
-  than an omission.
+  | | what | symptom |
+  |---|---|---|
+  | v0.7.0 | parent passed metric objects, child tested strings | every control disabled, chart still drew |
+  | v0.7.1 | prop renamed on one side of the boundary | white screen |
+  | merge `a60fd68` | reintroduced the second | white screen, on `main` and the deployed site |
 
-  **The ×10 is applied at ingest, not in the aggregate**, and that placement is
-  the whole fix. The band is tested per raw cell in `coerce_cell`, so a unit
-  correction made afterwards means the flags were already wrong — and rule 2 says
-  a flag a reader cannot trust is worse than no flag at all. `config.UNIT_FIXES`
-  is a new mechanism for this, distinct from both `NULL_WINDOWS` (which acts on
-  a stored value) and from a regime (which the detector proposes after the fact).
-  Applied to `aisvn.temp_c`, `phumy2.temp_c` and `test.temp_c`.
+  All three are a component's props disagreeing with its call site, and
+  `check_frontend.mjs` cannot see any of them — it exercises the pure helpers in
+  `src/data.js` and the CSV files. So `scripts/check_render.mjs` now renders the
+  tree. It builds with `vite build --ssr` (plain node cannot import `.jsx` or
+  resolve `import.meta.env`), renders `App` and the leaf components against the
+  real committed CSVs, and asserts seven things: the app mounts, the inspector
+  mounts and the payload it reads is present, **`TimeControls` accepts the props
+  `StationExplorer` passes it**, the chart draws a path, the tiles render, a
+  zero-length channel list renders instead of throwing, and the `METRICS`
+  compatibility shim stays empty so nobody re-introduces the fixed six-channel
+  list. It runs in `ci.yml` and `pages.yml`, and `npm run build` depends on it.
 
-  `phumy2.temp_c` goes from being flagged on **415,112 of 415,117 readings** to
-  **0**. `aisvn` goes from most of the station to 501 of 77,526 hours (0.6%),
-  and those 501 are the genuine 0 °C disconnected-sensor readings.
-
-- **`temp_c`'s unit is not the same for every station, and one band could not
-  describe that.** `test` logs hundredths of a degree — the collector asked for
-  that resolution specifically, and the raw values are 2,149–3,131 — where every
-  other station uses tenths. With one band per column, all **33,377** of `test`'s
-  temperatures were flagged. `config.CHANNEL_UNITS` now carries a per-station unit
-  and range for the cases where a station's declared unit differs, and it is
-  applied in *both* places the band is tested: `coerce_cell` at ingest and the
-  per-metric counts in the aggregate. Applying it in only one place is the same
-  bug one level up, and the aggregate's counts are what the site uses to decide
-  whether an aggregate is contaminated.
-
-- **The rollup column is now named for the unit it holds.** `temp_c_avg` →
-  `temp_deci_c_avg`, and likewise `_min` and `_max`. Scaling a column in place
-  while leaving its name saying degrees would have reproduced exactly the mismatch
-  `metric_defs` had, which cost two commits to unpick. The count columns keep the
-  plain channel name (`temp_c_n_oor`) because a count has no unit, and they are
-  computed before the correction — they count samples outside the band *in the
-  band''s own unit*. The browser divides by the unit string from `metrics.json`
-  for display, so the chart and the readout are in degrees and the band test is in
-  tenths, and neither has to be told which is which twice.
-
-- **`temp_c` is no longer a channel the scale detector watches.** Its unit is
-  settled on the collector's word, so there is nothing left to find — and left in,
-  the detector misfired: the band is in tenths, `test`'s values are in hundredths,
-  so it proposed `test.temp_c ×0.1`, which would turn a 27.63 °C reading into
-  276.3 °C. A detector that keeps re-proposing corrections a human has already
-  ruled on is noise someone has to re-read every time.
-
-- **`rejects.reason` was a sentence, on 220,074 rows.** Rule 2 says to keep it a
-  stable category, and the archive is where ignoring that shows: the
-  `NULL_WINDOWS` path stored the collector's ~300-character note as the reason on
-  every cell it nulled. That is **80.6 MiB of one paragraph, repeated**, and it
-  made `rejects` (96.1 MiB) as large as `readings`.
-
-  | | before | after |
-  |---|---:|---:|
-  | `rejects.reason` for those rows | 300 chars | `null_window`, 11 chars |
-  | `rejects` table | 96.1 MiB | **15.8 MiB** |
-  | `solardata.db`, VACUUMed | 329.2 MiB | **166.7 MiB** |
-  | gzipped, the Release asset | 20.0 MiB | 18.7 MiB |
-
-  The prose now lives once, in `config.py`, republished to `quality.json` as
-  `null_windows` and `bad_windows` paired with the rows each explains, and shown
-  on a dedicated **Windows** tab.
+  It immediately found a second defect while being written: `rejects.by_reason`
+  contains `repeated header row`, which had no entry in the inspector's meaning
+  dictionary, so that row rendered a bare dash in the Meaning column. Fixed, and
+  the check now fails the build if a new reject reason appears without an
+  explanation.
 
 - **The `aisvn` applet was recompiled mid-record and the scale window said
   otherwise.** The collector confirms the change at **2020-06-17 15:20 local**
@@ -107,6 +67,65 @@ versions follow [Semantic Versioning](https://semver.org/).
   confidently wrong. The containment test uses the extent of the *data* in a
   bucket, not the bucket's nominal edges, which is why 2020-06-15 scales at all
   when its daily slot spans 24 hours but no reading exists before 06:10.
+
+- **`temp_c` held two different units in one column, and the plausibility band
+  was wrong for all of it.** The applet wrote **tenths of a degree before the
+  2020-06-17 recompile and plain degrees after**, so a genuine 33.5 °C reading was
+  stored as `335` and compared against a 5–45 band. Every real measurement on
+  the station was flagged. Three populations, all now accounted for:
+
+  | n | raw | what it is |
+  |---:|---|---|
+  | 1,359 | `200.0` | a placeholder for "no temperature recorded" → **NA** |
+  | 114 | `317`–`341` | genuine tenths, 31.7–34.1 °C — **left exactly as they are** |
+  | 55,261 | `31.3`, `63.3`, … | plain degrees → **×10** |
+
+  The 114 are the check that this is the right reading. A rule that scaled them
+  too would put 33.5 °C at 3,350 °C, so their survival is evidence rather than an
+  omission.
+
+  **The ×10 is applied at ingest, not in the aggregate**, and that placement is
+  the whole fix: the band is tested per raw cell in `coerce_cell`, so a unit
+  correction made afterwards means the flags were already wrong, and rule 2 says
+  a flag a reader cannot trust is worse than no flag. `config.UNIT_FIXES` is a new
+  mechanism for this, distinct from both `NULL_WINDOWS` and from a regime.
+  `phumy2.temp_c` goes from being flagged on **415,112 of 415,117 readings** to
+  **0**; `aisvn` from most of the station to 501 of 77,526 hours (0.6%), and
+  those 501 are the genuine 0 °C disconnected-sensor readings.
+
+- **`temp_c`'s unit is not the same for every station, and one band could not
+  describe that.** `test` logs hundredths of a degree — the collector asked for
+  that resolution specifically, and the raw values are 2,149–3,131 — where every
+  other station uses tenths. A band is keyed by column, so all **33,377** of
+  `test`'s temperatures were flagged against a range they cannot satisfy.
+  `config.CHANNEL_UNITS` now carries a per-station unit and range, applied in
+  **both** places the band is tested: `coerce_cell` at ingest and the per-metric
+  counts in the aggregate. Applying it in one place is the same bug one level up.
+
+- **The rollup column is now named for the unit it holds.** `temp_c_avg` →
+  `temp_deci_c_avg`, and likewise `_min` and `_max`. Scaling a column in place
+  while leaving its name saying degrees would have reproduced exactly the mismatch
+  `metric_defs` had, which cost two commits to unpick. The count columns keep the
+  plain channel name because a count has no unit, and the browser divides by the
+  unit string from `metrics.json` for display.
+
+- **`temp_c` is no longer a channel the scale detector watches.** Its unit is
+  settled on the collector's word, and left in, the detector misfired: the band
+  is in tenths, `test`'s values are in hundredths, so it proposed `test.temp_c
+  ×0.1`, which would turn a 27.63 °C reading into 276.3 °C.
+
+- **`rejects.reason` was a sentence, on 220,074 rows.** Rule 2 says to keep it a
+  stable category, and the archive is where ignoring that shows: the
+  `NULL_WINDOWS` path stored the collector's ~300-character note as the reason on
+  every cell it nulled. That is **80.6 MiB of one paragraph, repeated**, and it
+  made `rejects` (96.1 MiB) as large as `readings`.
+
+  | | before | after |
+  |---|---:|---:|
+  | `rejects.reason` for those rows | 300 chars | `null_window`, 11 chars |
+  | `rejects` table | 96.1 MiB | **15.8 MiB** |
+  | `solardata.db`, VACUUMed | 329.2 MiB | **166.7 MiB** |
+  | gzipped, the Release asset | 20.0 MiB | 18.7 MiB |
 
 - **`null_window` rejects had an empty `column_name`.** The code derived it by
   iterating `row_flags` for `no_signal:` prefixes, but `row_flags` is a merged
@@ -143,11 +162,17 @@ versions follow [Semantic Versioning](https://semver.org/).
   required a reset to follow a gap in sampling, and 523 of `maker-webhooks`' 526
   resets have no gap at all.
 
+- **A merge left the tree inconsistent and all three workflows red.**
+  `etl/build_aggregate.py` carried its import block twice — harmless to read, six
+  F811s to `ruff` — and the merge took the stale side of the committed
+  `aisvn` CSVs, putting 06-15 and 06-16 back to 4,570 and 6,539 "V". The
+  assertion named for that case caught it, and regenerating the artefacts from
+  the code fixed it.
+
 ### Changed
 
 - **The `test` station is now probe-only.** The collector's account is that its
-  11-column solar layout was system setup rather than measurement, and that the
-  readings are the 4-column `nix`/`temp`/`wifi` probe that follows. `test` keeps
+  11-column solar layout was system setup rather than measurement. `test` keeps
   **33,377 readings**, 2020-07-05 to 2020-08-21, with no solar channel at all.
 
   The exclusion is by **source file, not by date**, and it has to be.
@@ -155,15 +180,14 @@ versions follow [Semantic Versioning](https://semver.org/).
   `IFTTT_test.xlsx` and were absorbed by the primary key, so everything it
   uniquely contributes is **4,120 readings dated 2020-07-01 18:18 to 2020-07-08
   12:12** — after the probe had already begun, and still not measurements. A
-  timestamp cut-off at 2020-07-01 would have kept all of them. Those two files
-  are the only 11-column files in the folder.
+  timestamp cut-off at 2020-07-01 would have kept all of them.
 
   Removing them takes **3,994 readings** and a further **2,150 rows that were
   already duplicates** — which is why `duplicate_ts` falls by 2,150 while the
   recorded exclusion is **6,144 rows**. What left the readings and what left the
   archive are different questions and the baseline records both. **Nothing
   vanished**: every data row goes into `rejects` with `reason = 'station_setup'`,
-  its sheet row and its timestamp, and one rationale per file goes into `notes`.
+  its sheet row and its timestamp.
 
 - Confirmed scale windows can now carry an explicit instant boundary, so a
   mid-day recompile is expressible. `CONFIRMED` still pins whole channels for the
@@ -174,8 +198,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 - Per-metric out-of-range counts read their bounds from `METRIC_BY_COLUMN` and
   `CHANNEL_UNITS` as bound SQL parameters, so the plausibility table has one home
   and the site cannot drift from the criterion the ingest applied.
-- Size claims in `AGENTS.md`, `README.md`, `docs/data-dictionary.md` and
-  `docs/format-design.md` are updated to the measured figures.
+- Size claims in `AGENTS.md`, `README.md`, `docs/data-dictionary.md`,
+  `docs/format-design.md` and `.gitignore` are updated to the measured figures.
 
 ### Added
 
@@ -185,23 +209,16 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `channel_ranges` in `quality.json`: what every channel a station actually
   recorded, beside the band the pipeline expects. Each disagreement is a second
   pack, an unconfirmed scale, or a band wrong for that installation, and the
-  archive cannot say which — so both are reported and the disagreement is the
-  finding. `aisvn2.lipo2_v` is the one that remains, at 6.3–7.1 V against a band
-  written for a single cell.
+  archive cannot say which. `aisvn2.lipo2_v` is the one that remains, at
+  6.3–7.1 V against a band written for a single cell.
 - Three levels of "this number is not to be trusted", as counts rather than
   verdicts: `clean`, `partial` (some samples flagged, so the aggregate is
   neither), `contaminated` (every sample flagged). Separately, a value inside
   the band but outside what that station has recorded is reported against the
   station and never called a flag. Nothing is removed at any level.
 - `check_frontend.mjs` asserts seven invariants by name, each failing the build
-  if its regression returns: *a contaminated aggregate is distinguishable from a
-  clean one*, *every channel a station records is offered, not a fixed six*, *a
-  folder that changed layout keeps both layouts, not the last one*, *a reject
-  reason is a category, never a sentence*, *a day the collector scaled is no
-  longer published in the wrong unit*, *the uptime counter is published*, and
-  *the bands reach the browser verbatim from the ETL* — which now includes the
-  assertion that `temp_c`'s unit is `0.1 degC` and its range is 50–900, because a
-  band tested in the wrong unit is the same defect as a misnamed column.
+  if its regression returns, and `check_render.mjs` renders the tree so a prop
+  drift fails the build instead of the site.
 
 ## [0.7.1] — 2026-09-26
 
