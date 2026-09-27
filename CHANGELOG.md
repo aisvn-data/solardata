@@ -43,16 +43,34 @@ a release that ships 0.005 V instead of 5 V has to say so:
    divides `aisvn`'s whole record by 1000, so the rollup for 2020-06-15 reads
    `solar_v_avg = 0.005` where it read `4.57`. The regime has to be narrowed to
    the files still in millivolts, with a reason.
-2. **`power` is computed, not measured.** It did not exist in the old file, and
-   every value is exactly `solar_v × current_a × 0.85` — verified to fifteen
-   significant digits. `power_w` is a *measured* channel everywhere else, so one
-   file now makes the column mean two things.
-3. **`load` is inconsistent inside the file.** 0 in 1,764 of 1,999 rows, 11,573 in
-   the other 235 — part millivolts, part a zero standing in for a reading.
+2. **`power` is reconstructed for the pre-recompile window.** The station did
+   not report power at all before 2020-06-17 — the old 10-column layout had no
+   such column. The repair filled the gap with `solar_v × current_a × 0.85`,
+   which holds for exactly 1,800 rows, from the first data row to
+   `June 17, 2020 at 03:18PM`. From `03:20PM` — 15:20 local, the recompile — the
+   values are the station's own: the ratio `power/(V·I)` scatters over
+   −2.43 … +2.08 and only 0.24% of samples equal `V·I` exactly, which is what a
+   real DC measurement looks like and not what a product does. So the 0.85 factor
+   is a reconstruction over a window with no measurement in it, and it needs to
+   be recorded as one.
+3. **`load` had 195 real readings replaced by 0.** Not a unit conversion: the
+   column spans two units and did so before the repair too — millivolts up to
+   `June 17, 2020 at 12:09PM` (11,490–13,543) and volts from `June 17, 2020 at
+   03:20PM` (4.95–17.06). Of the 198 volt readings, 195 are now 0 and three
+   survive (11.90, 11.91, 11.95 on 2020-06-18). The millivolt half was left
+   untouched.
 
 The 10-column pre-recompile layout is also no longer in the raw archive, so
 `metric_defs` now records a single 11-column layout for `aisvn` where there were
 two, and the recompile finding is no longer checkable against the data.
+
+**On `power_w` being a measurement.** It is not, and a first pass at this entry
+said otherwise. Only two stations have a power column at all: `aisvn`
+(75,527 readings) and `phumy2` (415,117). The other six have none, so
+`power_w` is not a channel that "every other station" logs. `phumy2`'s is a pin
+that reads exactly 0 for 415,112 of 415,117 readings, which is open question 3 in
+`AGENTS.md` and was never a measurement. `aisvn`'s is a measurement from the
+recompile onwards, and a reconstruction before it.
 
 **The audit.** Of 363 files, **304 still hold at least one millivolt channel**:
 

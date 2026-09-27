@@ -41,17 +41,42 @@ because of the first.**
    rollup for 2020-06-15 reads `solar_v_avg = 0.005` V where it read `4.57` V
    before. The regime has to be narrowed to the files still in millivolts, with a
    reason recorded — the alternative is to leave the chart 1000× wrong.
-2. **`power` is a computed column, not a measurement.** It did not exist in the
-   old file. Every value in it is exactly `solar_v × current_a × 0.85` — checked
-   to fifteen significant digits over six rows. A 0.85 power factor is an
-   engineering constant that appears nowhere in the archive, in `etl/`, or in any
-   note from the collector. `power_w` is a *measured* channel at every other
-   station, so one file now makes the column mean two different things, which is
-   the exact failure the regime table exists to prevent.
-3. **`load` is inconsistent within the file.** It reads 0 in 1,764 of 1,999 rows
-   and 11,573 in the other 235 — so part of it is still millivolts and part of it
-   is a zero standing in for a reading. `AGENTS.md` rule 7 is about not turning a
-   gap into a 0; this is the same defect in the other direction.
+2. **`power` is reconstructed for the window before the recompile.** The station
+   never reported power before 2020-06-17 — the old 10-column layout had no such
+   column — and the repair filled 1,800 rows with `solar_v × current_a × 0.85`,
+   which holds exactly up to `June 17, 2020 at 03:18PM`. From `03:20PM`, the
+   recompile, the values are the station's own: `power/(V·I)` scatters from
+   −2.43 to +2.08 and only 0.24% of samples equal `V·I` exactly. A derived value
+   presented as a reading, over a window with no measurement in it. The 0.85
+   needs recording as an assumption.
+   (`power_w` is not a measured channel at other stations either: only `aisvn`
+   and `phumy2` have one at all, and `phumy2`'s reads 0 for 415,112 of 415,117
+   readings.)
+3. **`load` lost 195 real readings to a 0.** The column spans two units and did
+   so before the repair too — millivolts to `June 17, 2020 at 12:09PM`, volts
+   from `03:20PM` — but the repair did not convert it: 195 of the 198 volt
+   readings are now 0, and the millivolt half is untouched. A `0` here reads as
+   "no load present", which is a real state for that rail, so the loss is
+   invisible rather than obvious.
+
+**What the unit audit found, taking the current files as the source of truth.**
+Seven `aisvn` channels had a mV→V change at 2020-06-17 15:20 — `solar_v`,
+`battery_v`, `current_a`, `wind_v`, `solar2_v`, `lipo_v` and `load_v`. Six are
+now converted; `load_v` is not. Two other boundaries are not unit changes: the
+`aisvn.current_a` step at 2020-10-23 → 10-30 is the collector's pre-reinstall
+window in `BAD_WINDOWS`, and `aisvn2.current_a_chA` steps by ~200× around
+2021-04 → 2021-10, which is undocumented and is not a clean factor.
+
+**The 100%-flagged channels are almost all a band describing the wrong unit.**
+Dividing by 1000 brings 98–100% of them inside the recorded band:
+`phumy2.current2_a` and `lipo2_v`, `aisvn2.battery2_v`, `maker-webhooks.battery_v`,
+`current_a_chA`, `load_v` and `solar2_v`, `aisvn-solar.lipo_v`,
+`solar-2020-05.lipo_v`. Two are *not* a clean scale and need the collector:
+`aisvn-solar.battery_v` (÷100 gets 1.1% in) and `aisvn2.lipo2_v` (÷100 gets 1.4%
+in). One is worth a second look: `phumy2.current2_a` reads 210–270 against a
+±50 A band, and `AGENTS.md` assumes milliamps, but ÷1000 gives 0.21–0.27 A,
+which is too small for a station producing watts; ÷100 gives 2.1–2.7 A, which is
+more plausible. Both factors fall inside the band, so the band cannot decide it.
 
 **The 10-column pre-recompile layout is now gone from the raw archive.** That
 layout was the evidence for the 2020-06-17 recompile — the record that made
