@@ -402,7 +402,7 @@ export default function QualityInspector() {
 const FLAG_MEANINGS = {
   sentinel: 'Raw cell was -992 or -1: the input was floating. Stored as NULL.',
   out_of_range:
-    'Value kept, but outside the channel's plausible band. Ringed on the chart, never removed. Usually how a scale change gets noticed.',
+    "Value kept, but outside the channel's plausible band. Ringed on the chart, never removed. Usually how a scale change gets noticed.",
   bad_window:
     'A named window in etl/config.py where the reading is kept but should not be believed.',
   no_signal:
