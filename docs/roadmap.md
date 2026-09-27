@@ -18,6 +18,56 @@ Last reviewed: 0.8.0.
 
 ---
 
+## In progress: the raw archive is being repaired in place
+
+The collector has started fixing the source XLSX rather than excluding whole
+stretches in `config.py` — which is the right direction, because an exclusion is a
+patch over the primary source of truth while a corrected cell is the truth. One
+file has been done, and it changes what the pipeline believes.
+
+**What `data/raw/aisvn/IFTTT_aisvn.xlsx` became.** The millivolt-as-integer
+columns are now volts and amps (`solar` 13558 → 13.558, `battery` 12844 → 12.844,
+`current` 1080 → 1.08, `solar2` 4616 → 4.616, `LiPo` 4107 → 4.107), the
+placeholder `200` temperatures are blank, and the redundant side block — which
+was already in volts — is gone. That is a real improvement, and it takes the
+`aisvn` out-of-band count from 832 readings to 1.
+
+**Three things about it are not settled, and the pipeline is currently wrong
+because of the first.**
+
+1. **The confirmed regime now double-scales it.** `build_regimes.CONFIRMED_WINDOWS`
+   still says `aisvn` is millivolts-as-integers for the whole record and divides
+   the rollups by 1000. Applied to a file that is already in volts, the published
+   rollup for 2020-06-15 reads `solar_v_avg = 0.005` V where it read `4.57` V
+   before. The regime has to be narrowed to the files still in millivolts, with a
+   reason recorded — the alternative is to leave the chart 1000× wrong.
+2. **`power` is a computed column, not a measurement.** It did not exist in the
+   old file. Every value in it is exactly `solar_v × current_a × 0.85` — checked
+   to fifteen significant digits over six rows. A 0.85 power factor is an
+   engineering constant that appears nowhere in the archive, in `etl/`, or in any
+   note from the collector. `power_w` is a *measured* channel at every other
+   station, so one file now makes the column mean two different things, which is
+   the exact failure the regime table exists to prevent.
+3. **`load` is inconsistent within the file.** It reads 0 in 1,764 of 1,999 rows
+   and 11,573 in the other 235 — so part of it is still millivolts and part of it
+   is a zero standing in for a reading. `AGENTS.md` rule 7 is about not turning a
+   gap into a 0; this is the same defect in the other direction.
+
+**The 10-column pre-recompile layout is now gone from the raw archive.** That
+layout was the evidence for the 2020-06-17 recompile — the record that made
+`CONFIRMED_WINDOWS`' boundary defensible. With the donor file rewritten to 11
+columns, `metric_defs` records a single 11-column layout for `aisvn` where there
+were two, and the remaining 38 files inherit from it. Nothing is *wrong*; the
+finding is just no longer checkable against the data.
+
+**Still to repair, from an audit of all 363 files:** 304 files across five folders
+still hold at least one millivolt channel. All of them are *uniformly*
+millivolt, which is what makes the confirmed regime windows a correct description
+of them, and they are the ones the pipeline already compensates for. The file that
+was worth repairing in place is the one that was not uniform — see above.
+
+---
+
 ## Planned
 
 ### `solardata_raw.db` — a verbatim layer beside the derived one
@@ -84,6 +134,19 @@ rather than an oversight, and each has a reason.
 
 ### Release hygiene
 
+- **The project is moving from `kreier/solardata` to `aisvn-data/solardata`.**
+  Not done. The README badges point at the new home; the branches, the tags and
+  the releases are all on the old one. What has to happen, in order:
+
+  | step | why |
+  |---|---|
+  | 1. Merge to the new repository's default branch | a manual `workflow_dispatch` run is only offered for a workflow on the default branch, so until it is there the "Run workflow" button does not exist |
+  | 2. Push the `v0.8.0` tag (and the earlier tags, if they matter) to the new repository | a tag push runs the workflow as it exists at that commit, in whichever repository receives it |
+  | 3. Set `expected_repository: aisvn-data/solardata` on later manual runs | a release into the wrong repository publishes a 19 MiB database nobody reads, and is invisible from the right one |
+  | 4. Decide what happens to `kreier/solardata` — archive it, or leave it as the working fork | two repositories that both accept tags is two places a release can appear |
+
+  A pull request does not and should not trigger a release; the tag is the
+  trigger. `release.yml` documents all three gotchas above at the top of the file.
 - **`v0.7.2` was published by hand.** Tagged, released, with a hand-written title
   and GitHub's generated pull-request list, and it never ran `release.yml` — so
   nothing verified the database it would have shipped and no `solardata.db.gz`

@@ -9,6 +9,71 @@ Nothing yet.
 
 ## [0.8.0] — 2026-09-27
 
+### Changed — the raw archive
+
+The collector has started repairing the source XLSX instead of excluding whole
+stretches in `config.py`. `data/raw/**` is the primary source of truth and, per
+`AGENTS.md` rule 1, not a file to edit — so this entry records what the edit
+changed, what it fixes, and the three things in it that are not settled. The
+previous version of every one of these files is in git history, so nothing is
+unrecoverable; what is not recoverable is the *meaning*, which is why the diff
+below is in words rather than a row count.
+
+- **`aisvn/IFTTT_aisvn.xlsx` is now in volts and amps.** `solar` 13558 → 13.558,
+  `battery` 12844 → 12.844, `current` 1080 → 1.08, `solar2` 4616 → 4.616, `LiPo`
+  4107 → 4.107; the placeholder `200` temperatures are blank; the redundant side
+  block, which was already in volts, is gone. This is the one file in the archive
+  that spanned both units — millivolts before the 2020-06-17 recompile and volts
+  after it — so it is the one that no single scale window could describe. The
+  repair takes `aisvn`'s out-of-band count from 832 readings to 1, and blanks the
+  1,359 `no_signal` placeholders that `config.NULL_WINDOWS` existed to null.
+- **`test`'s 11-column solar layout is gone from the archive.** One file deleted
+  outright, 24 rows cut from another, which is the stretch
+  `config.FILE_EXCLUSIONS` used to exclude. `station_setup` rejects drop from
+  6,144 to 4,121, and the reading count does not move — those cells never became
+  readings.
+- **`aisvn/IFTTT_aisvn (8).xlsx` gained a header row.** 2,000 → 2,001 rows.
+
+**Three things about this change are not settled, and one of them makes the
+published data wrong right now.** Recorded in
+[`docs/roadmap.md`](docs/roadmap.md) under "In progress"; summarised here because
+a release that ships 0.005 V instead of 5 V has to say so:
+
+1. **The confirmed regime now double-scales it.** `CONFIRMED_WINDOWS` still
+   divides `aisvn`'s whole record by 1000, so the rollup for 2020-06-15 reads
+   `solar_v_avg = 0.005` where it read `4.57`. The regime has to be narrowed to
+   the files still in millivolts, with a reason.
+2. **`power` is computed, not measured.** It did not exist in the old file, and
+   every value is exactly `solar_v × current_a × 0.85` — verified to fifteen
+   significant digits. `power_w` is a *measured* channel everywhere else, so one
+   file now makes the column mean two things.
+3. **`load` is inconsistent inside the file.** 0 in 1,764 of 1,999 rows, 11,573 in
+   the other 235 — part millivolts, part a zero standing in for a reading.
+
+The 10-column pre-recompile layout is also no longer in the raw archive, so
+`metric_defs` now records a single 11-column layout for `aisvn` where there were
+two, and the recompile finding is no longer checkable against the data.
+
+**The audit.** Of 363 files, **304 still hold at least one millivolt channel**:
+
+| station | files | channels still in millivolts | readings |
+|---|---:|---|---:|
+| `aisvn` | 1 | `solar_v`, `battery_v`, `lipo_v`, `solar2_v`, `load_v` | 1,480 / 757 / 334 / 236 |
+| `aisvn-solar` | 7 | `battery_v`, `lipo_v` | 13,006 / 13,786 |
+| `aisvn2` | 79 | `battery2_v`, `lipo2_v`, `solar3_v` | 164,096 / 161,790 / 65,490 |
+| `maker-webhooks` | 5 | `battery_v`, `lipo_v`, `solar_v`, `load_v`, `solar2_v` | 8,527 / 8,467 / 4,372 / 1,320 / 515 |
+| `phumy2` | 205 | `lipo2_v` | 415,112 |
+| `solar-2020-05` | 7 | `lipo_v` | 12,791 |
+| `test`, `voltage-phumy` | 0 | — | — |
+
+Every one of those 304 is *uniformly* millivolt for the channel in question,
+which is exactly what makes `CONFIRMED_WINDOWS` a correct description of them,
+and all of them are already compensated for in the rollups. Converting them in
+the raw would gain nothing and would remove the evidence that the firmware wrote
+millivolts, so they are left alone deliberately rather than overlooked. The
+answer to "should more raw files be updated" is: only where a file is **not**
+uniform, and after this change there is none.
+
 ### Added
 
 - **`test` and `voltage-phumy` are on the site.** Both were excluded from
