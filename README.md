@@ -7,7 +7,7 @@
 Analyze, clean and display collected solar data.
 
 Four years of telemetry from several solar stations in Nha Be and Phu My Hung,
-Ho Chi City, Vietnam (May 2020 – February 2024): **734,908 readings across 8
+Ho Chi City, Vietnam (May 2020 – February 2024): **730,914 readings across 8
 stations**, forwarded to Google Sheets by IFTTT and exported as 364 XLSX files.
 
 ## Status
@@ -15,25 +15,32 @@ stations**, forwarded to Google Sheets by IFTTT and exported as 364 XLSX files.
 | | |
 |---|---|
 | Raw archive | 364 files, 30.4 MiB, committed and immutable |
-| ETL pipeline | `etl/`, `make build`, ~3 min, 89 tests |
-| Canonical store | `data/processed/solardata.db` (SQLite, 167 MiB / 19 MiB gzipped — see below) |
+| ETL pipeline | `etl/`, `make build`, ~3 min, 137 tests |
+| Canonical store | `data/processed/solardata.db` (SQLite, 181 MiB as built / 166 MiB VACUUMed / 19 MiB gzipped — see below) |
 | Interchange | `data/processed/parquet/` (7.5 MiB, **committed**) |
-| Site data | `public/data/` (1887 KB, **committed**) |
+| Site data | `public/data/` (5.6 MiB, **committed**) |
 | Quality report | `data/processed/quality_report.md` (**committed**) |
 | Baseline guard | `data/baseline.json` (**committed**), enforced by CI |
 | Website | Vite + React at `src/` — station explorer and data-quality inspector |
 | CI | `.github/workflows/` — frontend, lint, test, full build, baseline |
 
-734,908 readings across 8 stations, May 2020 → February 2024. The archive is
+730,914 readings across 8 stations, May 2020 → February 2024. The archive is
 messy in ways that matter: 305 of the 364 files have **no header row**, several
 sheets carry redundant side-by-side column blocks, the same column name means
 different things at different times, and `-992` is a disconnected-sensor
 sentinel rather than a number. All of that is catalogued in
 [`CHANGELOG.md`](CHANGELOG.md) and handled explicitly by the pipeline.
 
-**`solardata.db` is not committed** — at 167 MiB it is over GitHub's 100 MiB
-per-file limit. `release.yml` VACUUMs it and gzips it to a **19 MiB** Release
-asset, which is the form worth downloading. (It is actually *smaller* than the raw XML: the archive is
+The count moved once on purpose. It was 734,908 until the collector's account of
+the `test` station: two of its files hold an 11-column solar layout that the
+collector identifies as system setup rather than measurement, so both are excluded
+and every row of them is recorded in `rejects` with reason `station_setup` — 6,144
+cells that are gone from `readings` and still individually inspectable. What
+remains of `test` is 33,377 readings from a 4-column `nix`/`temp`/`wifi` probe.
+
+**`solardata.db` is not committed** — at 166 MiB VACUUMed it is over GitHub's
+100 MiB per-file limit. `release.yml` VACUUMs it and gzips it to a **19 MiB**
+Release asset, which is the form worth downloading. (It is actually *smaller* than the raw XML: the archive is
 30.4 MiB only because XLSX is deflate-compressed, at 251 MiB uncompressed. See
 [`docs/format-design.md`](docs/format-design.md#why-the-sqlite-file-is-larger-than-the-raw-archive).)
 The Parquet output, the site data and the quality report *are* committed, so a
@@ -50,22 +57,36 @@ npm run build      # -> dist/, deployed to GitHub Pages by CI on push to main
 Two tabs:
 
 - **Explore** — pick a station, a year, a resolution and a date range; chart any
-  combination of solar voltage, battery, power, temperature and energy.
+  combination of solar voltage, battery, power, temperature and energy. It opens
+  on AISVN #1 in November 2021 at hourly resolution with the battery, solar and
+  wind-turbine channels, which is 696 hourly buckets and the one view where the
+  dawn and dusk of the solar curve are visible rather than averaged away.
 - **Data quality** — the database inspector: what the build inferred, which
   readings are flagged and why, which scale changes are still unconfirmed, the
   collector's own margin notes, and the rejected cells.
 
 **Day or Hour.** `Day` plots a mean over the day's hourly buckets; `Hour` plots a
 mean over the ~30 readings inside that hour, so the solar curve has a dawn and a
-dusk instead of being a flat average. Hour is as fine as the site goes: the
-archive's native cadence is 119 seconds, and those 734,908 unaggregated readings
-are the Parquet export — a download, not something a browser fetches.
+dusk instead of being a flat average. Switching between them keeps the date
+range: they are two samplings of the same days, and a From/To is a statement
+about which days you want, not how finely to draw them. Hour is as fine as the
+site goes: the archive's native cadence is 119 seconds, and those 730,914
+unaggregated readings are the Parquet export — a download, not something a
+browser fetches.
+
+**All eight stations, including the two that are not solar.** `test` (a WiFi and
+temperature probe) and `voltage-phumy` (an ADC calibration sheet) are in the
+database, in the Parquet export and in the quality report, so they are published
+and listed — under their own heading, with the reason they are not production
+stated on the panel. They were hidden from the site until 0.7.2, which made the
+one place a reader goes to look show six of the eight stations the project
+documents.
 
 No chart library: the chart is hand-rolled SVG, because a rollup needs a line
 chart and a package would be ~100 kB of JavaScript to draw two paths.
 
 The site reads static files from `public/data/`, written by
-`python -m etl export`. Two rules it inherits from the pipeline:
+`python -m etl export`. Three rules it inherits from the pipeline:
 
 - **A missing value is a gap in the line, never a zero.** `0 W` at midnight and
   "the sensor was disconnected" are different facts, and conflating them would
@@ -76,6 +97,11 @@ The site reads static files from `public/data/`, written by
   only a human can adjudicate that. The bands arrive in
   `public/data/metrics.json`, copied verbatim from `etl/normalize/metrics.py`, so
   the site applies the same criterion the ingest did.
+- **A channel's unit belongs to the station that logged it.** `test` records
+  `temp_c` in hundredths of a degree and every other station in tenths, so the
+  unit travels in `stations.json` as `channel_units` and the site divides by what
+  the pipeline stored. Assume tenths everywhere and the probe's 28 °C afternoon
+  is drawn as 280 °C.
 
 ## Pipeline
 
@@ -96,6 +122,11 @@ python -m etl verify     # fail if the build != data/baseline.json
 python -m etl query "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"
 ```
 
+`python -m etl export` writes a rollup for every station in the registry,
+including the two that are not solar production. `--all-stations` only moves
+`test` and `voltage-phumy` out of the site's separate group, which it does not
+need in order to be published.
+
 Read the committed Parquet without building anything:
 
 ```python
@@ -112,25 +143,12 @@ python -m etl verify --update-baseline --reason "corrected tz for phumy2a"
 
 Read [`AGENTS.md`](AGENTS.md) before changing anything under `etl/` — it lists
 the rules that exist to stop plausible-looking but wrong data, and how CI
-enforces them. Design rationale is in [`docs/format-design.md`](docs/format-design.md),
-the schema in [`docs/data-dictionary.md`](docs/data-dictionary.md), and the
-station histories in [`docs/data-sources.md`](docs/data-sources.md).
-
-## Website
-
-The repository includes the initial **v0.1.0** Vite + React website outline. It
-provides a lightweight landing page, station overview cards, and a roadmap for
-future data work.
-
-### Run locally
-
-```bash
-npm install
-npm run dev
-```
-
-Build a production bundle with `npm run build`. The Vite base path is configured
-for GitHub Pages at `/solardata/`.
+enforces them. What is **not** finished is in
+[`docs/roadmap.md`](docs/roadmap.md): the planned `solardata_raw.db`, the
+questions only the collector can answer, and the known debt. Design rationale is
+in [`docs/format-design.md`](docs/format-design.md), the schema in
+[`docs/data-dictionary.md`](docs/data-dictionary.md), and the station histories
+in [`docs/data-sources.md`](docs/data-sources.md).
 
 ## Purpose
 
@@ -167,6 +185,16 @@ Archived older Applets:
 - phumy
 - test
 - aisvn2
+
+`test` is the one that needs a note. Its archive is 19 files in two layouts: two
+of them carry an 11-column solar layout that the collector identifies as system
+setup rather than measurement, and the other 17 a 4-column `nix`/`temp`/`wifi`
+probe. The two are excluded **by file** — a date cut-off would not do, because
+`IFTTT_test (1).xlsx` starts 2020-06-14 but uniquely contributes 4,120 readings
+after 2020-07-01 — and all 6,144 of their rows are recorded in `rejects` with
+reason `station_setup`, with their sheet row and timestamp, so "we did not ingest
+this file" is defensible rather than silent. What remains is 33,377 probe
+readings, 2020-07-05 to 2020-08-21, and they are published and chartable.
 
 Note that the folder names under `data/raw` are archive chunks rather than
 stations: `phumy2`, `phumy2a` and `phumy2b` are one continuous station. See

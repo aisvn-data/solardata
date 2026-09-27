@@ -25,12 +25,22 @@ All coordinates are in Ho Chi Minh City, Vietnam. `tz` is UTC+07:00 year round
 |---|---|---|---|---:|---|
 | `phumy2` | `phumy2`, `phumy2a`, `phumy2b` | `IFTTT_phumy2` | 2020-06-15 → 2024-02-01 | 415,117 | yes |
 | `aisvn2` | `aisvn2` | `IFTTT_aisvn2` | 2020-06-18 → 2021-11-01 | 164,098 | yes |
-| `aisvn` | `aisvn` | `IFTTT_aisvn` | 2020-06-15 → 2022-02-22 | 77,622 | yes |
-| `test` | `test` | `IFTTT_test` | 2020-06-12 → 2020-08-21 | 37,371 | **no** |
+| `aisvn` | `aisvn` | `IFTTT_aisvn` | 2020-06-15 → 2022-02-22 | 77,526 | yes |
+| `test` | `test` | `IFTTT_test` | 2020-07-05 → 2020-08-21 | 33,377 | **no** |
 | `aisvn-solar` | `AISVN_Solar` | `IFTTT_AISVN_Solar` | 2020-05-21 → 2020-06-12 | 13,788 | yes |
 | `solar-2020-05` | `Solar_2020-05-16` | `IFTTT_Solar_2020-05-16` | 2020-05-16 → 2020-06-15 | 12,920 | yes |
 | `maker-webhooks` | `Maker_Webhooks_Events` | `IFTTT_Maker_Webhooks_Events` | 2020-05-30 → 2020-06-12 | 8,535 | yes |
 | `voltage-phumy` | `Voltage_phumy` | `Voltage_phumy` | 2020-07-04 → 2020-07-12 | 5,553 | **no** |
+
+"Production" is not the same as "published". All eight are written to
+`public/data/` and all eight are on the site; the two marked **no** are listed
+under "Not solar production" and say what they are. The column answers "is this
+solar production data", not "is this data withheld".
+
+`test`'s 33,377 rows and its 2020-07-05 start date are the result of the
+whole-file exclusion described below: its archive runs from 2020-06-12 and
+carried 37,371 rows before the collector identified two of its nineteen files as
+system setup.
 
 ### Notes on individual stations
 
@@ -64,13 +74,16 @@ triggered rather than only the values. Partly out of production.
 
 **`test` — not a solar station.** Mixes at least three unrelated schemas at the
 same column count: a solar channel block, a `time, nix, temp, wifi` probe, and a
-`millis` counter. Contributes 2,390 of the 4,403 duplicate timestamps. Excluded
-from exports.
+`millis` counter. Contributes 2,390 of the 4,403 duplicate timestamps. The solar
+block is excluded **by file** — the collector's account of it is system setup
+rather than measurement — which is why the row count is 33,377 rather than
+37,371. Published and chartable, as a probe.
 
 **`voltage-phumy` — calibration bench.** Not a station; it is a
 characteristic of the ADC→voltage conversion. Columns are `time, raw, voltage,
 millis()`, plus a three-block side table and the discharge-test annotation
-(`CHANGELOG.md` F7). The unit mapping is unconfirmed. Excluded from exports.
+(`CHANGELOG.md` F7). The unit mapping is unconfirmed. Published and chartable,
+as a calibration record.
 
 ## IFTTT service history
 

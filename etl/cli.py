@@ -342,7 +342,10 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--all-stations",
         action="store_true",
-        help="include bench/non-production stations (test, voltage-phumy)",
+        help=(
+            "group the bench stations (test, voltage-phumy) with the solar "
+            "production ones. Their rollups are written either way"
+        ),
     )
     common.add_argument("--baseline", help="override data/baseline.json")
 

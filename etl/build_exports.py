@@ -35,10 +35,21 @@ it is drawing, which is the same criterion applied one level up -- it never
 guesses a threshold of its own, and it never removes a value (``AGENTS.md``
 rule 2).
 
-Non-production stations (``test``, ``voltage-phumy``) are excluded from the
-rollups by default: they are bench data and a WiFi probe, not solar production,
-and mixing them into a public chart would be wrong.  They still appear in
-``quality.json``, which is the internal view.
+Non-production stations (``test``, ``voltage-phumy``)
+---------------------------------------------------
+Both are written like any other station, and both are marked ``published: false``
+in ``stations.json`` so the site can group them separately.  They were excluded
+from the rollups entirely until 0.7.2, on the grounds that a WiFi probe and an
+ADC calibration sheet are not solar production.  That was the right judgement
+about *what they are* and the wrong implementation of it: 33,377 readings of
+``test`` and 5,553 of ``voltage-phumy`` were in the database, in the Parquet
+export and in the quality report, and absent from the site -- so the one place a
+reader goes to look had six of the eight stations the project documents.  "Not
+solar production" is a property the reader should be shown, not a reason to
+withhold the data.  The site prints each station's own note next to it.
+
+``--all-stations`` now only moves the two out of the separate group; it no longer
+decides whether their CSVs are written.
 
 ``quality.json`` is written from the same ``etl.report.collect`` call the
 Markdown report uses, so the browser and the committed report cannot drift.
@@ -51,7 +62,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from etl import stations
+from etl import config, stations
 from etl.normalize import metrics
 from etl.rollup_schema import oor_columns, value_columns
 
@@ -188,15 +199,6 @@ def build(
     include_non_production: bool = False,
     verbose: bool = True,
 ) -> dict[str, int]:
-    # Bench data is excluded by default, not because it is low quality but
-    # because it is not solar production: `test` is a WiFi/temperature probe
-    # mixed with solar channels, and `voltage-phumy` is an ADC calibration
-    # sheet.  Publishing either on a public chart would misrepresent the data.
-    published = [
-        s
-        for s in stations.STATIONS
-        if include_non_production or s.station_id not in stations.NON_PRODUCTION
-    ]
     if granularity not in GRANULARITIES:
         raise ValueError(
             f"unknown granularity {granularity!r}; expected one of {sorted(GRANULARITIES)}"
@@ -206,7 +208,10 @@ def build(
 
     written = {"hourly": 0, "daily": 0, "manifest": 0, "quality": 0, "metrics": 0}
 
-    for station in published:
+    # Every station, not the production subset. See the module docstring: the two
+    # bench stations are written like any other and marked in the manifest, so the
+    # site shows eight stations and says which six are solar production.
+    for station in stations.STATIONS:
         for folder in selected:
             table, columns, key = ROLLUPS[folder]
             years = conn.execute(
@@ -235,7 +240,12 @@ def build(
     for row in conn.execute("SELECT * FROM stations ORDER BY is_production DESC, station_id"):
         record = dict(row)
         record["source_dirs"] = json.loads(record["source_dirs"])
-        record["published"] = record["station_id"] in {s.station_id for s in published}
+        # True when the station is solar production. False does not mean the data
+        # is withheld -- the rollups above were written either way -- only that the
+        # site groups it separately and says what it actually is.
+        record["published"] = (
+            record["station_id"] not in stations.NON_PRODUCTION or include_non_production
+        )
         # Which rollups actually exist for this station, so the resolution switch
         # offers only what is on disk instead of 404-ing on a missing file.
         record["granularities"] = [
@@ -246,8 +256,9 @@ def build(
                 (record["station_id"],),
             ).fetchone()
         ]
-        # Years with published rollups, so the UI can build its year selector
-        # without probing for 404s.
+        # Years with a published rollup, so the UI can build its year selector
+        # without probing for 404s.  Every station now has one, including the two
+        # that are not production.
         record["years"] = [
             r["y"]
             for r in conn.execute(
@@ -255,8 +266,19 @@ def build(
                 " WHERE station_id = ? ORDER BY y",
                 (record["station_id"],),
             )
-            if record["published"]
         ]
+        # Where a station stores a channel in a different unit from the column's
+        # default, that unit and the band it implies travel with the station.
+        # `test` records `temp_c` in hundredths of a degree where every other
+        # station uses tenths, and the pipeline already stores it that way; without
+        # shipping the unit the site would divide 2,807 hundredths by ten and
+        # print 280 degC for a warm afternoon.  Empty for every station with no
+        # override, which is seven of the eight.
+        record["channel_units"] = {
+            column: {"unit": unit, "lo": lo, "hi": hi}
+            for station_id, column, unit, lo, hi, _why in config.CHANNEL_UNITS
+            if station_id == record["station_id"]
+        }
         manifest.append(record)
     path = target / "stations.json"
     path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

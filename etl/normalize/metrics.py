@@ -37,16 +37,24 @@ class Metric:
 #: Canonical columns, in the order they appear in the ``readings`` table.
 #:
 #: The ``lo``/``hi`` bands are deliberately narrow and are set from what the
-#: hardware actually produces, not from textbook ranges.  A 3S LiPo bank sits
-#: around 12.6-14.8 V, so ``battery_v`` is banded 9-16 V: that is what makes a
-#: window logging "29.12 V" show up as ``out_of_range`` instead of blending
-#: silently into the record.  These bands only ever raise a flag -- no value is
-#: ever clipped, nulled, or rescaled on the strength of them.
+#: hardware actually produces, not from textbook ranges.  ``battery_v`` is banded
+#: 9-16 V because the hardware is a 12 V lead-acid pack: it rests at 12.4-12.8 V,
+#: sits at 13.8-14.4 V while charging, and reads ~10.1 V deeply discharged, so
+#: 9-16 V covers the range and no more.  That is what makes a window logging
+#: "29.12 V" show up as ``out_of_range`` instead of blending silently into the
+#: record.  These bands only ever raise a flag -- no value is ever clipped,
+#: nulled, or rescaled on the strength of them.
+#:
+#: The band is keyed by column, so it describes the hardware at *every* station
+#: that logs ``battery_v``.  ``aisvn``'s pack is confirmed by the collector to be
+#: a lead car battery, not the 3S LiPo this description used to claim; the 12 V
+#: lead-acid band is the right one for it and for the others, and the separate
+#: ``lipo_v``/``lipo2_v`` channels (2.5-4.35 V) are where the LiPo packs are.
 METRICS: tuple[Metric, ...] = (
     Metric("solar_v", "V", "voltage", "Solar panel / collector voltage", 0.0, 60.0),
     Metric("solar2_v", "V", "voltage", "Second solar input voltage", 0.0, 60.0),
     Metric("solar3_v", "V", "voltage", "Third solar input voltage", 0.0, 60.0),
-    Metric("battery_v", "V", "voltage", "Battery bank voltage (3S LiPo)", 9.0, 16.0),
+    Metric("battery_v", "V", "voltage", "Battery bank voltage", 9.0, 16.0),
     Metric("battery2_v", "V", "voltage", "Second battery bank voltage", 9.0, 16.0),
     Metric("current_a", "A", "current", "Primary current", -50.0, 50.0),
     Metric("current2_a", "A", "current", "Secondary current", -50.0, 50.0),
@@ -56,7 +64,14 @@ METRICS: tuple[Metric, ...] = (
     Metric("load_v", "V", "voltage", "Load / dump rail voltage", 0.0, 60.0),
     Metric("load1_v", "V", "voltage", "Load rail 1 voltage", 0.0, 60.0),
     Metric("load2_v", "V", "voltage", "Load rail 2 voltage", 0.0, 60.0),
-    Metric("wind_v", "V", "voltage", "Wind turbine input (unused, reads 0)", None, None),
+    # No band, deliberately. The channel is wired and it logs: `aisvn` records
+    # 0-13.3 V in 2021 (non-zero in 176 of November's 696 hours) and up to 12,784 V
+    # in 2020, then exactly 0 for all of 2022. A label that called it unused was
+    # wrong, and the values are not a plausible generator output either, so the
+    # honest answer is the name of the input and no verdict: a band would have to
+    # be a guess, and a guess here would flag either every real reading or none.
+    # What the input is connected to is asked of the collector, not decided here.
+    Metric("wind_v", "V", "voltage", "Wind turbine input", None, None),
     Metric(
         "temp_c",
         "0.1 degC",

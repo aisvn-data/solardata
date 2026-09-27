@@ -12,6 +12,7 @@ is checked against them, so a new file cannot introduce an unknown key.
 
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -182,6 +183,64 @@ class TestWorkflowFiles(unittest.TestCase):
         )
         upload = next(s for s in steps if "upload-pages-artifact" in s.get("uses", ""))
         self.assertEqual(upload["with"]["path"], "dist")
+
+    def test_the_pages_csv_count_matches_what_the_export_writes(self):
+        # `pages.yml` asserts a fixed number of rollup CSVs reached the bundle,
+        # so a station the export stops writing fails the deploy. That is the
+        # point of the assertion -- and it is also a number that has to be
+        # *changed by hand* when the export's station set changes, which is how
+        # publishing `test` and `voltage-phumy` would have failed every deploy
+        # until someone noticed. So the count is read out of the workflow and
+        # compared with what is actually on disk.
+        steps = load("pages.yml")["jobs"]["build"]["steps"]
+        run = next((s.get("run") or "") for s in steps if "dist/data" in (s.get("run") or ""))
+        self.assertIn("*.csv", run, "the deploy no longer counts the rollup CSVs")
+        expected = re.search(r"-eq (\d+)", run)
+        self.assertIsNotNone(expected, "the deploy's CSV count assertion was removed")
+        data = Path(__file__).resolve().parent.parent / "public" / "data"
+        if not data.is_dir():
+            self.skipTest("no public/data; run `python -m etl export` first")
+        on_disk = len(list(data.rglob("*.csv")))
+        self.assertEqual(
+            int(expected.group(1)),
+            on_disk,
+            "pages.yml's CSV count no longer matches public/data/; the deploy would fail",
+        )
+
+    def test_the_release_notes_come_from_the_changelog(self):
+        # The release notes used to be a fixed heredoc, so every release carried
+        # the same two sentences and v0.7.1 shipped without a word about the white
+        # page it fixed. The notes are now extracted from the changelog section for
+        # the tag, and this is the assertion that the extraction is still there.
+        steps = load("release.yml")["jobs"]["build-and-attach"]["steps"]
+        run = next((s.get("run") or "") for s in steps if "notes.md" in (s.get("run") or ""))
+        self.assertIn("--notes-file", run, "the release does not pass a notes file")
+        self.assertIn("CHANGELOG.md", run, "the release notes do not read CHANGELOG.md")
+        self.assertIn('awk -v want="$version"', run, "the changelog extractor is gone")
+        # The tag is `v0.8.0` and the heading is `## [0.8.0]`, so the `v` has to
+        # come off before matching. Missing it finds nothing and silently falls
+        # through to generated notes on every release.
+        self.assertIn(
+            'version="${TAG#v}"',
+            run,
+            "the release does not strip the leading v from the tag before matching",
+        )
+        self.assertIn("gh release edit", run, "a re-run cannot update the notes")
+        self.assertIn(
+            '--target "${GITHUB_SHA}"',
+            run,
+            "the release creates its tag at the default branch's HEAD, not the commit it built",
+        )
+        # And no hardcoded size claims, which is how the notes said 7 MiB for a
+        # 7.5 MiB directory from 0.6.0 to 0.7.2. Measured with python rather than
+        # `du`, which reports allocated blocks and rounds that 7.5 up to 8.
+        self.assertNotIn("~7 MiB", run, "the release notes still assert a size")
+        self.assertNotIn("du -s", run, "the release notes measure with du, not byte counts")
+        self.assertIn(
+            'rglob("*.parquet")',
+            run,
+            "the release notes do not measure the parquet export",
+        )
 
     def test_no_workflow_uses_a_deprecated_node20_action(self):
         # The Node 20 action runtimes emit a deprecation warning. Pin the

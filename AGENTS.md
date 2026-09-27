@@ -227,23 +227,24 @@ redundancy is the whole win. `tests/test_ingest.py::TestReadCache` covers it.
 
 ### Why `solardata.db` is not committed
 
-It is 167 MiB after `VACUUM` (182 MiB as the ingest leaves it), over GitHub's
+It is 166 MiB after `VACUUM` (181 MiB as the ingest leaves it), over GitHub's
 100 MiB per-file limit for a git blob, so a commit of it would be rejected
 outright. `release.yml` gzips it to a **19 MiB** Release asset, which is the form
 most people actually want. What *is* committed:
 
 | Path | Size | Why |
 |---|---|---|
-| `data/processed/parquet/` | 7.5 MiB | The interchange format; gives anyone the processed data from a clone. All 734,908 readings at the native cadence |
-| `public/data/` | 1.9 MiB | The CSV/JSON rollups the site fetches, so GitHub Pages works from a clone: daily *and* hourly, plus the plausibility bands |
+| `data/processed/parquet/` | 7.5 MiB | The interchange format; gives anyone the processed data from a clone. All 730,914 readings at the native cadence |
+| `public/data/` | 5.6 MiB | The CSV/JSON rollups the site fetches, so GitHub Pages works from a clone: daily *and* hourly, for all 8 stations, plus the plausibility bands |
+
 | `data/processed/quality_report.md` | ~10 KB | The review artefact, readable in a pull request |
 | `data/processed/quality_report.json` | ~80 KB | Machine-readable form of the same |
 | `data/baseline.json` | ~1 KB | The expected counts CI enforces |
 | `data/raw/**` | 30.4 MiB | The primary source of truth |
 
 The Parquet export is **2.5× smaller than the gzipped database** for exactly the
-same 734,908 rows, which is why the database is a convenience rather than the
-distribution channel. Measured breakdown of the 167 MiB, if you are ever
+same 730,914 rows, which is why the database is a convenience rather than the
+distribution channel. Measured breakdown of the 166 MiB, if you are ever
 optimising it:
 
 | Part | Size | Note |
@@ -328,13 +329,35 @@ discovered channel is offered. It runs in `ci.yml` and `pages.yml`, and
 
 The data files are committed under `public/data/`, so a frontend-only change
 deploys without re-running the Python pipeline. The deploy asserts that
-`dist/data/` contains `stations.json`, `metrics.json`, `quality.json` and all 26
-CSVs (13 station-years at two resolutions), so a build that loses them fails
-instead of publishing a site full of errors.
+`dist/data/` contains `stations.json`, `metrics.json`, `quality.json` and all 30
+CSVs (15 station-years at two resolutions, one folder per station), so a build
+that loses them fails instead of publishing a site full of errors.
+
+The site opens on one specific view — `DEFAULT_VIEW` in
+`src/components/StationExplorer.jsx`: AISVN #1, November 2021, hourly, with
+`battery_v`, `solar_v` and `wind_v`. It is applied **once**, on the first rollup
+that loads, and the range it sets is the month's own data bounds rather than
+hardcoded dates. Three things about it are easy to break:
+
+- The default is a *claim about the archive*. `scripts/check_render.mjs` resolves
+  `openingView()` and `defaultSelection()` against the real `stations.json` and
+  the real rollup, and fails if the station, year, month, resolution or any
+  channel is not there. Mutation-test it before trusting it.
+- The range reset is keyed on station and year, **not** on the effect running and
+  **not** on the resolution. `ranges` arrives after the CSV and re-runs the
+  effect; clearing on every run wipes the default. Keying on the resolution made
+  the Hour button throw away the reader's From/To.
+- `test` is the only station whose `temp_c` is in hundredths, and the site only
+  draws it correctly because `stations.json` carries `channel_units`. If that
+  key goes missing the probe's 28 °C becomes 280 °C with no error anywhere.
+
 
 ## Open questions a human still has to answer
 
-These are recorded, not solved. Do not quietly decide them in code.
+These are recorded, not solved. Do not quietly decide them in code. The same
+list, with what is known about each, is in
+[`docs/roadmap.md`](docs/roadmap.md), which also carries the planned
+`solardata_raw.db` and the known debt.
 
 1. **The 3 remaining unconfirmed scale regimes**, and the 8 `aisvn` windows that
    were confirmed this release. Confirmed: millivolts as integers for the whole
@@ -377,22 +400,49 @@ These are recorded, not solved. Do not quietly decide them in code.
    September 2020 has only 12 readings. **Confirmed by the collector: the
    collector was down, no data was lost in the Sheets export.** No action
    needed; recorded so nobody goes looking for a bug.
-8. **Non-production stations** stay excluded from published exports.
-   `test` is now probe-only: its 11-column solar layout is in two source files
-   and the collector regards that stretch as system setup rather than
-   measurement, so both files are excluded by `config.FILE_EXCLUSIONS` and every
-   row of them is recorded in `rejects` with reason `station_setup`. What remains
-   is 33,377 readings from the 4-column `nix`/`temp`/`wifi` probe, 2020-07-05 to
+8. **Non-production stations are published, and labelled as such.**
+   `test` is probe-only: its 11-column solar layout is in two source files and
+   the collector regards that stretch as system setup rather than measurement, so
+   both files are excluded by `config.FILE_EXCLUSIONS` and every row of them is
+   recorded in `rejects` with reason `station_setup`. What remains is 33,377
+   readings from the 4-column `nix`/`temp`/`wifi` probe, 2020-07-05 to
    2020-08-21. `voltage-phumy` is an ADC calibration sheet.
+
+   Until 0.7.2 neither was written to `public/data/` at all, and the site showed
+   six of the eight stations this file documents — the rollups existed nowhere
+   even though the readings were in the database, in the Parquet export and in
+   the quality report. `build_exports.build` now writes every station in the
+   registry and marks the two with `published: false`, which is a *grouping* and
+   not a filter: the site lists them under "Not solar production" and prints the
+   station's own note. `--all-stations` only moves them into the main group.
+   `tests/test_export_policy.py` is what holds that in place.
 9. **`aisvn.temp_c` is stored in tenths of a degree**, and `phumy2.temp_c` in
    tenths, but `test.temp_c` in **hundredths** — the collector asked for that
    resolution on the probe. A plausibility band is keyed by column, so it can
    only describe one unit; `config.CHANNEL_UNITS` carries a per-station override
-   and it is applied both in `coerce_cell` and in the aggregate's per-metric
-   counts. Two places, because applying it in one is the same bug one level up.
+   and it is read in three places: `build_db._band_override` (the ingest and the
+   aggregate), and `build_exports.build`, which ships it to the browser as
+   `stations.json`'s `channel_units` so `discoverChannels` can divide by 100
+   rather than 10. Three places, because applying it in two is the same bug one
+   level up, and the third is a level further up where nothing else would fail.
    The `aisvn` placeholder readings of `200` are nulled as `no_signal`, not
    flagged, and the window ends at 11:14 local precisely so the 114 genuine tenths
    that follow survive.
+10. **`battery_v` is a lead-acid car battery, not a 3S LiPo.** The collector
+   confirms it. The band, 9-16 V, is right for a 12 V lead pack — it rests at
+   12.4-12.8 V, charges to 14.4 V and reads ~10.1 V flat — and it is what makes
+   `aisvn`'s 17.9 V daily peaks in 2021 and its 29.6 V in 2020 show up as
+   `out_of_range` rather than blending in. The description said "3S LiPo" until
+   0.7.2, which was a claim about the hardware nobody had checked; the band was
+   never derived from it. The real LiPo packs are `lipo_v`/`lipo2_v` at 2.5-4.35 V.
+11. **`wind_v` is wired and it logs.** It was described as "unused, reads 0",
+   which is false: `aisvn` records 0-13.3 V hourly in 2021, non-zero in 176 of
+   November's 696 hours, and up to 12,784 V in 2020; it is exactly 0 for all of
+   2022 and for `aisvn-solar`. It has **no band**, deliberately, because a band
+   would have to be a guess: the values are not a plausible generator output
+   either. The description is now just the name of the input and the finding is
+   recorded here instead. **What the input is connected to is asked of the
+   collector, not decided in code.**
 
 ## Conventions
 
