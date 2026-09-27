@@ -52,6 +52,13 @@ jobs:
       - name: Check the chart helpers and exported data
         run: node scripts/check_frontend.mjs
 
+      # And rather than publishing a white page. A component whose props disagree
+      # with its call site builds perfectly and throws only at render, so the
+      # tree is rendered before it is deployed. This shipped three times; see the
+      # comment in ci.yml.
+      - name: Render the component tree
+        run: npm run check:render
+
       - name: Build
         run: npx vite build
 

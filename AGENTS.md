@@ -292,9 +292,26 @@ Three rules the frontend inherits from the pipeline, and the reason for each:
   used to drop 16 real days of `aisvn` 2020 out of 101, because a panel's
   24-hour mean is dominated by night and a single afternoon sample looks like an
   outlier against it. `check_frontend.mjs` has a regression check by name.
+- **A prop name is a contract.** It is the one thing in the frontend that no
+  check could see, and it has shipped three times as a white page rather than a
+  failed assertion. `npm run check:render` exists for it.
 
-`node scripts/check_frontend.mjs` guards all three, and runs in CI. Add to it
+`node scripts/check_frontend.mjs` guards the first three, and runs in CI. Add to it
 when you change the chart or the CSV parsing.
+
+`npm run check:render` guards the fourth, which the other three cannot see:
+**a component whose props disagree with its call site**. `check_frontend`
+exercises the pure helpers in `src/data.js` and the CSV files, and `vite build`
+cannot check a prop name because this is plain JSX with no types. So a renamed
+prop builds perfectly, deploys perfectly, and throws only at render — which is a
+white page rather than a failed assertion. It has shipped three times: a picker
+where every control was `disabled` because the parent passed objects and the
+child tested strings, then `metrics` → `channels` renamed on the child's
+destructuring only, and then a merge that reintroduced the second. The check
+builds the tree with `vite build --ssr` and renders it, asserting the app mounts,
+that `TimeControls` accepts the props `StationExplorer` passes it, and that every
+discovered channel is offered. It runs in `ci.yml` and `pages.yml`, and
+`npm run build` depends on it, so a prop drift fails the build instead of the site.
 
 ### Deploying to GitHub Pages
 

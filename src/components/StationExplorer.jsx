@@ -383,7 +383,7 @@ export default function StationExplorer() {
                 setToDay(to)
               }}
               onRangePreset={applyPreset}
-              metrics={channels}
+              channels={channels}
               selected={selected}
               onMetricToggle={toggleMetric}
               months={months}
