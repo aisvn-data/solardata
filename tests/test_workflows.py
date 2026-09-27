@@ -242,6 +242,37 @@ class TestWorkflowFiles(unittest.TestCase):
             "the release notes do not measure the parquet export",
         )
 
+    def test_the_release_names_the_repository_it_published_to(self):
+        # The project is moving from kreier/solardata to aisvn-data/solardata, and
+        # a release in the wrong repository is invisible from the right one. The
+        # notes carry the repository, and an input fails the run rather than
+        # publishing a 19 MiB database into a repository nobody is maintaining.
+        doc = load("release.yml")
+        inputs = doc[True]["workflow_dispatch"]["inputs"]
+        self.assertIn(
+            "expected_repository",
+            inputs,
+            "a release can be cut in the wrong repository with nothing to stop it",
+        )
+        guard = next(
+            s
+            for s in doc["jobs"]["build-and-attach"]["steps"]
+            if (s.get("name") or "").startswith("Confirm this is the repository")
+        )
+        self.assertIn("GITHUB_REPOSITORY", guard["run"], "the guard does not read the repository")
+        self.assertIn("exit 1", guard["run"], "the guard does not fail the run")
+        # And the notes say where they came from.
+        attach = next(
+            s
+            for s in doc["jobs"]["build-and-attach"]["steps"]
+            if "notes.md" in (s.get("run") or "")
+        )
+        self.assertIn(
+            "GITHUB_REPOSITORY",
+            attach["run"],
+            "the release notes do not say which repository they are from",
+        )
+
     def test_no_workflow_uses_a_deprecated_node20_action(self):
         # The Node 20 action runtimes emit a deprecation warning. Pin the
         # current majors so the warning cannot come back unnoticed.

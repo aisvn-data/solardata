@@ -21,6 +21,30 @@
 # already the repository's record of what changed and why, in the Keep a Changelog
 # format, and the tag is its primary key: a section per version, extracted by the
 # step below. `CHANGELOG_ONLY` is for the case where a tag has no section yet.
+#
+# Why a pull request never triggers this, and should not
+# -----------------------------------------------------
+# A release is cut by a **tag push**, or by hand from the Actions tab. Three
+# consequences, all of which have bitten this project at least once:
+#
+# 1. `pull_request` is deliberately absent. A release publishes a database and
+#    attaches assets; running one per pull request would put a 19 MiB upload and
+#    a three-minute build on every review push, and the release would describe
+#    work nobody merged. Opening a PR does not and will not run this.
+# 2. A **manual** run needs the workflow file to be on the *default branch* of
+#    the repository. GitHub only offers the "Run workflow" button for workflows
+#    it can find there, so a workflow that exists only on a feature branch is
+#    invisible in the tab however correct it is. This file has to be merged to
+#    the default branch before a manual run is possible.
+# 3. A **tag push** runs the workflow as it exists at the tagged commit, in
+#    whichever repository the tag is pushed to. Push the tag to a repository
+#    whose copy of this file is the old one and the old behaviour runs; push it
+#    to the wrong repository and the release lands there.
+#
+# The project is moving from `kreier/solardata` to `aisvn-data/solardata`. Until
+# that is done, set `expected_repository` so a release cannot be cut in the wrong
+# place by accident -- it fails the run rather than publishing a database into a
+# repository nobody is maintaining. `docs/roadmap.md` carries the migration.
 name: release
 
 on:
@@ -38,6 +62,11 @@ on:
         required: false
         default: false
         type: boolean
+      expected_repository:
+        description: "Fail unless the release lands here, e.g. aisvn-data/solardata (empty = no check)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -121,6 +150,19 @@ jobs:
       #     assets and leaves the notes as they were. A re-run used to be
       #     incapable of updating anything but the binaries.
       #   * The asset sizes are measured, not asserted in a comment that drifts.
+      - name: Confirm this is the repository you meant to release from
+        env:
+          EXPECTED: ${{ inputs.expected_repository }}
+        run: |
+          set -euo pipefail
+          echo "publishing to: ${GITHUB_REPOSITORY} from ${GITHUB_REF}"
+          if [ -n "$EXPECTED" ] && [ "$EXPECTED" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::expected to release into $EXPECTED but this run is in $GITHUB_REPOSITORY"
+            echo "The project is moving from kreier/solardata to aisvn-data/solardata."
+            echo "Releasing into the wrong repository publishes a database nobody reads."
+            exit 1
+          fi
+
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -165,6 +207,11 @@ jobs:
           version="${TAG#v}"
           {
             echo "## solardata $TAG"
+            echo
+            # Which repository this is, in the notes. A release in the wrong repo
+            # is otherwise invisible from here, and the two repositories are about
+            # to be the same project.
+            echo "Published from \`${GITHUB_REPOSITORY}\` at \`${GITHUB_SHA:0:7}\`."
             echo
             echo "\`solardata.db.gz\` is the canonical SQLite store for this tag:"
             echo "${rows} readings. Unpack and query it with:"
