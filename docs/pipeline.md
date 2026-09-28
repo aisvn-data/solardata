@@ -36,6 +36,25 @@ audit       check the build against the raw archive; fail loudly
 `python -m etl verify` then compares the result to `data/baseline.json` and
 fails if a single number moved.
 
+Each stage is also runnable on its own, which is how you see what one of them
+changed:
+
+| command | what it does |
+|---|---|
+| `python -m etl all` | every stage below, in order, then `verify` |
+| `python -m etl fresh` | delete the database and its `-wal`/`-shm` sidecars first, then `all` — `data_fresh.yml` from a terminal |
+| `python -m etl ingest` | XLSX → the eight station tables, from scratch |
+| `python -m etl aggregate` | the two rollups and `channel_stats` |
+| `python -m etl export` | `public/data`, one CSV set per station |
+| `python -m etl report` | the quality report, Markdown and JSON |
+| `python -m etl audit` | the checks that need the real archive |
+| `python -m etl verify` | fail if the build does not match the baseline |
+| `python -m etl query "SELECT ..."` | ad-hoc read-only SQL |
+
+`--raw-dir` and `--out-dir` redirect the input and the output. Common flags work
+on either side of the stage: `python -m etl -q ingest` and
+`python -m etl ingest -q` are the same command.
+
 ### 1. ingest
 
 For each of the 364 XLSX files:

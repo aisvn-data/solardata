@@ -179,6 +179,115 @@ class TestReleaseNotes(unittest.TestCase):
         )
 
 
+class TestPipelineDocument(TempArchiveCase):
+    """`docs/pipeline.md` quotes bands, units and ranges. They must be true.
+
+    The document is generated from the catalog and the built database, which is
+    what keeps it honest at the moment it is written and does nothing afterwards.
+    A committed document full of numbers that nobody checks is the failure mode
+    this project is built to avoid: plausible-looking and wrong, with no error
+    anywhere, and a reader has no way to tell which parts moved.
+
+    So it is checked against the catalog here, and against a *built* database for
+    the ranges. The band and unit assertions need no archive and run in the unit
+    suite; the stored ranges need a build, so they are checked against a fixture
+    archive rather than `data/raw`, for the reason the rest of the suite does not
+    read the archive.
+    """
+
+    #: Backtick, spelled out: the assertions below are about the document's shape,
+    #: and writing the character literally invites an editor to eat it.
+    TICK = "\u0060"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.doc = (REPO / "docs" / "pipeline.md").read_text(encoding="utf-8")
+
+    def _section(self, station) -> str:
+        from etl.catalog import table_name
+
+        heading = (
+            f"### {self.TICK}{station.station_id}{self.TICK}"
+            f" -> {self.TICK}{table_name(station.station_id)}{self.TICK}"
+        )
+        start = self.doc.find(heading)
+        self.assertNotEqual(start, -1, f"docs/pipeline.md has no section for {station.station_id}")
+        section = self.doc[start:]
+        nxt = section.find("\n### ", 3)
+        return section[:nxt] if nxt > 0 else section
+
+    def _row(self, section: str, name: str) -> list[str] | None:
+        """One table row, split into its cells, or None.
+
+        Split rather than substring-match, and that is the whole point. Comparing
+        with `in` looks like it works and does not: a band of `0 .. 5.1` is a
+        substring of the stored range `0 .. 5.148` in the same row, so a document
+        claiming the wrong band passes the check. Mutation testing the guard is
+        what found that, and it is why this parses.
+        """
+        for line in section.splitlines():
+            if not line.startswith("| ") or self.TICK not in line:
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if cells and cells[0] == f"{self.TICK}{name}{self.TICK}":
+                return cells
+        return None
+
+    def test_every_station_has_a_section(self) -> None:
+        from etl.catalog import STATIONS, table_name
+
+        for station in STATIONS:
+            self.assertIn(f"`{station.station_id}` -> `{table_name(station.station_id)}`", self.doc)
+
+    def test_every_channel_is_listed_with_its_real_band_and_unit(self) -> None:
+        from etl.catalog import STATIONS
+
+        missing: list[str] = []
+        wrong: list[str] = []
+        for station in STATIONS:
+            section = self._section(station)
+            for channel in station.channels:
+                cells = self._row(section, channel.name)
+                if cells is None:
+                    missing.append(f"{station.station_id}.{channel.name}")
+                    continue
+                # channel | kind | raw -> published | scale | band | stored | notes
+                self.assertEqual(len(cells), 7, f"{station.station_id}.{channel.name} row shape")
+                units, scale, band = cells[2], cells[3], cells[4]
+
+                want_units = f"{channel.raw_unit or '-'} -> {channel.unit or '-'}"
+                if units != want_units:
+                    wrong.append(
+                        f"{station.station_id}.{channel.name}: units {units!r} != {want_units!r}"
+                    )
+                if scale != f"{channel.scale:g}":
+                    wrong.append(f"{station.station_id}.{channel.name}: scale {scale!r}")
+
+                if not channel.band:
+                    want_band = "none"
+                elif channel.band[0] is None:
+                    want_band = f"<= {channel.band[1]:g}"
+                elif channel.band[1] is None:
+                    want_band = f">= {channel.band[0]:g}"
+                else:
+                    want_band = f"{channel.band[0]:g} .. {channel.band[1]:g}"
+                if band != want_band:
+                    wrong.append(
+                        f"{station.station_id}.{channel.name}: band {band!r} != {want_band!r}"
+                    )
+        self.assertEqual(missing, [], "channels missing from docs/pipeline.md")
+        self.assertEqual(wrong, [], "docs/pipeline.md disagrees with etl/catalog.py")
+
+    def test_the_stages_it_describes_are_the_stages_that_run(self) -> None:
+        # The document's stage list is a claim about the CLI. If a stage is added
+        # and not documented, the next reader is missing a step.
+        from etl.cli import HELP
+
+        for stage in ("ingest", "aggregate", "export", "report", "audit", "verify", "all", "fresh"):
+            self.assertIn(stage, HELP, f"{stage} is not a stage any more")
+            self.assertIn(f"python -m etl {stage}", self.doc, f"docs/pipeline.md omits {stage}")
+
+
 class TestBaseline(TempArchiveCase):
     def test_a_fresh_build_measures_every_field(self) -> None:
         self.build({"aisvn": aisvn_fixture(4)}, {"aisvn": AISVN_HEADER})
