@@ -9,6 +9,7 @@ of them produced a chart that looked fine.
 
 from __future__ import annotations
 
+import re
 import unittest
 from typing import ClassVar
 
@@ -416,6 +417,35 @@ class TestBandsAreQuietOrExplained(unittest.TestCase):
                 f"{station_id}.{channel} fires on {fraction:.1%} of its record and "
                 "has no note explaining why the fire is the finding",
             )
+
+    def test_a_stated_count_in_a_band_note_is_the_current_one(self) -> None:
+        # A `band_note` is documentation a reader will believe. When it states a
+        # count in the form "N of M", those two numbers are a claim about this
+        # build, and a claim that is quietly stale is worse than no claim: it is
+        # the one thing in the catalog that looks measured and is not.
+        #
+        # The rule this asserts is therefore narrow and easy to hold to: *every*
+        # "N of M" in a band note is the current count. A historical figure is
+        # written differently -- "1,656 readings -- 19% of the channel -- would
+        # have fired" -- so it cannot be mistaken for the present. The only way
+        # to state a past count unambiguously is not to use this shape.
+        #
+        # `aisvn-solar.battery_v` was the one that caught it: its note said 8
+        # while the build counted 7, left over from before the rollup was fixed
+        # and started reporting this channel at all. `maker-webhooks.lipo_v`
+        # said 1,656, which was true of a band it no longer has.
+        mismatches: list[str] = []
+        for (station_id, channel), (n_values, n_out_of_range) in self.OBSERVED.items():
+            note = BY_ID[station_id].channel(channel).band_note or ""
+            for stated, total in re.findall(r"(\d[\d,]*)\s+of\s+(\d[\d,]*)", note):
+                stated_n = int(stated.replace(",", ""))
+                total_n = int(total.replace(",", ""))
+                if (stated_n, total_n) != (n_out_of_range, n_values):
+                    mismatches.append(
+                        f"{station_id}.{channel}: note says {stated_n} of {total_n}, "
+                        f"the build says {n_out_of_range} of {n_values}"
+                    )
+        self.assertEqual(mismatches, [], "band notes whose stated count has gone stale")
 
     def test_the_whole_archive_is_not_mostly_flags(self) -> None:
         # The number this rewrite exists for. 0.8 flagged 631,252 readings out of

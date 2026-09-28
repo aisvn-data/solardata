@@ -3071,7 +3071,7 @@
         "fraction": 0.000508,
         "over_threshold": false,
         "justified": true,
-        "note": "0-5.1 V, the documented 0-5,100 mV ceiling. Fires on 8 of 13,788 readings, all of them between 5.1 and 5.148 V -- over the divider's documented rail by up to 48 mV. A real boundary finding, which is what a band is for."
+        "note": "0-5.1 V, the documented 0-5,100 mV ceiling. Fires on 7 of 13,788 readings, all of them between 5.1 and 5.148 V -- over the divider's documented rail by up to 48 mV. A real boundary finding, which is what a band is for. 0.9.0 reported 0 here: the shared rollup tested this station's volts against aisvn's 9-16 V band, and this station's readings were all below 9, so the counter was counting the wrong thing entirely."
       },
       {
         "station_id": "maker-webhooks",
@@ -3086,7 +3086,7 @@
         "fraction": 0.000469,
         "over_threshold": false,
         "justified": true,
-        "note": "Upper bound at the 1S cell ceiling of 4.35 V, lower bound at 0 rather than 2.5 V. Banded 2.5-4.35 V it fires on 1,656 of 8,535 readings (19%) because of the 0.735 V plateau, and a flag that fires on one sample in five cannot mark a contaminated aggregate. The plateau is a finding, and it stays in the database and in the report; it is simply not a per-reading out-of-range."
+        "note": "Upper bound at the 1S cell ceiling of 4.35 V, lower bound at 0 rather than 2.5 V. Banded 2.5-4.35 V, 1,656 readings -- 19% of the channel -- would have fired on the 0.735 V plateau, and a flag that fires on one sample in five cannot mark a contaminated aggregate. The plateau is a finding and stays in the database and in the report; it is simply not a per-reading out-of-range, and at 0-4.35 V the channel fires on 4 of 8,535."
       },
       {
         "station_id": "phumy2",
