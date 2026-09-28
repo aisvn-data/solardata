@@ -14,7 +14,7 @@ import re
 import unittest
 from pathlib import Path
 
-from etl import audit, verify
+from etl import __version__, audit, verify
 from etl.cli import build_parser, main
 from etl.readers import xlsx
 
@@ -334,7 +334,7 @@ class TestBaseline(TempArchiveCase):
         self.assertIn("counts", payload)
         self.assertIn("recorded", payload)
         self.assertTrue(payload["recorded"]["reason"].strip(), "a reason is required")
-        self.assertEqual(payload["recorded"]["tool_version"], "0.9.0")
+        self.assertEqual(payload["recorded"]["tool_version"], __version__)
         self.assertEqual(len(payload["recorded"]["stations"]), 8)
 
     def test_readings_is_a_sum_over_the_station_tables(self) -> None:

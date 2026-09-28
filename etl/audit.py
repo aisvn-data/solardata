@@ -258,24 +258,39 @@ def check_catalog(raw_dir) -> Check:
 
     xlsx.clear_read_cache()
     seen: dict[tuple[str, int], int] = {}
-    for folder in sorted(p for p in raw_dir.iterdir() if p.is_dir()):
-        station = catalog.BY_SOURCE_DIR.get(folder.name)
+    sources = sorted(
+        (
+            p
+            for p in raw_dir.iterdir()
+            if not p.name.startswith((".", "~"))
+            and p.name != "archive"
+            and ((p.is_file() and p.suffix.lower() == ".xlsx") or p.is_dir())
+        ),
+        key=lambda p: p.name.lower(),
+    )
+    for source in sources:
+        station = catalog.station_for_source(source.name)
         if station is None:
-            check.note(f"folder {folder.name}/ is not in the station registry; ignored")
+            check.note(f"source {source.name} is not in the station registry; ignored")
             continue
-        for path in sorted(folder.glob("*.xlsx"), key=lambda p: p.name.lower()):
+        paths = (
+            [source]
+            if source.is_file()
+            else sorted(source.glob("*.xlsx"), key=lambda p: p.name.lower())
+        )
+        for path in paths:
             # An Excel owner file is a 165-byte lock, not a sheet, and openpyxl
             # cannot open one. The ingest skips them; the audit has to skip them
             # for the same reason or it re-introduces the failure it is checking.
             if is_excel_lock_file(path.name):
-                check.note(f"skipped Excel owner file, not a sheet: {folder.name}/{path.name}")
+                check.note(f"skipped Excel owner file, not a sheet: {source.name}/{path.name}")
                 continue
             block = xlsx.detect_block(path)
             key = (station.station_id, block.n_columns)
             seen[key] = seen.get(key, 0) + 1
             if station.layout_for(block.n_columns) is None:
                 check.fail(
-                    f"{folder.name}/{path.name}: {block.n_columns} columns, and "
+                    f"{path.name}: {block.n_columns} columns, and "
                     f"{station.station_id} declares no layout of that width"
                 )
     xlsx.clear_read_cache()

@@ -288,6 +288,7 @@ Layout: 4 columns, 3 files.
 | `adc_raw` | raw | - -> count | 1 | none | 2107 .. 3127 (5,553) |  |
 | `voltage_adc` | raw | - -> count | 1 | none | 1862 .. 2511 (5,553) |  |
 | `millis_ms` | count | - -> ms | 1 | none | 2204 .. 6.85487e+08 (5,553) | counter, never banded |
+| `solar_v` | voltage | - -> V | 1 | none | 10.6 .. 14.3 (5,553) |  |
 
 Open questions:
 

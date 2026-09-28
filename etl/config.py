@@ -309,11 +309,26 @@ class Settings:
         for path in (self.out_dir, self.parquet_dir, self.export_dir):
             path.mkdir(parents=True, exist_ok=True)
 
+    def raw_sources(self) -> list[Path]:
+        """Discovered raw data sources: flat .xlsx files and/or subdirectories.
+
+        Excludes 'archive' and temporary/lock files.
+        """
+        if not self.raw_dir.is_dir():
+            return []
+        sources: list[Path] = []
+        for p in self.raw_dir.iterdir():
+            if p.name.startswith((".", "~")) or p.name == "archive":
+                continue
+            if (p.is_file() and p.suffix.lower() == ".xlsx") or p.is_dir():
+                sources.append(p)
+        return sorted(sources, key=lambda p: p.name.lower())
+
     def raw_dirs(self) -> list[Path]:
         if not self.raw_dir.is_dir():
             return []
         return sorted(
-            (p for p in self.raw_dir.iterdir() if p.is_dir()),
+            (p for p in self.raw_dir.iterdir() if p.is_dir() and p.name != "archive"),
             key=lambda p: p.name.lower(),
         )
 

@@ -68,6 +68,7 @@ __all__ = [
     "channel",
     "layout_for",
     "published_columns",
+    "station_for_source",
     "table_name",
 ]
 
@@ -1711,15 +1712,11 @@ VOLTAGE_PHUMY = Station(
     ),
     layouts=(
         Layout(
-            n_columns=4,
-            header=("raw", "voltage", "millis()"),
-            channels=("adc_raw", "voltage_adc", "millis_ms"),
-            n_files=3,
-            note=(
-                "One layout for all 3 files. The second column block, to the "
-                "right of this one, is a coarser hand-made summary and the lab "
-                "annotations; it is read for prose only."
-            ),
+            n_columns=5,
+            header=("raw", "voltage", "millis()", "solar_v"),
+            channels=("adc_raw", "voltage_adc", "millis_ms", "solar_v"),
+            n_files=1,
+            note="Consolidated calibration sheet with raw ADC, voltage ADC, millis, and calibrated solar_v.",
         ),
     ),
     channels=(
@@ -1751,10 +1748,18 @@ VOLTAGE_PHUMY = Station(
             stats=("min", "max"),
             counter=True,
         ),
+        Channel(
+            name="solar_v",
+            label="Solar",
+            kind="voltage",
+            description="Calibrated solar/battery voltage, 10.6-14.3 V.",
+            unit="V",
+            band=None,
+            band_note="No band: bench calibration channel, not a production solar sensor.",
+        ),
     ),
     open_questions=(
-        "The ADC-to-voltage conversion this sheet calibrates is not recorded here, "
-        "so neither channel can be published as a voltage.",
+        "The ADC-to-voltage conversion is applied as solar_v in the consolidated sheet.",
     ),
 )
 
@@ -1774,6 +1779,30 @@ BY_ID: dict[str, Station] = {s.station_id: s for s in STATIONS}
 STATION_IDS: tuple[str, ...] = tuple(s.station_id for s in STATIONS)
 BY_SOURCE_DIR: dict[str, Station] = {d: s for s in STATIONS for d in s.source_dirs}
 NON_PRODUCTION: frozenset[str] = frozenset(s.station_id for s in STATIONS if not s.production)
+
+
+def station_for_source(source: str | object) -> Station | None:
+    """Resolve a directory name, file name, or station_id to its Station."""
+    from pathlib import Path
+
+    p = Path(str(source))
+    candidates = (p.stem, p.name, p.stem.lower(), p.name.lower())
+    for candidate in candidates:
+        if candidate in BY_SOURCE_DIR:
+            return BY_SOURCE_DIR[candidate]
+        if candidate in BY_ID:
+            return BY_ID[candidate]
+        alt = candidate.replace("-", "_")
+        if alt in BY_SOURCE_DIR:
+            return BY_SOURCE_DIR[alt]
+        if alt in BY_ID:
+            return BY_ID[alt]
+        alt2 = candidate.replace("_", "-")
+        if alt2 in BY_SOURCE_DIR:
+            return BY_SOURCE_DIR[alt2]
+        if alt2 in BY_ID:
+            return BY_ID[alt2]
+    return None
 
 
 def channel(station_id: str, name: str) -> Channel:

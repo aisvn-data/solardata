@@ -13,7 +13,7 @@
     "group": "solar production",
     "first_ts_utc": "2020-06-15T06:10:00Z",
     "last_ts_utc": "2022-02-22T21:42:00Z",
-    "n_readings": 77526,
+    "n_readings": 77622,
     "table": "s_aisvn",
     "published": true,
     "granularities": [
@@ -46,15 +46,15 @@
         "decimals": 1,
         "observed": {
           "channel": "solar_v",
-          "n_values": 77526,
+          "n_values": 77622,
           "min": 0.0,
           "max": 29.8,
-          "mean": 8.011149898098703,
+          "mean": 8.029302478678725,
           "p01": 0.0,
-          "p50": 4.5,
+          "p50": 4.6,
           "p99": 29.06,
-          "n_out_of_range": 1612,
-          "n_zero": 36100
+          "n_out_of_range": 1687,
+          "n_zero": 36121
         }
       },
       {
@@ -82,15 +82,15 @@
         "decimals": 1,
         "observed": {
           "channel": "solar2_v",
-          "n_values": 77526,
+          "n_values": 77622,
           "min": 0.0,
           "max": 19.5,
-          "mean": 6.0295281969919765,
+          "mean": 6.032494679343485,
           "p01": 0.0,
-          "p50": 4.18,
+          "p50": 4.123,
           "p99": 19.5,
           "n_out_of_range": 14107,
-          "n_zero": 32102
+          "n_zero": 31460
         }
       },
       {
@@ -118,14 +118,14 @@
         "decimals": 1,
         "observed": {
           "channel": "battery_v",
-          "n_values": 77526,
+          "n_values": 77622,
           "min": -0.99,
           "max": 29.8,
-          "mean": 13.329325658488765,
+          "mean": 13.340884169436501,
           "p01": 10.59,
           "p50": 12.79,
-          "p99": 29.19,
-          "n_out_of_range": 1717,
+          "p99": 29.2,
+          "n_out_of_range": 1813,
           "n_zero": 0
         }
       },
@@ -154,15 +154,15 @@
         "decimals": 1,
         "observed": {
           "channel": "current_a",
-          "n_values": 77526,
+          "n_values": 77622,
           "min": -6.21,
-          "max": 6.65,
-          "mean": 0.3332838531589402,
+          "max": 6.66,
+          "mean": 0.335612635593002,
           "p01": -0.01,
           "p50": 0.12,
-          "p99": 2.69,
-          "n_out_of_range": 1412,
-          "n_zero": 617
+          "p99": 2.7,
+          "n_out_of_range": 1486,
+          "n_zero": 620
         }
       },
       {
@@ -190,15 +190,15 @@
         "decimals": 1,
         "observed": {
           "channel": "power_w",
-          "n_values": 77525,
-          "min": -19.65,
+          "n_values": 77621,
+          "min": -22.4,
           "max": 76.64,
-          "mean": 7.699101726139955,
+          "mean": 7.689442886834748,
           "p01": 0.0,
-          "p50": 0.22,
-          "p99": 40.55,
-          "n_out_of_range": 879,
-          "n_zero": 36277
+          "p50": 0.21117569999999997,
+          "p99": 40.53,
+          "n_out_of_range": 907,
+          "n_zero": 36307
         }
       },
       {
@@ -226,15 +226,15 @@
         "decimals": 1,
         "observed": {
           "channel": "load_v",
-          "n_values": 77526,
+          "n_values": 77622,
           "min": 0.0,
-          "max": 29.67,
-          "mean": 8.119609008590666,
+          "max": 29.73,
+          "mean": 8.137833835768209,
           "p01": 0.0,
-          "p50": 11.87,
-          "p99": 29.44,
-          "n_out_of_range": 1612,
-          "n_zero": 28387
+          "p50": 11.88,
+          "p99": 29.45,
+          "n_out_of_range": 1687,
+          "n_zero": 28408
         }
       },
       {
@@ -262,15 +262,15 @@
         "decimals": 1,
         "observed": {
           "channel": "wind_v",
-          "n_values": 77526,
+          "n_values": 77622,
           "min": 0.0,
           "max": 29.8,
-          "mean": 1.5454602455950261,
+          "mean": 1.5723011646182783,
           "p01": 0.0,
           "p50": 0.0,
           "p99": 29.79,
           "n_out_of_range": 0,
-          "n_zero": 67744
+          "n_zero": 67765
         }
       },
       {
@@ -298,14 +298,14 @@
         "decimals": 1,
         "observed": {
           "channel": "temp_c",
-          "n_values": 62060,
+          "n_values": 62156,
           "min": 14.0,
           "max": 63.3,
-          "mean": 32.33068804382855,
+          "mean": 32.30955016410322,
           "p01": 16.0,
           "p50": 32.5,
           "p99": 37.0,
-          "n_out_of_range": 155,
+          "n_out_of_range": 156,
           "n_zero": 0
         }
       },
@@ -334,14 +334,14 @@
         "decimals": 3,
         "observed": {
           "channel": "lipo_v",
-          "n_values": 77526,
+          "n_values": 77621,
           "min": 0.26,
-          "max": 6.84,
-          "mean": 4.465711387147537,
+          "max": 1361.0,
+          "mean": 16.321725795854217,
           "p01": 0.34,
           "p50": 4.07,
-          "p99": 6.84,
-          "n_out_of_range": 14107,
+          "p99": 585.0,
+          "n_out_of_range": 15460,
           "n_zero": 0
         }
       },
@@ -369,13 +369,13 @@
         "decimals": 0,
         "observed": {
           "channel": "boot_count",
-          "n_values": 77516,
+          "n_values": 76254,
           "min": 1.0,
           "max": 21660.0,
-          "mean": 6612.0476417771815,
-          "p01": 41.0,
-          "p50": 5515.0,
-          "p99": 19674.0,
+          "mean": 6711.136425630131,
+          "p01": 40.0,
+          "p50": 5647.0,
+          "p99": 19699.0,
           "n_out_of_range": 0,
           "n_zero": 0
         }
@@ -2077,7 +2077,7 @@
           "n_values": 5553,
           "min": 2107.0,
           "max": 3127.0,
-          "mean": 2506.5890509634432,
+          "mean": 2506.532504952278,
           "p01": 2166.0,
           "p50": 2495.0,
           "p99": 3019.0,
@@ -2113,7 +2113,7 @@
           "n_values": 5553,
           "min": 1862.0,
           "max": 2511.0,
-          "mean": 2158.4233747523863,
+          "mean": 2158.418152350081,
           "p01": 1909.0,
           "p50": 2155.0,
           "p99": 2481.0,
@@ -2146,12 +2146,48 @@
         "observed": {
           "channel": "millis_ms",
           "n_values": 5553,
-          "min": 2204.0,
-          "max": 685487226.0,
-          "mean": 342656912.2708446,
-          "p01": 6018441.0,
-          "p50": 342584237.0,
-          "p99": 678734068.0,
+          "min": 2150.0,
+          "max": 685364571.0,
+          "mean": 342533468.1728795,
+          "p01": 5895329.0,
+          "p50": 342461573.0,
+          "p99": 678611242.0,
+          "n_out_of_range": 0,
+          "n_zero": 0
+        }
+      },
+      {
+        "channel": "solar_v",
+        "label": "Solar",
+        "kind": "voltage",
+        "description": "Calibrated solar/battery voltage, 10.6-14.3 V.",
+        "unit": "V",
+        "raw_unit": null,
+        "scale": 1.0,
+        "band": [
+          null,
+          null
+        ],
+        "band_note": "No band: bench calibration channel, not a production solar sensor.",
+        "stats": [
+          "avg",
+          "min",
+          "max"
+        ],
+        "published": true,
+        "exclude_reason": null,
+        "exclude_note": "",
+        "is_counter": false,
+        "decimals": 1,
+        "observed": {
+          "channel": "solar_v",
+          "n_values": 5553,
+          "min": 10.6134,
+          "max": 14.3127,
+          "mean": 12.302983468395462,
+          "p01": 10.8813,
+          "p50": 12.2835,
+          "p99": 14.1417,
           "n_out_of_range": 0,
           "n_zero": 0
         }

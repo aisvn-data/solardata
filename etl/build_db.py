@@ -267,8 +267,8 @@ def _row_floor(rel_path: str) -> tuple[int, str] | None:
 # ---------------------------------------------------------------------------
 
 
-def _scan_folder(folder: Path, station: catalog.Station, raw_dir: Path) -> list[_FileScan]:
-    """Every XLSX in one folder, each resolved to a layout by its width.
+def _scan_source(source: Path, station: catalog.Station, raw_dir: Path) -> list[_FileScan]:
+    """Every XLSX in a folder, or the single XLSX file itself.
 
     An undeclared width is a hard error, not a fallback.  A width the catalog does
     not know means the sheet has a shape nobody has looked at, and 0.8's answer
@@ -286,13 +286,21 @@ def _scan_folder(folder: Path, station: catalog.Station, raw_dir: Path) -> list[
     looked like archive content, blamed the directory for it, and cost two minutes
     of ingest to diagnose.  Skipped, and counted so the run says so.
     """
+    if source.is_file():
+        paths = [source]
+    else:
+        paths = sorted(source.glob("*.xlsx"), key=lambda p: p.name.lower())
+
     scans: list[_FileScan] = []
     skipped_locks: list[str] = []
-    for path in sorted(folder.glob("*.xlsx"), key=lambda p: p.name.lower()):
+    for path in paths:
         if is_excel_lock_file(path.name):
-            skipped_locks.append(f"{folder.name}/{path.name}")
+            skipped_locks.append(str(path.name))
             continue
-        rel_path = f"{folder.name}/{path.name}"
+        try:
+            rel_path = str(path.relative_to(raw_dir)).replace("\\", "/")
+        except ValueError:
+            rel_path = path.name
         block = xlsx.detect_block(path)
         exclusion = _exclusion_reason(rel_path)
         layout = station.layout_for(block.n_columns)
@@ -316,6 +324,9 @@ def _scan_folder(folder: Path, station: catalog.Station, raw_dir: Path) -> list[
     for skipped in skipped_locks:
         print(f"  skipped Excel owner file (not a sheet): {skipped}")
     return scans
+
+
+_scan_folder = _scan_source
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +355,7 @@ def _insert_file(
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_id,
-            rel_path.split("/")[0],
+            rel_path.split("/")[0] if "/" in rel_path else scan.path.stem,
             station.station_id,
             scan.path.name,
             rel_path,
@@ -674,29 +685,29 @@ def ingest(settings: Settings, *, verbose: bool = True) -> RunSummary:
         conn.commit()
 
         summary = RunSummary(run_id=run_id)
-        known_dirs = set(catalog.BY_SOURCE_DIR)
-        for folder in settings.raw_dirs():
-            if folder.name not in known_dirs:
-                # A folder under data/raw that the registry does not know is data
+        sources = settings.raw_sources()
+        for source in sources:
+            station = catalog.station_for_source(source.name)
+            if station is None:
+                # A source under data/raw that the registry does not know is data
                 # nobody has decided what to do with. It is not ingested, and it
                 # is not dropped quietly either: it is named in the run's notes
-                # and printed, so "the build read 10 folders and ingested 9" is
+                # and printed, so "the build read 10 sources and ingested 9" is
                 # visible rather than inferred from a count.
-                summary.unknown_dirs.append(folder.name)
+                summary.unknown_dirs.append(source.name)
                 if verbose:
                     print(
-                        f"  {folder.name}/: not in the station registry, ignored "
+                        f"  {source.name}: not in the station registry, ignored "
                         "(add it to etl.catalog if it is a station)"
                     )
                 continue
 
-            station = catalog.BY_SOURCE_DIR[folder.name]
-            # Bound the sheet cache to one folder: the cache is what makes the
+            # Bound the sheet cache to one source: the cache is what makes the
             # build fast and it is also the largest thing in memory.
             xlsx.clear_read_cache()
-            scans = _scan_folder(folder, station, settings.raw_dir)
+            scans = _scan_source(source, station, settings.raw_dir)
             if verbose:
-                print(f"  {folder.name}: {len(scans)} files -> {station.table}")
+                print(f"  {source.name}: {len(scans)} files -> {station.table}")
 
             for scan in scans:
                 digest = xlsx.file_digest(scan.path)
@@ -718,13 +729,13 @@ def ingest(settings: Settings, *, verbose: bool = True) -> RunSummary:
         _update_coverage(conn, summary)
         conn.commit()
 
-        reads = sum(1 for _ in settings.raw_dirs())
+        reads = len(sources)
         notes = (
             f"{summary.rows_ingested} readings from {summary.files} files across "
-            f"{len(summary.per_station)} stations in {reads} folders"
+            f"{len(summary.per_station)} stations in {reads} sources"
         )
         if summary.unknown_dirs:
-            notes += f"; ignored folders not in the registry: {', '.join(summary.unknown_dirs)}"
+            notes += f"; ignored sources not in the registry: {', '.join(summary.unknown_dirs)}"
         if summary.failed:
             notes += f"; {summary.failed} file(s) failed"
         db.finish_run(conn, run_id, notes)

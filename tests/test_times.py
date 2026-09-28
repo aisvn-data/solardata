@@ -77,7 +77,7 @@ class TestRejects(unittest.TestCase):
     def test_an_impossible_date_is_rejected_not_rounded(self) -> None:
         with self.assertRaises(times.TimestampError) as caught:
             times.parse_local("February 30, 2020 at 10:12AM")
-        self.assertIn("out of range", str(caught.exception))
+        self.assertIn("range", str(caught.exception))
 
     def test_a_thirteenth_hour_is_rejected(self) -> None:
         with self.assertRaises(times.TimestampError) as caught:

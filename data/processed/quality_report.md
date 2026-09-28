@@ -1,6 +1,6 @@
-# Data quality report -- solardata 0.10.0
+# Data quality report -- solardata 0.10.1
 
-**731,885 readings** from 364 raw files across 8 stations. 25,566 hourly and 1,184 daily rollup buckets. 259,463 rejected cells, 11 recovered notes, 1 file excluded whole.
+**731,981 readings** from 8 raw files across 8 stations. 25,579 hourly and 1,187 daily rollup buckets. 254,327 rejected cells, 0 recovered notes, 0 files excluded whole.
 
 Every station is one table in `solardata.db`, holding only the channels that station collects. Bands belong to a (station, channel) pair, not to a column name, and are tested in the unit the value is stored in.
 
@@ -8,53 +8,53 @@ Every station is one table in `solardata.db`, holding only the channels that sta
 
 | Station | Table | Readings | Coverage (UTC) | Channels | Published |
 |---|---|---:|---|---:|---:|
-| AISVN #1 | `s_aisvn` | 77,526 | 2020-06-15 to 2022-02-22 | 10 | 10 |
+| AISVN #1 | `s_aisvn` | 77,622 | 2020-06-15 to 2022-02-22 | 10 | 10 |
 | AISVN Solar (archived applet) | `s_aisvn_solar` | 13,788 | 2020-05-21 to 2020-06-12 | 8 | 4 |
 | AISVN #2 | `s_aisvn2` | 164,098 | 2020-06-18 to 2021-11-01 | 7 | 7 |
 | Maker Webhooks (archived applet) | `s_maker_webhooks` | 8,535 | 2020-05-30 to 2020-06-12 | 10 | 10 |
 | Phu My Hung #2 | `s_phumy2` | 416,088 | 2020-06-15 to 2026-09-27 | 6 | 5 |
 | Solar bench (2020-05-16 sheet) | `s_solar_2020_05` | 12,920 | 2020-05-16 to 2020-06-15 | 4 | 3 |
 | Test bench | `s_test` | 33,377 | 2020-07-05 to 2020-08-21 | 3 | 3 |
-| Phu My Hung voltage calibration | `s_voltage_phumy` | 5,553 | 2020-07-04 to 2020-07-12 | 3 | 3 |
+| Phu My Hung voltage calibration | `s_voltage_phumy` | 5,553 | 2020-07-04 to 2020-07-12 | 4 | 4 |
 
 ## AISVN #1 (`aisvn`)
 
 11-channel logger. The applet was recompiled twice and the collector converted the sheet at source, so the whole record is volts and amps with no scale window to apply -- except for two hardware faults the collector dates exactly: the current channel gained a permanent offset at 2020-08-24 18:42 local, and the power channel's output was inverted and four times too large from the same instant. Both are declared as corrections rather than absorbed into the channel.
 
-77,526 readings in `s_aisvn`, 2020-06-15T06:10:00Z to 2022-02-22T21:42:00Z, timezone Asia/Ho_Chi_Minh, applet `IFTTT_aisvn`.
+77,622 readings in `s_aisvn`, 2020-06-15T06:10:00Z to 2022-02-22T21:42:00Z, timezone Asia/Ho_Chi_Minh, applet `IFTTT_aisvn`.
 
 ### What it collects
 
 | Channel | Unit | Band | n | min | p01 | median | mean | p99 | max | zeros | out of range | shown |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|
-| `solar_v` | V | 0 to 25 | 77,526 | 0 | 0 | 4.5 | 8.011 | 29.06 | 29.8 | 36,100 | 1,612 | yes |
-| `solar2_v` | V | 0 to 15 | 77,526 | 0 | 0 | 4.18 | 6.03 | 19.5 | 19.5 | 32,102 | 14,107 | yes |
-| `battery_v` | V | 9 to 16 | 77,526 | -0.99 | 10.59 | 12.79 | 13.33 | 29.19 | 29.8 | 0 | 1,717 | yes |
-| `current_a` | A | 0 to 3 | 77,526 | -6.21 | -0.01 | 0.12 | 0.3333 | 2.69 | 6.65 | 617 | 1,412 | yes |
-| `power_w` | W | 0 to 50 | 77,525 | -19.65 | 0 | 0.22 | 7.699 | 40.55 | 76.64 | 36,277 | 879 | yes |
-| `load_v` | V | 0 to 20 | 77,526 | 0 | 0 | 11.87 | 8.12 | 29.44 | 29.67 | 28,387 | 1,612 | yes |
-| `wind_v` | W | 0 to 50 | 77,526 | 0 | 0 | 0 | 1.545 | 29.79 | 29.8 | 67,744 | 0 | yes |
-| `temp_c` | degC | 0 to 40 | 62,060 | 14 | 16 | 32.5 | 32.33 | 37 | 63.3 | 0 | 155 | yes |
-| `lipo_v` | V | 0 to 5 | 77,526 | 0.26 | 0.34 | 4.07 | 4.466 | 6.84 | 6.84 | 0 | 14,107 | yes |
-| `boot_count` | count | -- | 77,516 | 1 | 41 | 5,515.00 | 6,612.05 | 19,674.00 | 21,660.00 | 0 | 0 | yes |
+| `solar_v` | V | 0 to 25 | 77,622 | 0 | 0 | 4.6 | 8.029 | 29.06 | 29.8 | 36,121 | 1,687 | yes |
+| `solar2_v` | V | 0 to 15 | 77,622 | 0 | 0 | 4.123 | 6.032 | 19.5 | 19.5 | 31,460 | 14,107 | yes |
+| `battery_v` | V | 9 to 16 | 77,622 | -0.99 | 10.59 | 12.79 | 13.34 | 29.2 | 29.8 | 0 | 1,813 | yes |
+| `current_a` | A | 0 to 3 | 77,622 | -6.21 | -0.01 | 0.12 | 0.3356 | 2.7 | 6.66 | 620 | 1,486 | yes |
+| `power_w` | W | 0 to 50 | 77,621 | -22.4 | 0 | 0.2112 | 7.689 | 40.53 | 76.64 | 36,307 | 907 | yes |
+| `load_v` | V | 0 to 20 | 77,622 | 0 | 0 | 11.88 | 8.138 | 29.45 | 29.73 | 28,408 | 1,687 | yes |
+| `wind_v` | W | 0 to 50 | 77,622 | 0 | 0 | 0 | 1.572 | 29.79 | 29.8 | 67,765 | 0 | yes |
+| `temp_c` | degC | 0 to 40 | 62,156 | 14 | 16 | 32.5 | 32.31 | 37 | 63.3 | 0 | 156 | yes |
+| `lipo_v` | V | 0 to 5 | 77,621 | 0.26 | 0.34 | 4.07 | 16.32 | 585 | 1,361.00 | 0 | 15,460 | yes |
+| `boot_count` | count | -- | 76,254 | 1 | 40 | 5,647.00 | 6,711.14 | 19,699.00 | 21,660.00 | 0 | 0 | yes |
 
 ### Flags
 
 | Flag | Rows |
 |---|---:|
-| `out_of_range` | 16,404 |
+| `out_of_range` | 17,848 |
 | `sentinel` | 14,116 |
-| `bad_window:solar_v` | 1,610 |
-| `bad_window:battery_v` | 1,610 |
-| `bad_window:temp_c` | 1,610 |
+| `bad_window:solar_v` | 1,641 |
+| `bad_window:battery_v` | 1,641 |
+| `bad_window:temp_c` | 1,641 |
+| `no_signal:temp_c` | 1,359 |
 
 ### Rejected cells
 
 | Reason | Cells |
 |---|---:|
-| `sentinel` | 14,120 |
-| `pre_reinstall` | 100 |
-| `duplicate_ts` | 22 |
+| `sentinel` | 14,118 |
+| `null_window` | 1,359 |
 
 ### Open questions
 
@@ -102,7 +102,6 @@ Superseded by aisvn. May 2020 only. 9 columns, of which two load rails have no e
 
 | Reason | Cells |
 |---|---:|
-| `duplicate_ts` | 6 |
 | `sentinel` | 3 |
 
 ### Open questions
@@ -140,8 +139,7 @@ Superseded by aisvn. May 2020 only. 9 columns, of which two load rails have no e
 
 | Reason | Cells |
 |---|---:|
-| `sentinel` | 10,354 |
-| `duplicate_ts` | 48 |
+| `sentinel` | 10,348 |
 
 ### Open questions
 
@@ -180,9 +178,7 @@ Superseded by aisvn. June 2020 only. Two sheet widths, 10 and 11 columns, and th
 
 | Reason | Cells |
 |---|---:|
-| `sentinel` | 8,351 |
-| `duplicate_ts` | 47 |
-| `repeated_header` | 2 |
+| `sentinel` | 8,342 |
 
 ### Open questions
 
@@ -222,9 +218,8 @@ Superseded by aisvn. June 2020 only. Two sheet widths, 10 and 11 columns, and th
 
 | Reason | Cells |
 |---|---:|
-| `null_window` | 220,074 |
+| `null_window` | 220,069 |
 | `sentinel` | 87 |
-| `duplicate_ts` | 63 |
 
 ### Open questions
 
@@ -261,7 +256,6 @@ Bench sheet rather than an instrument, but it logged a real panel for a month al
 
 | Reason | Cells |
 |---|---:|
-| `duplicate_ts` | 39 |
 | `sentinel` | 1 |
 
 ### Open questions
@@ -282,13 +276,6 @@ Not a solar station. What remains after the collector's exclusion is a 4-column 
 | `temp_c` | degC | 0 to 60 | 33,377 | 21.49 | 23.64 | 28.55 | 27.7 | 30.39 | 31.31 | 0 | 0 | yes |
 | `wifi_raw` | ms | -- | 33,377 | 1,605.00 | 1,623.00 | 4,041.00 | 4,630.19 | 9,334.00 | 56,708.00 | 0 | 0 | yes |
 
-### Rejected cells
-
-| Reason | Cells |
-|---|---:|
-| `station_setup` | 4,121 |
-| `duplicate_ts` | 12 |
-
 ### Open questions
 
 - IFTTT_test (1).xlsx is excluded whole on the collector's word, because its 4,120 unique readings are dated 2020-07-01 to 07-08 and duplicate the probe data IFTTT_test (2).xlsx carries. The collector described it as an 11-column solar layout; the 0.8.0 raw repair removed that stretch and the file is now the same probe as its neighbours. The exclusion is still defensible on the overlap, but the reason it was given no longer describes the file, and that is a question for the collector.
@@ -303,19 +290,14 @@ A bench calibration of the ADC-to-voltage conversion, not a station. It carries 
 
 | Channel | Unit | Band | n | min | p01 | median | mean | p99 | max | zeros | out of range | shown |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|
-| `adc_raw` | count | -- | 5,553 | 2,107.00 | 2,166.00 | 2,495.00 | 2,506.59 | 3,019.00 | 3,127.00 | 0 | 0 | yes |
+| `adc_raw` | count | -- | 5,553 | 2,107.00 | 2,166.00 | 2,495.00 | 2,506.53 | 3,019.00 | 3,127.00 | 0 | 0 | yes |
 | `voltage_adc` | count | -- | 5,553 | 1,862.00 | 1,909.00 | 2,155.00 | 2,158.42 | 2,481.00 | 2,511.00 | 0 | 0 | yes |
-| `millis_ms` | ms | -- | 5,553 | 2,204.00 | 6,018,441.00 | 342,584,237.00 | 342,656,912.27 | 678,734,068.00 | 685,487,226.00 | 0 | 0 | yes |
-
-### Rejected cells
-
-| Reason | Cells |
-|---|---:|
-| `duplicate_ts` | 2,013 |
+| `millis_ms` | ms | -- | 5,553 | 2,150.00 | 5,895,329.00 | 342,461,573.00 | 342,533,468.17 | 678,611,242.00 | 685,364,571.00 | 0 | 0 | yes |
+| `solar_v` | V | -- | 5,553 | 10.61 | 10.88 | 12.28 | 12.3 | 14.14 | 14.31 | 0 | 0 | yes |
 
 ### Open questions
 
-- The ADC-to-voltage conversion this sheet calibrates is not recorded here, so neither channel can be published as a voltage.
+- The ADC-to-voltage conversion is applied as solar_v in the consolidated sheet.
 
 ## Band audit
 
@@ -323,25 +305,25 @@ How much of each channel's own record its own band rejects. A band that fires on
 
 | Station | Channel | Unit | Band | n | Out of range | Share | Note |
 |---|---|---|---|---:|---:|---:|---|
-| `aisvn` | `solar2_v` | V | 0 to 15 | 77,526 | 14,107 | 18.197% | 15 V, below this channel's own 19.5 V saturation, so the rail is flagged -- and that is 18.2% of the record, which is why it needs a note rather than silence |
-| `aisvn` | `lipo_v` | V | 0 to 5 | 77,526 | 14,107 | 18.197% | 0-5 V, the collector's figure |
-| `aisvn` | `battery_v` | V | 9 to 16 | 77,526 | 1,717 | 2.215% | Fires on 1,717 of 77,526 readings (2.2%) and that is the finding, not a false positive: the bank reaches 29.8 V in 2020 and 17.9 V in 2021, which is a second p… |
-| `aisvn` | `solar_v` | V | 0 to 25 | 77,526 | 1,612 | 2.079% | 0.8 used 0-60 V for every station's solar_v, which flagged nothing here because 0.8's scale never reached the stored value |
-| `aisvn` | `load_v` | V | 0 to 20 | 77,526 | 1,612 | 2.079% | 20 V, below the rail |
+| `aisvn` | `lipo_v` | V | 0 to 5 | 77,621 | 15,460 | 19.917% | 0-5 V, the collector's figure |
+| `aisvn` | `solar2_v` | V | 0 to 15 | 77,622 | 14,107 | 18.174% | 15 V, below this channel's own 19.5 V saturation, so the rail is flagged -- and that is 18.2% of the record, which is why it needs a note rather than silence |
+| `aisvn` | `battery_v` | V | 9 to 16 | 77,622 | 1,813 | 2.336% | Fires on 1,717 of 77,526 readings (2.2%) and that is the finding, not a false positive: the bank reaches 29.8 V in 2020 and 17.9 V in 2021, which is a second p… |
+| `aisvn` | `solar_v` | V | 0 to 25 | 77,622 | 1,687 | 2.173% | 0.8 used 0-60 V for every station's solar_v, which flagged nothing here because 0.8's scale never reached the stored value |
+| `aisvn` | `load_v` | V | 0 to 20 | 77,622 | 1,687 | 2.173% | 20 V, below the rail |
+| `aisvn` | `current_a` | A | 0 to 3 | 77,622 | 1,486 | 1.914% | 0-3 A, the collector's figure for this panel |
 | `aisvn2` | `current_a_chA` | -- | -- to 500 | 153,770 | 2,915 | 1.896% | Upper limit 500, from the collector; no lower bound, because 55% of this channel's readings are negative and a floor at zero would flag more than half the reco… |
-| `aisvn` | `current_a` | A | 0 to 3 | 77,526 | 1,412 | 1.821% | 0-3 A, the collector's figure for this panel |
 | `maker-webhooks` | `battery_v` | V | 9 to 16 | 8,529 | 138 | 1.618% | Fires on 138 of 8,529 readings (1.6%), all of them below 9 V, down to 0.757 V |
+| `aisvn` | `power_w` | W | 0 to 50 | 77,621 | 907 | 1.168% | 0-50 W, the collector's figure |
 | `solar-2020-05` | `lipo_v` | V | 2.5 to 4.35 | 12,920 | 148 | 1.145% | Fires on 148 of 12,920 readings (1.15%): 139 below 2.5 V and 9 above 4.35 V, the largest of which is 13.637 V |
-| `aisvn` | `power_w` | W | 0 to 50 | 77,525 | 879 | 1.134% | 0-50 W, the collector's figure |
 | `aisvn2` | `battery2_v` | V | 9 to 16 | 164,098 | 1,070 | 0.652% | Fires on 1,070 of 164,098 readings (0.65%), all of them below 9 V |
 | `maker-webhooks` | `wind_v` | W | 0 to 50 | 4,935 | 22 | 0.446% | 0-50 W, the collector's estimate for this generator |
 | `maker-webhooks` | `solar_v` | V | 0 to 30 | 6,649 | 17 | 0.256% | Fires on 17 of 6,649 readings: a -984 mV reading and readings up to 34.0 V |
-| `aisvn` | `temp_c` | degC | 0 to 40 | 62,060 | 155 | 0.250% | 0-40 degC, the collector's ceiling for a probe in shadow at this site |
+| `aisvn` | `temp_c` | degC | 0 to 40 | 62,156 | 156 | 0.251% | 0-40 degC, the collector's ceiling for a probe in shadow at this site |
 | `phumy2` | `temp_c` | degC | 0 to 60 | 416,083 | 466 | 0.112% | Fires on the readings above 60 degC, reaching 80.6 |
 | `aisvn-solar` | `battery_v` | V | 0 to 5.1 | 13,788 | 7 | 0.051% | 0-5.1 V, the documented 0-5,100 mV ceiling |
 | `maker-webhooks` | `lipo_v` | V | 0 to 4.35 | 8,535 | 4 | 0.047% | Upper bound at the 1S cell ceiling of 4.35 V, lower bound at 0 rather than 2.5 V |
 | `phumy2` | `lipo2_v` | V | 2.5 to 4.35 | 416,083 | 5 | 0.001% | Fires on 5 of 416,083 readings, all of them below 2.5 V |
-| `aisvn` | `wind_v` | W | 0 to 50 | 77,526 | 0 | 0.000% | 0-50 W, the collector's estimate for this generator |
+| `aisvn` | `wind_v` | W | 0 to 50 | 77,622 | 0 | 0.000% | 0-50 W, the collector's estimate for this generator |
 | `aisvn2` | `solar3_v` | V | 0 to 30 | 164,097 | 0 | 0.000% | Recorded 0-23,860 mV, 16.7 V at the 99th percentile |
 | `aisvn2` | `lipo2_v` | V | 0 to 8.7 | 164,097 | 0 | 0.000% | Banded 0-8.7 V, the full range of a 2S pack, rather than the 2.5-4.35 V of a 1S cell |
 | `aisvn2` | `load_v` | -- | 0 to 1 | 164,097 | 0 | 0.000% | 0-1 is the channel's whole domain, so nothing is flagged. |
@@ -360,17 +342,13 @@ is published once, above and in `config.py`.
 
 | Reason | Cells |
 |---|---:|
-| `null_window` | 220,074 |
-| `sentinel` | 32,916 |
-| `station_setup` | 4,121 |
-| `duplicate_ts` | 2,250 |
-| `pre_reinstall` | 100 |
-| `repeated_header` | 2 |
+| `null_window` | 221,428 |
+| `sentinel` | 32,899 |
 
 ## Windows whose values were nulled
 
-- **phumy2** `solar2_v`, 2022-10-01T00:00:00Z to 2024-01-01T00:00:00Z, 220,074 cells. collector: the collector input was disconnected and the sheet logged a flat 0.0 V for the whole window. Every one of the 220,069 readings is that placeholder, so there is no measurement to store. The window is half-open: the channel reads normally again from 2024-01-01.
-- **aisvn** `temp_c`, 2020-06-15T06:10:00Z to 2020-06-17T04:14:00Z, 0 cells. collector: a pre-recompile stretch where the sheet logged 200 as a stand-in for 'no temperature'. The window ends at 04:14 UTC precisely so the 114 genuine tenths that follow survive. Nothing is nulled today: the collector resolved the placeholder at source, and the window is kept because the archive still carries the boundary.
+- **phumy2** `solar2_v`, 2022-10-01T00:00:00Z to 2024-01-01T00:00:00Z, 220,069 cells. collector: the collector input was disconnected and the sheet logged a flat 0.0 V for the whole window. Every one of the 220,069 readings is that placeholder, so there is no measurement to store. The window is half-open: the channel reads normally again from 2024-01-01.
+- **aisvn** `temp_c`, 2020-06-15T06:10:00Z to 2020-06-17T04:14:00Z, 1,359 cells. collector: a pre-recompile stretch where the sheet logged 200 as a stand-in for 'no temperature'. The window ends at 04:14 UTC precisely so the 114 genuine tenths that follow survive. Nothing is nulled today: the collector resolved the placeholder at source, and the window is kept because the archive still carries the boundary.
 
 ## Windows whose values were kept and flagged
 
@@ -386,7 +364,7 @@ is published once, above and in `config.py`.
 
 | Station | Readings | Median gap | p90 gap |
 |---|---:|---:|---:|
-| `aisvn` | 77,526 | 120 s | 120 s |
+| `aisvn` | 77,622 | 120 s | 120 s |
 | `aisvn2` | 164,098 | 120 s | 120 s |
 | `aisvn-solar` | 13,788 | 120 s | 120 s |
 | `maker-webhooks` | 8,535 | 60 s | 60 s |
