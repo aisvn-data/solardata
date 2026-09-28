@@ -246,7 +246,8 @@ etl/
   schema.sql      the shared DDL; the eight station tables and the two rollups
                   are generated from catalog.py (see db.py)
   db.py           connections, the generated DDL, run bookkeeping
-  audit.py        build-time checks against the real archive
+  audit.py        build-time checks: the archive, and the catalog against itself
+                  (bands, flag agreement, declared units, exclusions)
   verify.py       the baseline guard
   report.py       the per-station quality report, in Markdown and JSON
   readers/
@@ -259,7 +260,20 @@ scripts/
   check_frontend.mjs   chart + CSV semantics, over the real exports
   check_render.mjs     the component tree, rendered
   release_notes.py     the version, and the notes for it, from one place
+docs/
+  pipeline.md    every transformation from a raw cell to a charted point, and
+                 all 51 channels. Generated from the catalog and the built
+                 database, and checked against the catalog so it cannot drift
+  roadmap.md     the open questions, with the context behind each
 ```
+
+`docs/pipeline.md` is generated, not written, and `tests/test_guards.py`
+asserts it still agrees with `etl/catalog.py` — every channel, its band, its
+units and its scale — so a catalog change that does not regenerate it fails the
+suite. That check compares table *cells*, not substrings: a band of `0 .. 5.1`
+is a substring of the stored range `0 .. 5.148` in the same row, and a
+substring check passes a document claiming the wrong band.
+
 
 Three tables are **generated** rather than written in `schema.sql`: the eight
 station tables, and `readings_hourly`/`readings_daily`. Their columns are the
@@ -357,7 +371,7 @@ from `scripts/release_notes.py` rather than from its own `awk`.
 
 ### Why the test suite is fast, and why the archive is not in it
 
-167 tests over real XLSX fixtures, slowest 0.07 s. 0.8 had 147 and one of them
+174 tests over real XLSX fixtures, slowest 0.07 s. 0.8 had 147 and one of them
 read all 364 raw files, which took about fifty seconds and stalled the run at
 test 40 — a suite you stop waiting for is a suite you stop running.
 
