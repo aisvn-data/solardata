@@ -34,4 +34,4 @@ Entry point: ``python -m etl``.  Rules that are not negotiable are in
 of ``etl/catalog.py``.
 """
 
-__version__ = "0.10.0"
+__version__ = "0.10.1"

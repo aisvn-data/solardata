@@ -106,6 +106,96 @@ records what each edit changed. Every previous version is in git history.
   things — the reading as written, and the value as published — but the pair reads
   as a contradiction until this is written down somewhere the reader will see it.
 
+## [0.10.1] - 2026-09-28
+
+Four commits, one of which a reader can see. No reading, band, scale or count
+changed: **731,885 readings, 364 files, `verify` matches the baseline, and
+`out_of_range` is still 40,393.**
+
+### Fixed
+
+- **`test.wifi_raw` is published in the unit the collector named, not in `count`.**
+  The collector renamed that column `wifi_tx_ms` in the 0.9.0 raw repair, where
+  the header row went from `nix, temp, wifi` to `nix, temp_c, wifi_tx_ms`. The
+  catalog mapped the new name to its internal `wifi_raw` and then described the
+  channel as a "WiFi probe counter" with the unit `count`, so the site printed
+  `count` beside a duration in milliseconds and the picker called a time a tally.
+  The header was in the catalog the whole time, 1,600 lines above the channel, and
+  nothing compared the two. Now `ms`, with `kind: duration` and the collector's
+  own name quoted in the description, because the header is the only record of
+  what the column measures.
+
+  No band, deliberately: the collector gave the unit and no ceiling, and unlike a
+  voltage, a current or a power reading there is no hardware limit a transmission
+  time can be tested against. It depends on the protocol, the distance and the
+  noise, and a band wide enough to hold 1,605–56,708 ms would be a band that
+  flags nothing.
+- **Two band notes stated a count that was not this build's.**
+  `aisvn-solar.battery_v` said its 0–5.1 V band fires on 8 readings; it fires on
+  7. The 8 was left over from before the shared rollup was fixed to key the band
+  on the row's own station — at which point that channel was being counted with
+  `aisvn`'s 9–16 V band and had no true count to state. `maker-webhooks.lipo_v`
+  said "fires on 1,656 of 8,535", which is true of a band it no longer has; at
+  0–4.35 V it fires on 4.
+
+  Both are the failure this project exists to prevent: a number in prose,
+  plausible, wrong, with nothing to notice it. `etl.audit` already refused a band
+  firing above the threshold without a note; it had no way to check a note's
+  arithmetic.
+- **`aisvn-solar.battery_v`'s note now records why it used to report 100%.**
+
+### Added
+
+- **`etl.audit` gains `check_declared_units`.** Every channel's published unit is
+  compared against the unit suffix in the collector's own column name, as the
+  layout records it: `temp_c` → `degC`, `wifi_tx_ms` → `ms`. Over the whole
+  archive that is two rows, and before this release one of them was wrong. It is
+  a **failure** rather than a note, because a false positive is a bug in the
+  catalog rather than noise to tolerate, and it reads only the catalog, so it
+  needs no archive and also runs in the unit suite. Re-introducing
+  `unit="count"` fails the build.
+- **A band note's stated count must be the current one.** The rule is narrow
+  enough to hold to: every `N of M` in a `band_note` is the count for this build.
+  A historical figure is written differently, because the only unambiguous way
+  to state a past count is not to use that shape. Checked across all ten notes
+  that state a count, against the recorded build.
+- **`docs/pipeline.md`**, generated from the catalog and the built database: every
+  transformation between a raw cell and a charted point, and all 51 channels
+  across 8 stations, with a command per stage. It is checked against
+  `etl/catalog.py` so it cannot go quietly stale. The first version of that check
+  substring-matched the table row and was decorative — a band of `0 .. 5.1` is a
+  substring of the stored range `0 .. 5.148` in the same row, so a document
+  claiming `0 .. 9.9` passed. Mutation testing found it; it compares cells now.
+- A test that every kind a *published* channel uses has a `KIND_ORDER` entry in
+  `src/data.js`, since an unknown kind sorts last and silently.
+
+### Changed
+
+- The three `data/raw/Voltage_phumy/*.xlsx` workbooks were re-saved from Excel,
+  which rewrote each container and grew `Voltage_phumy.xlsx` by 70% without
+  touching a cell. Verified: the exports are byte-identical, the per-file row,
+  ingest, reject and duplicate counts are unchanged, 5,553 readings over
+  2020-07-04 to 2020-07-12 as before, and the sha256 the build already recorded
+  matches the bytes on disk. Only `source_files.sha256` changed, which is the
+  provenance record doing its job.
+
+### Not changed, on purpose
+
+- No band was added to `test.wifi_raw`, and none should be until the collector
+  gives a ceiling. A plausible-looking range for a transmission time would be
+  invented rather than measured.
+- The `v0.10.0` tag stays where it is, one commit behind `opencode`. It was cut
+  before these four commits, and moving it would rewrite the ref a published
+  release points at. 0.10.1 is a separate tag for a separate build.
+
+| | 0.10.0 | 0.10.1 |
+|---|---:|---:|
+| readings | 731,885 | **731,885** |
+| raw files | 364 | 364 |
+| out-of-range channel values | 40,393 | **40,393** |
+| hourly / daily buckets | 25,566 / 1,184 | 25,566 / 1,184 |
+| unit tests | 171 | **174** |
+
 ## [0.10.0] - 2026-09-28
 
 A band per **column** came back, in one place, and took the site with it. Two bugs,

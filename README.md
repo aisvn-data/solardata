@@ -22,14 +22,18 @@ range on arithmetic rather than on the hardware** — including all 416,088 of
 `phumy2`'s readings, on a current sensor measuring a quarter of an amp, so the
 site reported the whole station as broken.
 
-It is now **3,695**, and every one of those is a question about a sensor.
+It is now **40,393**, and the rise from 0.9.0's 3,695 is deliberate: it is
+almost entirely two channels the collector's tighter bands expose,
+`aisvn.solar2_v` on a rail at exactly 19.5 V and `aisvn.lipo_v` on one at
+exactly 6.84 V, 18.2% of each. Everything else is 12,179 — 1.7% of the archive,
+against 0.8's 86%.
 
 ## Status
 
 | | |
 |---|---|
 | Raw archive | 364 files, 30.4 MiB, committed and immutable |
-| ETL pipeline | `etl/`, `make build`, ~2 min, 159 tests (slowest 0.07 s) |
+| ETL pipeline | `etl/`, `python -m etl all`, ~2 min, 174 tests (slowest 0.07 s) |
 | Canonical store | `data/processed/solardata.db` — **eight tables, one per station** — 104 MiB as built / ~85 MiB VACUUMed / 18 MiB gzipped |
 | Site data | `public/data/` (3.3 MiB, **committed**) — one CSV set per station |
 | Quality report | `data/processed/quality_report.md` (**committed**) |
@@ -41,21 +45,21 @@ It is now **3,695**, and every one of those is a question about a sensor.
 
 | Station | Table | Readings | Coverage (UTC) | Charted channels |
 |---|---|---:|---|---:|
-| AISVN #1 | `s_aisvn` | 77,526 | 2020-06-15 → 2022-02-22 | 9 of 10 |
+| AISVN #1 | `s_aisvn` | 77,526 | 2020-06-15 → 2022-02-22 | 10 of 10 |
 | AISVN #2 | `s_aisvn2` | 164,098 | 2020-06-18 → 2021-11-01 | 7 of 7 |
 | AISVN Solar | `s_aisvn_solar` | 13,788 | 2020-05-21 → 2020-06-12 | 4 of 8 |
-| Maker Webhooks | `s_maker_webhooks` | 8,535 | 2020-05-30 → 2020-06-12 | 9 of 10 |
+| Maker Webhooks | `s_maker_webhooks` | 8,535 | 2020-05-30 → 2020-06-12 | 10 of 10 |
 | Phu My Hung #2 | `s_phumy2` | 416,088 | 2020-06-15 → 2026-09-27 | 5 of 6 |
 | Solar bench | `s_solar_2020_05` | 12,920 | 2020-05-16 → 2020-06-15 | 3 of 4 |
 | Test bench | `s_test` | 33,377 | 2020-07-05 → 2020-08-21 | 3 of 3 |
 | Voltage calibration | `s_voltage_phumy` | 5,553 | 2020-07-04 → 2020-07-12 | 3 of 3 |
 
 A station table holds only the channels that station collects, and a station's
-CSV holds only its own columns. The 8 channels that are recorded but not charted
-are listed on the site with the reason: a wired input nobody can explain
-(`wind_v`), a power pin the hardware was never implemented on
-(`phumy2.power_w`), two load rails whose unit nobody has established, and one text
-label. Their values are all in the database.
+CSV holds only its own columns. The **6** channels that are recorded but not
+charted are listed on the site with the reason: two load rails whose unit nobody
+has established, two inputs that never move, a power pin the hardware was never
+implemented on (`phumy2.power_w`), and one text label. Their values are all in
+the database.
 
 ## The archive is messy in ways that matter
 

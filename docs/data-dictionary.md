@@ -87,10 +87,11 @@ smaller than a rowid table plus an index and free to range-scan.
 | `load_v` | V | 1 | `aisvn` | 0-60 V | the load/dump rail |
 | `load_v` | — | 1 | `aisvn2` | 0-1 | a 0/1 logic level, not a voltage |
 | `load1_v`, `load2_v` | — | 1 | `aisvn-solar` | none | **unit unresolved.** 0-1,598 and 0-3,026 cannot be volts. |
-| `wind_v` | V | 1 / 0.001 | `aisvn`, `aisvn-solar`, `maker-webhooks` | none | wired and logging; not a plausible generator output |
-| `temp_c` | degC | 1 | `aisvn`, `phumy2`, `test` | 0-60 degC | all three write plain degrees |
+| `wind_v` | W | 1 / 0.001 | `aisvn`, `maker-webhooks` | 0-50 W | confirmed a power measurement, so charted at two stations. `aisvn-solar`'s is identically 0 and is hidden |
+| `temp_c` | degC | 1 | `aisvn`, `phumy2`, `test` | 0-40 / 0-60 degC | all three write plain degrees. The ceiling is per station: `aisvn`'s probe stands in shadow, the other two are left at 60 |
 | `lipo_v`, `lipo2_v` | V | 1 / 0.001 | varies | see below | 1S and 2S packs |
-| `*_adc`, `nix_raw`, `wifi_raw` | count | 1 | varies | none | uncalibrated, so no plausible range |
+| `*_adc`, `nix_raw` | count | 1 | varies | none | uncalibrated, so no plausible range |
+| `wifi_raw` | ms | 1 | `test` | none | the collector's `wifi_tx_ms`, a WiFi transmit time. Not a count, and no hardware ceiling exists to band it against, so none is asserted |
 | `boot_count` | count | 1 | 5 stations | none | the logger's monotonic counter, reset by a reboot |
 | `millis_ms` | ms | 1 | `voltage-phumy` | none | `millis()` since boot |
 | `event` | TEXT | 1 | `solar-2020-05` | none | the string `solar_reading` |
@@ -275,7 +276,7 @@ The expected output of a build, enforced by `python -m etl verify` and by
 | `duplicate_ts`, `rejects`, `sentinels`, `null_windows` | The dedupe, the coercion or the windows changed behaviour. |
 | `notes` | Note recovery changed; these are human context, not noise. |
 | `excluded_files` | A file exclusion stopped matching. |
-| `out_of_range` | **The number 0.9 exists for.** 631,252 → 3,695. A band firing on most of a record moves this. |
+| `out_of_range` | **The number 0.9 exists for.** 631,252 → 40,393, of which 28,214 is two declared plateaus. A band firing on most of a record moves this, and so does a band the collector tightened. |
 | `channel_stats` | The per-station measurement pass ran on every channel. |
 | `hourly_buckets`, `daily_buckets` | The rollups changed shape. |
 | `undeclared_layouts` | **Pinned to 0.** Non-zero means a raw file was ingested with no column meanings. |
