@@ -42,6 +42,7 @@ import {
   monthBounds,
   openingView,
   rangeForLoad,
+  yearForPick,
 } from '../src/components/StationExplorer.jsx'
 import { channelsFor, filterByRange, loadRollup } from '../src/data.js'
 
@@ -355,7 +356,7 @@ await check('a value is drawn in the unit the pipeline stored it in', async () =
     {
       'aisvn-solar': ['battery_v', 'lipo_v', 'solar_v'],
       aisvn2: ['battery2_v', 'lipo2_v', 'solar3_v'],
-      'maker-webhooks': ['battery_v', 'lipo_v', 'load_v', 'solar2_v', 'solar_v'],
+      'maker-webhooks': ['battery_v', 'lipo_v', 'load_v', 'solar2_v', 'solar_v', 'wind_v'],
       phumy2: ['current2_a', 'lipo2_v', 'solar2_v'],
       'solar-2020-05': ['lipo_v'],
     },
@@ -458,6 +459,40 @@ await check('the recorded-but-not-charted panel explains every excluded channel'
     }
   }
   assert.ok(hidden >= 3, `only ${hidden} excluded channels in the whole archive`)
+})
+
+await check('picking a station yields a year that station actually has', () => {
+  // The bug: the pick handler read `.year` off an element of `years`. `years` is
+  // an array of plain strings, so that is `undefined` for every station. The
+  // loader's guard then aborted, the *previous* station's rollup stayed on screen,
+  // and because `channels` is the new station's metadata intersected with the old
+  // file's header, the new station's bands were tested against the old station's
+  // values -- so every point came back out of band and ringed, with a plausible
+  // "N values fall outside their channel's recorded band" caption over the top.
+  //
+  // Resolved against the real `stations.json` rather than a fixture, because the
+  // failure was a shape mismatch between the JSON and the handler, and a fixture
+  // would only assert the shape this check already assumes.
+  const stations = readJson('stations.json')
+  for (const station of stations) {
+    const year = yearForPick(station)
+    assert.equal(
+      typeof year,
+      'string',
+      `${station.station_id} picked a ${typeof year} year, not a year string`,
+    )
+    assert.ok(
+      station.years.includes(year),
+      `${station.station_id} picked year ${year}, which is not one of its years ${JSON.stringify(station.years)}`,
+    )
+  }
+
+  // And the one the check exists for: a station with a single year must produce
+  // that year, and must not produce a year belonging to a different station.
+  const single = stations.find((s) => s.years.length === 1)
+  assert.ok(single, 'no single-year station in the archive to check')
+  assert.equal(yearForPick(single), single.years[0])
+  assert.equal(yearForPick({ station_id: 'none', years: [] }), undefined)
 })
 
 await check('a resolution switch keeps the range the reader set', () => {

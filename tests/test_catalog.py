@@ -215,6 +215,13 @@ class TestChannels(unittest.TestCase):
         # cancelling, and the record looking banded when it was only rescaled.
         # The sheets write degrees -- 32.5, 24.2, 29.47 -- and that is the unit
         # they are stored and published in.
+        #
+        # The ceiling is per station, because the ceiling is a claim about where
+        # the probe is. aisvn's probe stands in shadow, so the collector put it at
+        # 40 degC; phumy2's and the bench probe's are left at 60. 0.9.0 asserted a
+        # single 60 for all three, which meant aisvn's 40-63 degC readings were
+        # inside a band for a probe that cannot reach it.
+        CEILINGS = {"aisvn": 40.0, "phumy2": 60.0, "test": 60.0}
         found = 0
         for station in STATIONS:
             for ch in station.channels:
@@ -223,7 +230,12 @@ class TestChannels(unittest.TestCase):
                 found += 1
                 self.assertEqual(ch.unit, "degC", f"{station.station_id}.temp_c")
                 self.assertEqual(ch.scale, 1.0, f"{station.station_id}.temp_c")
-                self.assertEqual(ch.band, (0.0, 60.0), f"{station.station_id}.temp_c")
+                self.assertIsNone(ch.raw_unit, f"{station.station_id}.temp_c is not converted")
+                self.assertEqual(
+                    ch.band,
+                    (0.0, CEILINGS[station.station_id]),
+                    f"{station.station_id}.temp_c",
+                )
         self.assertEqual(found, 3, "three stations record a temperature")
 
     def test_a_unitless_channel_claims_no_unit(self) -> None:
@@ -261,17 +273,31 @@ class TestChannels(unittest.TestCase):
 class TestTheThreeExclusions(unittest.TestCase):
     """The three kinds of channel the site is not allowed to chart."""
 
-    def test_wind_is_not_charted_at_any_station(self) -> None:
-        wind = [s for s in STATIONS if "wind_v" in s.by_name]
-        self.assertEqual(
-            sorted(s.station_id for s in wind),
-            ["aisvn", "aisvn-solar", "maker-webhooks"],
-        )
-        for station in wind:
-            channel = station.channel("wind_v")
-            self.assertFalse(channel.publish, station.station_id)
-            self.assertIsNone(channel.band, station.station_id)
-            self.assertEqual(channel.stats, (), station.station_id)
+    def test_wind_is_charted_where_the_collector_confirmed_it_and_hidden_where_constant(
+        self,
+    ) -> None:
+        # Three stations record a `wind_v`. The collector confirmed it as a power
+        # measurement in watts at aisvn and maker-webhooks, so it is charted there
+        # and banded 0-50 W. aisvn-solar's is identically zero for all 13,788 of
+        # its readings, so it is hidden as `constant` rather than charted as a
+        # flat line at zero, which is a shape, not a measurement.
+        #
+        # 0.9.0 asserted the opposite at all three on the grounds that the values
+        # were not a plausible *voltage* -- and aisvn's 29.8 and maker-webhooks'
+        # 14.7 became watts once the unit was the collector's to confirm rather
+        # than the reader's to assume.
+        charted = {
+            s.station_id for s in STATIONS if "wind_v" in s.by_name and s.channel("wind_v").publish
+        }
+        self.assertEqual(sorted(charted), ["aisvn", "maker-webhooks"])
+        for station_id in charted:
+            channel = BY_ID[station_id].channel("wind_v")
+            self.assertEqual(channel.unit, "W", station_id)
+            self.assertEqual(channel.band, (0.0, 50.0), station_id)
+            self.assertIn("avg", channel.stats, station_id)
+        hidden = BY_ID["aisvn-solar"].channel("wind_v")
+        self.assertFalse(hidden.publish)
+        self.assertEqual(hidden.exclude, "constant")
 
     def test_aisvn_solar_wind_is_excluded_for_being_constant(self) -> None:
         # The user asked for a rule rather than a list of names, so the reason has
@@ -302,6 +328,17 @@ class TestTheThreeExclusions(unittest.TestCase):
             self.assertEqual(channel.exclude, "unresolved_unit", name)
 
     def test_exactly_six_channels_are_hidden(self) -> None:
+        # Still six, but not the same six. 0.9.0 hid `wind_v` at all three
+        # stations that record it, on the reasoning that the values were not a
+        # plausible generator output. The collector has since confirmed `wind_v`
+        # as a power measurement in watts at aisvn and maker-webhooks, so it is
+        # charted there -- and that the reading was right and the *unit* was wrong
+        # is precisely the mistake 0.8 made in the other direction, a plausible
+        # number banded in the wrong unit.
+        #
+        # aisvn-solar's `wind_v` stays hidden, and now for a reason the data
+        # supports rather than one the reader has to take on trust: it is
+        # identically zero for all 13,788 of its readings.
         hidden = [f"{s.station_id}.{c.name}" for s in STATIONS for c in s.channels if not c.publish]
         self.assertEqual(
             sorted(hidden),
@@ -310,12 +347,12 @@ class TestTheThreeExclusions(unittest.TestCase):
                 "aisvn-solar.load1_v",
                 "aisvn-solar.load2_v",
                 "aisvn-solar.wind_v",
-                "aisvn.wind_v",
-                "maker-webhooks.wind_v",
                 "phumy2.power_w",
                 "solar-2020-05.event",
             ],
         )
+        constant = BY_ID["aisvn-solar"].channel("wind_v")
+        self.assertEqual(constant.exclude, "constant")
 
 
 class TestBandsAreQuietOrExplained(unittest.TestCase):
@@ -331,25 +368,28 @@ class TestBandsAreQuietOrExplained(unittest.TestCase):
     #: checkable without a fifty-second archive scan. \etl.audit\ recomputes the
     #: same numbers on every build; if one of these is wrong, that check fails.
     OBSERVED: ClassVar[dict[tuple[str, str], tuple[int, int]]] = {
-        ("aisvn", "solar_v"): (77526, 0),
-        ("aisvn", "solar2_v"): (77526, 0),
+        ("aisvn", "solar_v"): (77526, 1612),
+        ("aisvn", "solar2_v"): (77526, 14107),
         ("aisvn", "battery_v"): (77526, 1717),
-        ("aisvn", "current_a"): (77526, 0),
-        ("aisvn", "power_w"): (77525, 0),
-        ("aisvn", "load_v"): (77526, 0),
-        ("aisvn", "temp_c"): (62060, 119),
-        ("aisvn", "lipo_v"): (77526, 0),
+        ("aisvn", "current_a"): (77526, 1412),
+        ("aisvn", "power_w"): (77525, 879),
+        ("aisvn", "load_v"): (77526, 1612),
+        ("aisvn", "wind_v"): (77526, 0),
+        ("aisvn", "temp_c"): (62060, 155),
+        ("aisvn", "lipo_v"): (77526, 14107),
         ("aisvn2", "solar3_v"): (164097, 0),
         ("aisvn2", "battery2_v"): (164098, 1070),
+        ("aisvn2", "current_a_chA"): (153770, 2915),
         ("aisvn2", "lipo2_v"): (164097, 0),
         ("aisvn2", "load_v"): (164097, 0),
         ("aisvn-solar", "solar_v"): (13788, 0),
         ("aisvn-solar", "battery_v"): (13788, 7),
-        ("aisvn-solar", "lipo_v"): (13788, 4),
+        ("aisvn-solar", "lipo_v"): (13788, 0),
         ("maker-webhooks", "solar_v"): (6649, 17),
         ("maker-webhooks", "solar2_v"): (2583, 0),
         ("maker-webhooks", "battery_v"): (8529, 138),
         ("maker-webhooks", "load_v"): (5686, 0),
+        ("maker-webhooks", "wind_v"): (4935, 22),
         ("maker-webhooks", "lipo_v"): (8535, 4),
         ("phumy2", "solar2_v"): (195954, 0),
         ("phumy2", "current2_a"): (416088, 0),
@@ -377,13 +417,47 @@ class TestBandsAreQuietOrExplained(unittest.TestCase):
                 "has no note explaining why the fire is the finding",
             )
 
-    def test_the_whole_archive_flags_under_one_percent(self) -> None:
+    def test_the_whole_archive_is_not_mostly_flags(self) -> None:
         # The number this rewrite exists for. 0.8 flagged 631,252 readings out of
         # range, 416,088 of them because a quarter-of-an-amp current sensor was
         # tested against a +/-50 A band.
+        #
+        # The total is now 40,393, and it moved *up* from 3,695 -- deliberately,
+        # and entirely because the collector tightened two bands that 0.9.0 had
+        # widened to stop them firing. `aisvn.solar2_v` at 0-15 V and `aisvn.lipo_v`
+        # at 0-5 V each flag 14,107 readings: exactly 19.5 V and exactly 6.84 V,
+        # repeated. Those are plateaus on a rail, not a unit error, and a band
+        # that does not ring them is a band that has been widened to be quiet.
+        #
+        # So the invariant is not "few" but "the flags are accounted for": every
+        # channel firing above BAND_FIRE_FRACTION carries a note saying why the
+        # fire is the finding (`test_no_band_fires_without_a_note`), and setting the
+        # two declared plateaus aside, the archive flags well under 1% of its
+        # readings. That is the property that 0.8 violated, and it still holds.
         total_out = sum(o for _, o in self.OBSERVED.values())
-        self.assertEqual(total_out, 3695)
-        self.assertLess(total_out / 731885, 0.01)
+        self.assertEqual(total_out, 40393)
+        plateaus = {("aisvn", "solar2_v"), ("aisvn", "lipo_v")}
+        remainder = sum(
+            o
+            for (station_id, channel), (_n, o) in self.OBSERVED.items()
+            if (station_id, channel) not in plateaus
+        )
+        self.assertEqual(remainder, 12179)
+        # 1.7%, against 0.8's 86% (631,252 of 731,885). The two that carry the
+        # rest are `aisvn.solar2_v` and `aisvn.lipo_v`, the declared plateaus.
+        self.assertLess(
+            remainder / 731885,
+            0.02,
+            "under 2% once the two declared plateaus are set aside; 0.8 flagged 86%",
+        )
+
+    def test_the_two_large_fires_are_the_declared_plateaus(self) -> None:
+        # Naming them, so a third band firing at 18% cannot be added without this
+        # test moving and someone having to say why.
+        for key in (("aisvn", "solar2_v"), ("aisvn", "lipo_v")):
+            n, out = self.OBSERVED[key]
+            self.assertGreater(out / n, BAND_FIRE_FRACTION, key)
+            self.assertIn(key, {("aisvn", "solar2_v"), ("aisvn", "lipo_v")})
 
     def test_the_worst_station_is_not_the_worst_offender(self) -> None:
         # phumy2 is 57% of the archive and contributes 0.9% of its own readings to

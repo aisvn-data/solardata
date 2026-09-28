@@ -10,6 +10,7 @@ guard, and the guard itself runs in the build.
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from etl.cli import build_parser, main
 from etl.readers import xlsx
 
 from tests.support import TempArchiveCase
-from tests.test_pipeline import AISVN_HEADER, aisvn_fixture
+from tests.test_pipeline import AISVN_HEADER, PHUMY2_HEADER, aisvn_fixture, phumy2_fixture
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -100,7 +101,12 @@ class TestAuditChecks(TempArchiveCase):
     def test_the_audit_reports_a_not_measurement_exclusion_without_judging_it(self) -> None:
         # Nothing asserts phumy2's power pin is or is not a measurement -- nobody
         # knows -- so the audit prints the range it recorded and moves on.
-        self.build({"aisvn": aisvn_fixture(3)}, {"aisvn": AISVN_HEADER})
+        #
+        # 0.9.0 used `aisvn.wind_v` as the example. It cannot be any more: the
+        # collector has since confirmed that channel as a power measurement in
+        # watts, so aisvn has no `not_measurement` exclusion left. The pin nobody
+        # can vouch for is phumy2's, which is why the fixture is phumy2's.
+        self.build({"phumy2": phumy2_fixture(3)}, {"phumy2": PHUMY2_HEADER})
         conn = self.connect()
         self.addCleanup(conn.close)
         from etl import build_aggregate
@@ -109,9 +115,177 @@ class TestAuditChecks(TempArchiveCase):
         check = audit.check_exclusions(conn)
         self.assertTrue(check.ok, check.failures)
         self.assertTrue(
-            any("aisvn.wind_v excluded as not a measurement" in n for n in check.notes),
+            any("phumy2.power_w excluded as not a measurement" in n for n in check.notes),
             check.notes,
         )
+
+
+class TestReleaseNotes(unittest.TestCase):
+    """The version and its notes come from one place, or a release does not happen.
+
+    `release.yml` had an inline `awk` over `CHANGELOG.md` that would produce notes
+    for a version that had never been built, from a tag that did not match
+    `package.json`, and publish it. `scripts/release_notes.py` exists so that
+    failure is a non-zero exit rather than a release.
+    """
+
+    @staticmethod
+    def _module():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "release_notes", REPO / "scripts" / "release_notes.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_repository_is_publishable_right_now(self) -> None:
+        notes, problems = self._module().release_notes()
+        self.assertEqual(problems, [], "a release cannot be cut from this state")
+        self.assertTrue(notes.strip(), "and the notes are not empty")
+
+    def test_a_version_with_no_changelog_section_is_a_problem(self) -> None:
+        # The failure this whole script exists for. Named explicitly, so the error
+        # names the version that has no section rather than "notes not found".
+        _notes, problems = self._module().release_notes("0.0.1")
+        self.assertTrue(problems)
+        self.assertTrue(
+            any("CHANGELOG.md has no '## [0.0.1]' section" in p for p in problems),
+            problems,
+        )
+
+    def test_a_version_the_code_does_not_declare_is_a_problem(self) -> None:
+        problems = self._module().check_versions_agree("9.9.9")
+        self.assertEqual(len(problems), 2, problems)
+        self.assertTrue(any("etl/__init__.py" in p for p in problems), problems)
+        self.assertTrue(any("pyproject.toml" in p for p in problems), problems)
+
+    def test_the_script_fails_loudly_and_names_the_file(self) -> None:
+        # Exit 2, not 0 and not a traceback: `release.yml` treats non-zero as a
+        # failure, and a script that returns 0 with an empty body is the bug.
+        code = self._module().main(["--check", "--version", "0.0.1"])
+        self.assertEqual(code, 2)
+
+    def test_release_yml_uses_the_script_rather_than_its_own_awk(self) -> None:
+        # Otherwise there are two implementations of "which section belongs to this
+        # version", and the one in the workflow is the one that ships.
+        workflow = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn("scripts/release_notes.py", workflow, "the workflow does not call the script")
+        self.assertNotIn(
+            "CHANGELOG.md >",
+            workflow,
+            "the workflow still extracts the section itself",
+        )
+
+
+class TestPipelineDocument(TempArchiveCase):
+    """`docs/pipeline.md` quotes bands, units and ranges. They must be true.
+
+    The document is generated from the catalog and the built database, which is
+    what keeps it honest at the moment it is written and does nothing afterwards.
+    A committed document full of numbers that nobody checks is the failure mode
+    this project is built to avoid: plausible-looking and wrong, with no error
+    anywhere, and a reader has no way to tell which parts moved.
+
+    So it is checked against the catalog here, and against a *built* database for
+    the ranges. The band and unit assertions need no archive and run in the unit
+    suite; the stored ranges need a build, so they are checked against a fixture
+    archive rather than `data/raw`, for the reason the rest of the suite does not
+    read the archive.
+    """
+
+    #: Backtick, spelled out: the assertions below are about the document's shape,
+    #: and writing the character literally invites an editor to eat it.
+    TICK = "\u0060"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.doc = (REPO / "docs" / "pipeline.md").read_text(encoding="utf-8")
+
+    def _section(self, station) -> str:
+        from etl.catalog import table_name
+
+        heading = (
+            f"### {self.TICK}{station.station_id}{self.TICK}"
+            f" -> {self.TICK}{table_name(station.station_id)}{self.TICK}"
+        )
+        start = self.doc.find(heading)
+        self.assertNotEqual(start, -1, f"docs/pipeline.md has no section for {station.station_id}")
+        section = self.doc[start:]
+        nxt = section.find("\n### ", 3)
+        return section[:nxt] if nxt > 0 else section
+
+    def _row(self, section: str, name: str) -> list[str] | None:
+        """One table row, split into its cells, or None.
+
+        Split rather than substring-match, and that is the whole point. Comparing
+        with `in` looks like it works and does not: a band of `0 .. 5.1` is a
+        substring of the stored range `0 .. 5.148` in the same row, so a document
+        claiming the wrong band passes the check. Mutation testing the guard is
+        what found that, and it is why this parses.
+        """
+        for line in section.splitlines():
+            if not line.startswith("| ") or self.TICK not in line:
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if cells and cells[0] == f"{self.TICK}{name}{self.TICK}":
+                return cells
+        return None
+
+    def test_every_station_has_a_section(self) -> None:
+        from etl.catalog import STATIONS, table_name
+
+        for station in STATIONS:
+            self.assertIn(f"`{station.station_id}` -> `{table_name(station.station_id)}`", self.doc)
+
+    def test_every_channel_is_listed_with_its_real_band_and_unit(self) -> None:
+        from etl.catalog import STATIONS
+
+        missing: list[str] = []
+        wrong: list[str] = []
+        for station in STATIONS:
+            section = self._section(station)
+            for channel in station.channels:
+                cells = self._row(section, channel.name)
+                if cells is None:
+                    missing.append(f"{station.station_id}.{channel.name}")
+                    continue
+                # channel | kind | raw -> published | scale | band | stored | notes
+                self.assertEqual(len(cells), 7, f"{station.station_id}.{channel.name} row shape")
+                units, scale, band = cells[2], cells[3], cells[4]
+
+                want_units = f"{channel.raw_unit or '-'} -> {channel.unit or '-'}"
+                if units != want_units:
+                    wrong.append(
+                        f"{station.station_id}.{channel.name}: units {units!r} != {want_units!r}"
+                    )
+                if scale != f"{channel.scale:g}":
+                    wrong.append(f"{station.station_id}.{channel.name}: scale {scale!r}")
+
+                if not channel.band:
+                    want_band = "none"
+                elif channel.band[0] is None:
+                    want_band = f"<= {channel.band[1]:g}"
+                elif channel.band[1] is None:
+                    want_band = f">= {channel.band[0]:g}"
+                else:
+                    want_band = f"{channel.band[0]:g} .. {channel.band[1]:g}"
+                if band != want_band:
+                    wrong.append(
+                        f"{station.station_id}.{channel.name}: band {band!r} != {want_band!r}"
+                    )
+        self.assertEqual(missing, [], "channels missing from docs/pipeline.md")
+        self.assertEqual(wrong, [], "docs/pipeline.md disagrees with etl/catalog.py")
+
+    def test_the_stages_it_describes_are_the_stages_that_run(self) -> None:
+        # The document's stage list is a claim about the CLI. If a stage is added
+        # and not documented, the next reader is missing a step.
+        from etl.cli import HELP
+
+        for stage in ("ingest", "aggregate", "export", "report", "audit", "verify", "all", "fresh"):
+            self.assertIn(stage, HELP, f"{stage} is not a stage any more")
+            self.assertIn(f"python -m etl {stage}", self.doc, f"docs/pipeline.md omits {stage}")
 
 
 class TestBaseline(TempArchiveCase):
@@ -222,18 +396,27 @@ class TestCli(unittest.TestCase):
 
 class TestVersionConsistency(unittest.TestCase):
     def test_the_version_is_the_same_everywhere(self) -> None:
-
         import etl
 
-        self.assertEqual(etl.__version__, "0.9.0")
-        pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn(f'version = "{etl.__version__}"', pyproject)
+        # Derived from the canonical version rather than written out, so bumping
+        # the version does not require editing a test that would then agree with
+        # whatever was typed -- which is the failure this test exists to catch.
+        # `package.json` is canonical; `etl/__init__.py` and `pyproject.toml` are
+        # checked against it, never read from it.
         package = json.loads((REPO / "package.json").read_text(encoding="utf-8"))
-        self.assertEqual(package["version"], etl.__version__)
+        self.assertEqual(etl.__version__, package["version"], "etl and package.json")
+        pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn(f'version = "{etl.__version__}"', pyproject, "pyproject.toml")
+        init = (REPO / "etl/__init__.py").read_text(encoding="utf-8")
+        self.assertIn(f'__version__ = "{etl.__version__}"', init, "etl/__init__.py")
 
     def test_the_changelog_has_a_section_for_this_version(self) -> None:
+        import etl
+
+        # Likewise derived: the point is that the changelog has a section for
+        # whatever the code says it is, not that it has a section for 0.9.0.
         changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-        self.assertRegex(changelog, r"(?m)^## \[0\.9\.0\]")
+        self.assertRegex(changelog, rf"(?m)^## \[{re.escape(etl.__version__)}\]")
 
     def test_no_module_still_imports_a_deleted_one(self) -> None:
         # 0.9 deleted build_regimes, normalize/units, rollup_schema, stations and

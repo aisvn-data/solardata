@@ -347,17 +347,51 @@ export function rangeForLoad({ stationId, year, previous, opening, openingApplie
   return { changed: true, from: '', to: '', opening: false }
 }
 
+/**
+ * The year a station should open on when it is picked from the list.
+ *
+ * A function, exported, because the bug it replaces was invisible to every check
+ * that existed: the handler read `.year` off an element of `years`, which is an
+ * array of plain strings, so the year became `undefined`. The loader's guard then
+ * aborted, the previous station's rollup stayed on screen, and — because
+ * `channels` is the new station's metadata intersected with the old file's
+ * header — the new station's *bands* were tested against the old station's
+ * *values*. Every point came back out of band and ringed. `check_render.mjs`
+ * could not see it, because it exercised the pure helpers and the event handler
+ * was a closure in the component. Same shape as the `rangeForLoad` note above.
+ *
+ * The newest year the station has, and `undefined` only for a station with no
+ * years at all, which `openingView` already filters out.
+ */
+export function yearForPick(station) {
+  const years = station?.years ?? []
+  return years.length > 0 ? years[years.length - 1] : undefined
+}
+
 export default function StationExplorer() {
   const [stations, setStations] = useState([])
   const [stationId, setStationId] = useState(null)
   const [year, setYear] = useState('')
   const [resolution, setResolution] = useState(DEFAULT_VIEW.resolution)
   const [rollup, setRollup] = useState({ header: [], channels: [], rows: [] })
+  // The station/year/resolution `rollup` was actually loaded for.
+  //
+  // This exists because a rollup that belongs to a different period than the
+  // controls are showing is not a cosmetic problem: `channels` is the current
+  // station's metadata intersected with the loaded file's header, so a stale file
+  // means the current station's *bands* are tested against another station's
+  // *values*. That renders a real reading as out of band and rings it, which is
+  // the one thing this site must never do. Rather than trust the two to stay in
+  // step, the mismatch is made unrepresentable: a rollup whose key is not the
+  // wanted one is waited for, never drawn.
+  const [rollupFor, setRollupFor] = useState(null)
   const [fromDay, setFromDay] = useState('')
   const [toDay, setToDay] = useState('')
-  // Keyed by station *and* resolution. Keying by station alone was a bug in 0.8:
-  // the daily and hourly rollups did not carry the same channels, so a selection
-  // made on one was silently narrowed by the other and never restored.
+  // Keyed by station. Keying by station *and* resolution made Day and Hour
+  // remember independent channel selections, so a reader who picked three
+  // channels and pressed Hour got a different set, and neither was wrong on its
+  // own terms. A resolution switch is a different sampling of the same days and
+  // must not change what is being measured.
   const [selectionByView, setSelectionByView] = useState({})
   const [hoverRow, setHoverRow] = useState(null)
   const [hideFlagged, setHideFlagged] = useState(false)
@@ -376,8 +410,7 @@ export default function StationExplorer() {
   // November, press Hour to see the dawn, and the chart jumps back to the year.
   const rangeView = useRef(null)
 
-  const viewKey = `${stationId}:${resolution}`
-  const selected = selectionByView[viewKey] ?? []
+  const viewKey = stationId
   // The station and its channels come from one object now: `stations.json` carries
   // the band, the unit, the decimals and the observed range for every channel
   // this station has. There is no second fetch to keep in step, and nothing to
@@ -385,6 +418,10 @@ export default function StationExplorer() {
   const station = stations.find((s) => s.station_id === stationId) ?? null
   const allChannels = useMemo(() => channelsFor(station), [station])
   const rows = rollup.rows
+  // The period the controls currently describe, and whether the loaded rollup is
+  // that period's. `null` until the station list has resolved a station and a year.
+  const wanted = stationId && year ? `${stationId}/${year}/${resolution}` : null
+  const rollupStale = rollupFor !== wanted
 
   useEffect(() => {
     let cancelled = false
@@ -421,10 +458,12 @@ export default function StationExplorer() {
     if (!stationId || !year || !resolution) return undefined
     let cancelled = false
     setHoverRow(null)
+    setError(null)
     loadRollup(stationId, resolution, year)
       .then((data) => {
         if (cancelled) return
         setRollup(data)
+        setRollupFor(`${stationId}/${year}/${resolution}`)
         const opening = isDefaultView(stationId, year, resolution)
           ? monthBounds(data.rows, DEFAULT_VIEW.month)
           : null
@@ -442,21 +481,28 @@ export default function StationExplorer() {
           setToDay(next.to)
         }
         setSelectionByView((current) => {
-          const key = `${stationId}:${resolution}`
+          // Keyed on the station, and narrowed to what the station publishes --
+          // never to what this one file happens to carry, because narrowing stored
+          // state is what made a selection vanish for good in 0.8. A channel a
+          // particular year does not carry is dropped at render time instead.
           const offered = allChannels.map((c) => c.key)
-          const kept = (current[key] ?? []).filter((k) => offered.includes(k))
+          const kept = (current[stationId] ?? []).filter((k) => offered.includes(k))
           return {
             ...current,
             // First visit: the opening view's channels, or the first two this
             // station publishes, which are the voltages it reports and the most
             // readable pair.
-            [key]:
+            [stationId]:
               kept.length > 0 ? kept : defaultSelection(offered, stationId, year, resolution),
           }
         })
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message)
+        if (cancelled) return
+        // Drop the key as well as the error, so a failed load reads as "no data"
+        // rather than as whatever the previous station left behind.
+        setRollupFor(null)
+        setError(err.message)
       })
     return () => {
       cancelled = true
@@ -471,6 +517,16 @@ export default function StationExplorer() {
     const present = new Set(rollup.channels ?? [])
     return allChannels.filter((channel) => present.has(channel.key))
   }, [allChannels, rollup.channels])
+
+  // The reader's selection, narrowed to what the loaded rollup actually carries.
+  //
+  // Derived rather than stored, so that a channel a year or a resolution does not
+  // carry is simply not drawn and the selection is still there when the reader
+  // switches back. Storing the narrowed version instead loses it permanently.
+  const selected = useMemo(() => {
+    const carried = new Set(channels.map((c) => c.key))
+    return (selectionByView[stationId] ?? []).filter((k) => carried.has(k))
+  }, [selectionByView, stationId, channels])
 
   const months = useMemo(() => availableMonths(rows), [rows])
   const inRange = useMemo(() => filterByRange(rows, fromDay, toDay), [rows, fromDay, toDay])
@@ -574,6 +630,20 @@ export default function StationExplorer() {
       </div>
     )
   }
+  // Nothing below this line may read a rollup that belongs to another station,
+  // year or resolution. The controls and the data are a pair, and a mismatched
+  // pair is a chart with the wrong station's bands on it, which looks like a
+  // finding rather than a bug. Wait for the right file instead of drawing the
+  // wrong one.
+  if (rollupStale) {
+    return (
+      <p className="muted">
+        Loading {station?.display_name ?? 'data'}
+        {year ? `, ${year}` : ''}
+        {resolution === 'hourly' ? ', hourly' : ', daily'}…
+      </p>
+    )
+  }
 
   const flagged = classified.flaggedRows
   const noun = resolution === 'hourly' ? 'hour' : 'day'
@@ -614,7 +684,7 @@ export default function StationExplorer() {
                 active={s.station_id === stationId}
                 onPick={() => {
                   setStationId(s.station_id)
-                  setYear(s.years[s.years.length - 1].year)
+                  setYear(yearForPick(s))
                 }}
               />
             ))}

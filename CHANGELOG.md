@@ -106,6 +106,169 @@ records what each edit changed. Every previous version is in git history.
   things — the reading as written, and the value as published — but the pair reads
   as a contradiction until this is written down somewhere the reader will see it.
 
+## [0.10.0] - 2026-09-28
+
+A band per **column** came back, in one place, and took the site with it. Two bugs,
+one structural and one a single wrong character, both found the same way: a number
+on screen that could not be true, checked against the archive instead of argued
+about.
+
+**`aisvn-solar.battery_v` was reported as 100% out of band. 7 of 13,788 readings
+actually are.**
+
+### Fixed
+
+- **The shared rollup banded a channel by its column name, not by its station.**
+  `readings_hourly` is one table fed by a `UNION ALL` of the eight station tables,
+  so `<channel>_n_oor` needed one SQL expression for all eight branches, and
+  `_banded_published()` deduplicated by channel *name* and took the first station's
+  band for everyone. `aisvn` is declared first, so its 9–16 V band was applied to
+  every station's `battery_v` — including `aisvn-solar`'s, which is stored in volts
+  at 0–5.148 V after a confirmed ×0.002, and which therefore had **all 13,788 of
+  its readings flagged**, 0.757–14.353 V `maker-webhooks` had 138, and
+  `aisvn2` was untouched only because its column is `battery2_v`. The per-channel
+  totals were all correct, which is why nothing caught it: the rollup was the only
+  place the two disagreed.
+
+  This is 0.8's bug -- a band per column name, tested against a value in the wrong
+  unit -- rebuilt inside the rollup, and the union is exactly what made it possible.
+  The test is now keyed on the row's own `station_id` via a `CASE`, so each station
+  is counted with its own band; a station with no band for the channel falls to
+  NULL and counts nothing, and a one-sided band tests only the side it declares.
+  `aisvn-solar.battery_v` is back to **7**, which is what the raw cells say.
+- **Picking a station loaded no data, and drew the previous station's bands over
+  the previous station's values.** `years` is an array of plain strings, so
+  `setYear(s.years[s.years.length - 1].year)` set the year to `undefined` for
+  *every* station. That failed the loader's guard, the `UNION ALL` of the previous
+  station's rollup stayed in state, and because a station's channels are its
+  metadata intersected with the loaded file's header, selecting **AISVN Solar**
+  tested **aisvn-solar's 0–5.1 V band** against **aisvn's 10.5–14.9 V November
+  2021 battery**. Every point breached, and the caption said so in the confident
+  voice of a finding: *"700 values in this range fall outside their channel's
+  recorded band; the first 400 are ringed."* The 400 is `MAX_BREACH_MARKERS`, a
+  drawing cap, working as designed. The 700, the month list, the year and the
+  "no channel is selected" were all this one bug.
+
+  Three fixes: the pick resolves through an exported pure `yearForPick()`; the
+  loader records which station/year/resolution a rollup belongs to and a rollup
+  that is not the current period is **waited for, never drawn**, so any future
+  mismatch is a spinner rather than a wrong chart; and a failed load drops the key
+  as well as showing the error. `check_render.mjs` gained a check for it, which is
+  mutation-tested — re-introducing `.year` fails it.
+- **A resolution switch no longer changes, or re-keys, the selected channels.** The
+  selection was keyed `station:resolution`, so Day and Hour remembered independent
+  sets and a reader who picked three channels and pressed Hour got different ones.
+  It is keyed on the station now, and the set actually drawn is derived by
+  intersecting with the rollup at render time rather than narrowed destructively --
+  so a channel a year does not carry is simply not drawn, and is still there when
+  the reader switches back.
+- `aisvn.wind_v` and `maker-webhooks.wind_v` carried **`phumy2.power_w`'s band
+  note**, verbatim, from a copy-paste in 0.9.0. It was talking about 415,112 zeros
+  and an unimplemented pin on two channels that are now published.
+- `phumy2.power_w`'s stated counts were stale: 415,112 of 415,117 readings are
+  zero. It is **416,083 of 416,088**, and the column holds six distinct values in
+  six years.
+- Two redundant `raw_unit = "degC"` declarations on channels with `scale = 1.0`
+  were removed from `aisvn.temp_c` and `phumy2.temp_c`. `raw_unit` means the unit
+  the sheet wrote *when it differs*; with no conversion it is noise, and the
+  frontend's "logged in a different unit" note keys on `scale !== 1`.
+
+### Added
+
+- **`etl.catalog.Correction` -- a declared, time-scoped change to a channel.**
+  `aisvn`'s current channel reads 6.6 A low from 2020-08-24 18:42 local, and its
+  power channel's output is inverted and four times too large from the same
+  instant. Both are the collector's dated fault, and both are now declarations:
+  `add 6.6` and `factor -0.25`, applied once at ingest, after the scale, only where
+  a declared window covers the reading's instant. Windows are half-open
+  `[from_ts, to_ts)` so a boundary is not claimed twice, and `op` is deliberately
+  only `add` and `factor` -- a correction needing a conditional is a symptom that
+  the period is described wrongly, and the way to find that out is to make the
+  declaration impossible to write.
+
+  The windows pause inside the 2020-10-23 → 2020-10-30 reconfiguration period,
+  which the collector describes as a half-built logger: readings there come off
+  near zero rather than -6.0, so adding 6.6 A to them would invent a phantom load.
+  They are flagged as part of that window instead. The power channel's corrected
+  curve then tracks solar exactly -- 0 W at night, 34.5 W at noon -- which is the
+  evidence for the sign. The current channel's does **not**: its corrected
+  variation is about 0.3 A and does not follow the panel, so that correction fixes
+  the sign without restoring a usable signal. Both are stated in `band_note`.
+  0.8 needed 22 confirmed scale windows and left 8 more unconfirmed; there are two
+  declarations here, both dated, both from the collector.
+- **`scripts/release_notes.py` -- the version and its notes, from one place.**
+  `package.json` is canonical; `etl/__init__.py` and `pyproject.toml` are *checked*
+  against it and the `## [version]` section of this changelog is taken verbatim.
+  `release.yml` had an inline `awk` that would produce notes for a version that had
+  never been built, from a tag that did not match `package.json`, and publish it.
+  `--check` exits 2 and names the disagreeing file, so a version bump that forgets
+  the changelog cannot ship. Running it with no arguments prints the notes.
+- **`make fresh`** -- `data_fresh.yml` from the command line: delete the database
+  *and its `-wal`/`-shm` sidecars*, then `etl all` and `verify`. A surviving WAL
+  makes SQLite replay the previous run's rows, which is the failure the workflow
+  exists to rule out.
+- **`docs/pipeline.md`** -- every transformation between a raw cell and a charted
+  point, and all 51 channels across 8 stations, generated from the catalog and the
+  built database so it cannot describe a pipeline that is not the one running.
+
+### Changed
+
+- **Bands, on the collector's figures.** Each is now a claim about a station and
+  the hardware on it, and each moved for a stated reason:
+
+  | channel | 0.9.0 | 0.10.0 | why |
+  |---|---|---|---|
+  | `aisvn.solar_v` | 0–60 V | **0–25 V** | the input saturates at 29.8 V |
+  | `aisvn.solar2_v` | 0–60 V | **0–15 V** | 15 V is a 2S string's ceiling; the rail is 19.5 V |
+  | `aisvn.load_v` | 0–60 V | **0–20 V** | the load rail saturates at 29.67 V |
+  | `aisvn.lipo_v` | 0–8.7 V | **0–5 V** | a 1S cell's ceiling; the rail is 6.84 V |
+  | `aisvn.temp_c` | 0–60 °C | **0–40 °C** | the probe stands in shadow at this site |
+  | `aisvn.current_a` | none | **0–3 A** | the collector's figure for this panel |
+  | `aisvn.power_w` | none | **0–50 W** | the collector's figure |
+  | `aisvn.wind_v` | none | **0–50 W** | confirmed a power measurement, in watts |
+  | `aisvn-solar.lipo_v` | 2.5–4.35 V | **0–5 V** | a 1S cell, not a 2S one; 3.532 V is the applet's rail |
+  | `aisvn2.current_a_chA` | none | **≤ 500** | ceiling only: 55% of readings are negative |
+  | `aisvn2.current_a_chB` | none | **≤ 500** | ceiling only: 17% of readings are negative |
+  | `maker-webhooks.solar2_v` | 0–30 V | **0–15 V** | observed 0.735–12.944 V |
+  | `maker-webhooks.wind_v` | none | **0–50 W** | confirmed a power measurement, in watts |
+
+- **`wind_v` is charted, at two stations.** 0.9.0 excluded it everywhere on the
+  reasoning that 29.8 V and 14,686 mV are not plausible generator outputs. The
+  collector has confirmed the channel as a power measurement **in watts**, so both
+  are now 0–29.8 W and 0–14.7 W. The old assertion was not wrong about the number
+  and wrong about the unit -- it read a real reading in the wrong unit and
+  concluded the hardware was unimplemented, which is 0.8's error in the direction
+  that hides data. `aisvn-solar.wind_v` stays hidden, and now for a reason the
+  data supports rather than one taken on trust: identically zero for all 13,788
+  readings.
+- **`out_of_range`: 3,695 → 40,393.** The total moved *up* deliberately. It is
+  almost entirely two channels the collector tightened past the point 0.9.0 had
+  widened to silence them:
+
+  | | readings flagged | share |
+  |---|---:|---:|
+  | `aisvn.solar2_v`, 0–15 V | 14,107 | 18.2% |
+  | `aisvn.lipo_v`, 0–5 V | 14,107 | 18.2% |
+  | everything else | 12,179 | 1.7% of the archive |
+
+  Both are a single exact value repeated -- 19.5 V and 6.84 V -- on 2020-07-16 →
+  2020-08-05, so they are plateaus on a rail rather than a unit error, and a band
+  that declines to ring them has been widened to be quiet. Each carries a
+  `band_note` saying the fire *is* the finding, which `etl.audit` requires above
+  `BAND_FIRE_FRACTION` and which `tests/test_catalog.py` pins by name. Readings are
+  unchanged at **731,885**; 0.8 was 631,252, or 86% of the archive.
+
+### Tests
+
+- 148 → 149 test functions. Seven asserted decisions this release reverses, and
+  each now asserts the new truth rather than being deleted: the per-station
+  temperature ceiling, the six hidden channels, `wind_v` charted only where its unit
+  is confirmed, the observed out-of-range counts, and the "not mostly flags"
+  invariant, which is now stated over the *remainder* after the two declared
+  plateaus -- the 1% ceiling kept, applied where it still means something.
+- `check_frontend.mjs` gained the mirror of the same two checks, so a browser-side
+  regression in either is caught without running Python.
+
 ## [0.9.0] - 2026-09-28
 
 A rewrite of the whole pipeline around one idea: **a channel is a fact about a

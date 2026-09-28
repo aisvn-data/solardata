@@ -10,7 +10,7 @@
     "null_windows": 220074,
     "notes": 11,
     "excluded_files": 1,
-    "out_of_range": 3695,
+    "out_of_range": 40393,
     "channel_stats": 51,
     "hourly_buckets": 25566,
     "daily_buckets": 1184,
@@ -18,9 +18,9 @@
   },
   "recorded": {
     "tool_version": "0.9.0",
-    "run_started_at": "2026-09-28T08:03:08Z",
+    "run_started_at": "2026-09-28T13:28:56Z",
     "ingest_notes": "731885 readings from 364 files across 8 stations in 10 folders",
-    "reason": "0.9.0 rewrite: eight per-station tables, per-(station,channel) units and bands applied once at ingest, band audit, 3,695 out-of-range channel values instead of 631,252",
+    "reason": "aisvn.solar2 and aisvn.lipo out of range from 2020-07-16 to 2020-08-05",
     "stations": [
       "aisvn",
       "aisvn2",

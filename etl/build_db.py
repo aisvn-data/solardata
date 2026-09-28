@@ -64,6 +64,7 @@ from .config import (
     ROW_EXCLUSIONS,
     SENTINELS,
     Settings,
+    is_excel_lock_file,
 )
 from .readers import times, xlsx
 from .readers.times import TimestampError
@@ -165,6 +166,7 @@ def _coerce(
     raw: str,
     channel: catalog.Channel,
     free_text: list[str],
+    ts_utc: str | None = None,
 ) -> tuple[float | str | None, tuple[str, ...]]:
     """One cell, to one value and its flags.
 
@@ -181,8 +183,9 @@ def _coerce(
        number. 0.8 got this right by accident of ordering; it is written this
        way so that it stays right.
     5. the confirmed scale, once.
-    6. the band, against the scaled value, in the unit the value is stored in.
-       Out of range keeps the value.
+    6. any declared correction whose window covers this instant, once each.
+    7. the band, against the corrected value, in the unit the value is stored
+       in. Out of range keeps the value.
     """
     text = raw.strip()
     if not text:
@@ -206,6 +209,8 @@ def _coerce(
 
     if channel.scale != 1.0:
         number = round(number * channel.scale, 9)
+
+    number = channel.correct(number, ts_utc)
 
     if not channel.in_band(number):
         return number, (FLAG_OUT_OF_RANGE,)
@@ -274,9 +279,19 @@ def _scan_folder(folder: Path, station: catalog.Station, raw_dir: Path) -> list[
     The one exception is a file that is excluded whole: nothing is read out of
     it, so it does not need a layout, and a renamed or deleted sheet should not
     be able to stop the build.  It is scanned and its width recorded, unremarked.
+
+    An Excel owner file (``~$...``) is not scanned at all.  It is 165 bytes of
+    lock, it holds no rows, and openpyxl raises `PermissionError` on it -- so
+    leaving it to the layout lookup produced a failure that named a file which
+    looked like archive content, blamed the directory for it, and cost two minutes
+    of ingest to diagnose.  Skipped, and counted so the run says so.
     """
     scans: list[_FileScan] = []
+    skipped_locks: list[str] = []
     for path in sorted(folder.glob("*.xlsx"), key=lambda p: p.name.lower()):
+        if is_excel_lock_file(path.name):
+            skipped_locks.append(f"{folder.name}/{path.name}")
+            continue
         rel_path = f"{folder.name}/{path.name}"
         block = xlsx.detect_block(path)
         exclusion = _exclusion_reason(rel_path)
@@ -298,6 +313,8 @@ def _scan_folder(folder: Path, station: catalog.Station, raw_dir: Path) -> list[
                 exclusion=exclusion,
             )
         )
+    for skipped in skipped_locks:
+        print(f"  skipped Excel owner file (not a sheet): {skipped}")
     return scans
 
 
@@ -447,7 +464,9 @@ def _insert_file(
         values: list[object] = [ts_utc, ts_local]
         cell_flags: list[tuple[str, ...]] = []
         for offset, ch in enumerate(channel_list, start=1):
-            value, flags = _coerce(cells[offset] if offset < len(cells) else "", ch, free_text)
+            value, flags = _coerce(
+                cells[offset] if offset < len(cells) else "", ch, free_text, ts_utc
+            )
             values.append(value)
             if flags:
                 cell_flags.append(flags)

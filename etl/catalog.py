@@ -62,6 +62,7 @@ __all__ = [
     "STATIONS",
     "STATION_IDS",
     "Channel",
+    "Correction",
     "Layout",
     "Station",
     "channel",
@@ -152,6 +153,12 @@ class Channel:
     counter:
         True for ``boot_count`` and ``millis_ms``: the hardware's own view of
         its uptime. Never banded, never averaged.
+    corrections:
+        Declared, time-scoped changes to the value, applied after ``scale``.
+        Empty for almost every channel, which is the point: 0.8 needed 22
+        confirmed scale windows and 8 more for a single station, and every one of
+        them turned out to cover the channel's entire extent. Two channels carry
+        a correction and both say which hardware fault they undo and when.
     """
 
     name: str
@@ -168,6 +175,7 @@ class Channel:
     exclude: ExcludeReason | None = None
     exclude_note: str = ""
     counter: bool = False
+    corrections: tuple[Correction, ...] = ()
 
     @property
     def band_lo(self) -> float | None:
@@ -180,6 +188,20 @@ class Channel:
     @property
     def scaled(self) -> bool:
         return self.scale != 1.0
+
+    def correct(self, value: float, ts_utc: str | None) -> float:
+        """Apply every correction whose window covers this instant.
+
+        ``ts_utc`` is ``None`` only where no clock is available, and in that case
+        nothing is applied: guessing a period is what this mechanism exists to
+        stop.
+        """
+        if ts_utc is None or not self.corrections:
+            return value
+        for correction in self.corrections:
+            if correction.applies_at(ts_utc):
+                value = correction.apply(value)
+        return value
 
     @property
     def decimals(self) -> int:
@@ -285,7 +307,7 @@ def table_name(station_id: str) -> str:
 
 #: Why an uptime counter has no plausible range. Shared rather than repeated
 #: across the six channels that are one, because a reader meeting it on
-#: ``boot_count`` and again on ``millis_ms`` should read the same sentence, and
+#: `boot_count` and again on `millis_ms` should read the same sentence, and
 #: because ``etl.audit`` requires a bandless channel to say why and this is what
 #: it says.
 COUNTER_BAND_NOTE = (
@@ -296,6 +318,53 @@ COUNTER_BAND_NOTE = (
     "that, and a bucket whose minimum is 1 restarted."
 )
 
+
+@dataclass(frozen=True)
+class Correction:
+    """A declared change to a channel's value over a window of time.
+
+    A hardware fault that starts at a known instant and never ends is not a
+    property of the channel, it is a property of a period -- so it is declared
+    here, with the instant, rather than smeared into the channel's `scale` or
+    quietly averaged away.
+
+    Applied **after** `scale`, once, at ingest, in declaration order, and only
+    when `from_ts <= ts_utc < to_ts`.  Half-open, because a boundary that both
+    windows claim is a boundary that is wrong twice.
+
+    This is the opposite of what 0.8 did.  0.8 detected scale changes by
+    proposing windows from the shape of the data and applying the confirmed ones
+    to the rollups, which is where ``phumy2.current2_a``'s 232 mA and a
+    ``battery_v`` band in the wrong unit both came from.  Here the instant is
+    given by the collector, the arithmetic is a single multiply or add, and it
+    touches the stored value rather than a downstream copy of it.
+
+    `op` is deliberately only ``add`` and ``factor``.  A correction that needs a
+    conditional, an absolute value or a different branch is a symptom that the
+    period is being described wrongly, and the way to find that out is for the
+    declaration to be impossible to write.
+    """
+
+    from_ts: str
+    to_ts: str | None
+    op: Literal["add", "factor"]
+    value: float
+    note: str
+
+    def applies_at(self, ts_utc: str) -> bool:
+        return self.from_ts <= ts_utc and (self.to_ts is None or ts_utc < self.to_ts)
+
+    def apply(self, value: float) -> float:
+        return round(value + self.value, 9) if self.op == "add" else round(value * self.value, 9)
+
+    @property
+    def window(self) -> str:
+        return f"{self.from_ts} .. {self.to_ts or 'open'}"
+
+
+# ---------------------------------------------------------------------------
+# aisvn -- AISVN #1.  The only station with a lead-acid bank, a real current
+# sensor and a temperature probe, and the one the collector repaired twice.
 # ---------------------------------------------------------------------------
 # aisvn -- AISVN #1.  The only station with a lead-acid bank, a real current
 # sensor and a temperature probe, and the one the collector repaired twice.
@@ -312,7 +381,11 @@ AISVN = Station(
     notes=(
         "11-channel logger. The applet was recompiled twice and the collector "
         "converted the sheet at source, so the whole record is volts and amps "
-        "with no scale window to apply."
+        "with no scale window to apply -- except for two hardware faults the "
+        "collector dates exactly: the current channel gained a permanent offset "
+        "at 2020-08-24 18:42 local, and the power channel's output was inverted "
+        "and four times too large from the same instant. Both are declared as "
+        "corrections rather than absorbed into the channel."
     ),
     layouts=(
         Layout(
@@ -354,23 +427,43 @@ AISVN = Station(
             name="solar_v",
             label="Solar",
             kind="voltage",
-            description="Collector input 1, the panel the station was built around.",
+            description=(
+                "Collector input 1, the panel the station was built around. The "
+                "input saturates at 29.8 V, so readings above 25 V are the rail "
+                "and not the panel."
+            ),
             unit="V",
-            band=(0.0, 30.0),
+            band=(0.0, 25.0),
             band_note=(
-                "0.8 used 0-60 V. This station's input saturates at 29.8 V and "
-                "never exceeds it, so the band is drawn at the rail rather than "
-                "at the generic panel ceiling. Nothing is flagged."
+                "0.8 used 0-60 V for every station's solar_v, which flagged "
+                "nothing here because 0.8's scale never reached the stored value. "
+                "0.9 drew it at 25 V, below this station's 29.8 V saturation, so "
+                "the readings on the rail are marked. They are the readings that "
+                "coincide with the collector's reconfiguration window "
+                "(2020-10-23 to 10-30), which is flagged separately and is the "
+                "more specific explanation."
             ),
         ),
         Channel(
             name="solar2_v",
             label="Solar 2",
             kind="voltage",
-            description="Second collector input, saturating at 19.5 V.",
+            description=(
+                "Second collector input. Sits on a rail at exactly 19.5 V for "
+                "14,107 of 77,526 readings."
+            ),
             unit="V",
-            band=(0.0, 30.0),
-            band_note="Saturates at 19.5 V for 29% of the record. 0-60 V flags nothing.",
+            band=(0.0, 15.0),
+            band_note=(
+                "15 V, below this channel's own 19.5 V saturation, so the rail is "
+                "flagged -- and that is 18.2% of the record, which is why it needs "
+                "a note rather than silence. 0.8 carried one global 0-60 V band "
+                "per column name, which both missed this and flagged the "
+                "millivolt stations. Whether 19.5 V is a saturated input or a real "
+                "ceiling is a question for the collector: 0-15 V is the ceiling "
+                "of a two-cell series string and a 19.5 V rail is a plausible ADC "
+                "top, and the archive cannot tell them apart."
+            ),
         ),
         Channel(
             name="battery_v",
@@ -388,30 +481,106 @@ AISVN = Station(
                 "and 17.9 V in 2021, which is a second pack, a mis-scaled input "
                 "or a band wrong for what is installed. The collector confirmed "
                 "a lead pack, which is what makes 29.8 V a question rather than "
-                "an explanation. See open question 10 in AGENTS.md."
+                "an explanation. See open question 1 in AGENTS.md."
             ),
         ),
         Channel(
             name="current_a",
             label="Current",
             kind="current",
-            description="Primary current channel. Negative for most of the record.",
+            description=(
+                "Primary current channel. On 2020-08-24 at 18:42 local the "
+                "electronics latched into a state that read about 6.6 A low, so "
+                "almost every later reading is negative."
+            ),
             unit="A",
-            band=(-50.0, 50.0),
+            band=(0.0, 3.0),
+            corrections=(
+                Correction(
+                    "2020-08-24T11:42:00Z",
+                    "2020-10-23T00:00:00Z",
+                    "add",
+                    6.6,
+                    "The collector's dated fault: from 18:42 local on 2020-08-24 "
+                    "the channel records 6.6 A below the truth until the logger "
+                    "was reconfigured. The instant is the first reading that "
+                    "latches -- 11:41 still reads 0.02, 11:42 reads exactly "
+                    "-6.0 -- so the boundary is the second, not the hour.",
+                ),
+                Correction(
+                    "2020-10-30T00:00:00Z",
+                    None,
+                    "add",
+                    6.6,
+                    "The same fault again after the reconfiguration window "
+                    "(2020-10-23 to 10-30, which the collector says describes a "
+                    "half-built logger). The channel is back on the -6.0 A offset "
+                    "from 2020-10-30. Two windows rather than one because the "
+                    "correction is *not* applied inside the reconfiguration "
+                    "window, where the channel reads near zero rather than -6.0 "
+                    "and adding 6.6 to it would invent 6.6 A of phantom load.",
+                ),
+            ),
             band_note=(
-                "0.8's +/-50 A. Recorded range is -12.81 to 3.68 A, so this band "
-                "never fires; it is kept because it is the documented full "
-                "scale, not because it is tight."
+                "0-3 A, the collector's figure for this panel. It fires on the "
+                "1,823 readings inside the 2020-10-23 to 10-30 reconfiguration "
+                "window, where the raw channel reads near zero and the +6.6 A "
+                "correction is deliberately not applied -- they are half-built "
+                "hardware, flagged as such by BAD_WINDOWS, and their values are "
+                "not measurements. Nothing outside that window is flagged. Note "
+                "also that the corrected current after 2020-08-24 varies by only "
+                "about 0.3 A and does not track solar, so the correction removes "
+                "the sign error but does not restore a usable signal; that is "
+                "what the collector's request for more insight at higher "
+                "resolution is about."
             ),
         ),
         Channel(
             name="power_w",
             label="Power",
             kind="power",
-            description="Reported power. Zero for 47% of the record, which is when the sun is down.",
+            description=(
+                "Reported power. From 2020-08-24 18:42 local the output is "
+                "inverted and four times too large, so almost every later reading "
+                "is negative."
+            ),
             unit="W",
-            band=(-2000.0, 2000.0),
-            band_note="Recorded range -137.9 to 76.6 W. Nothing is flagged.",
+            band=(0.0, 50.0),
+            corrections=(
+                Correction(
+                    "2020-08-24T11:42:00Z",
+                    "2020-10-23T00:00:00Z",
+                    "factor",
+                    -0.25,
+                    "The collector's dated fault, same instant as the current "
+                    "channel's offset: the output is inverted and four times too "
+                    "large, so multiplying by -0.25 undoes both. The corrected "
+                    "curve tracks solar exactly -- 0 W at night, 34.5 W at noon -- "
+                    "which is the evidence that -0.25 and not +0.25 is the right "
+                    "sign.",
+                ),
+                Correction(
+                    "2020-10-30T00:00:00Z",
+                    None,
+                    "factor",
+                    -0.25,
+                    "The same fault again after the reconfiguration window. Paused "
+                    "inside it for the same reason as the current channel: the "
+                    "readings there come from a half-built logger and are flagged "
+                    "rather than corrected.",
+                ),
+            ),
+            band_note=(
+                "0-50 W, the collector's figure. Fires on 217 readings before the "
+                "fault (40 slightly negative, 177 above 50 W) and on the "
+                "reconfiguration window afterwards, where the -0.25 factor is not "
+                "applied. Nothing else is flagged, and the corrected record runs "
+                "0-34.5 W, which is a plausible output for this panel and tracks "
+                "the solar curve. 0.8 asserted energy_wh as "
+                "avg_power * n_samples * 2 / 3600 for every station, which "
+                "multiplied this channel by an assumed cadence; there is no such "
+                "column in 0.9."
+            ),
         ),
         Channel(
             name="load_v",
@@ -419,87 +588,73 @@ AISVN = Station(
             kind="voltage",
             description=(
                 "Load / dump rail. The collector reports 10-12 V with a load "
-                "switched on and 0 with none present."
+                "switched on and 0 with none present, saturating at 29.7 V."
             ),
             unit="V",
-            band=(0.0, 60.0),
+            band=(0.0, 20.0),
             band_note=(
-                "0-29.67 V observed, saturating near 29.7 V. Kept at the generic "
-                "0-60 V ceiling because the rail's true full scale is unresolved "
-                "-- see open question 6."
+                "20 V, below the rail. It fires on the same readings as solar_v "
+                "and for the same reason -- the 2020-10-23 to 10-30 "
+                "reconfiguration window -- which is a useful cross-check: two "
+                "independent inputs flag the same 1,612 readings. The rail's true "
+                "full scale is still unrecorded, so this is the collector's figure "
+                "rather than a measured ceiling. Open question 6."
             ),
         ),
         Channel(
             name="wind_v",
             label="Wind",
-            kind="voltage",
+            kind="power",
             description=(
-                "A wired input. It logs, and what it logs is not a plausible "
-                "generator output: 0-13.3 V hourly in 2021 and up to 29.8 V in "
-                "2020, exactly 0 for all of 2022. What it is connected to is "
-                "asked of the collector, not decided here."
+                "The generator's output, logged as the single voltage reading of "
+                "the three phases combined. Confirmed by the collector as a power "
+                "measurement in watts, which is why it is charted and was not in "
+                "0.9.0."
             ),
-            unit="V",
-            band=None,
-            raw_unit="V",
+            unit="W",
+            band=(0.0, 50.0),
             band_note=(
-                "No band, deliberately. A band is a claim about what the hardware "
-                "can produce, and 12,784 V is not something a wind generator "
-                "produces -- so any range wide enough to hold the record would "
-                "hold anything, and any range narrow enough to be worth having "
-                "would flag the whole channel. The 0.9 build has no band to "
-                "apply, so nothing is flagged; what the input is connected to is "
-                "asked of the collector, not decided here."
+                "0-50 W, the collector's estimate for this generator. Nothing is "
+                "flagged: the record runs 0-29.8 W. 0.9.0 excluded this channel "
+                "because 12,784 V is not a plausible *voltage*; that reading was "
+                "right and the unit was wrong, and the collector has now said so."
             ),
-            publish=False,
-            exclude="not_measurement",
-            exclude_note=(
-                "Excluded from the site and the CSVs. The values are in the "
-                "database, unbanded, because the input is real and the archive "
-                "is the record. Open question 11."
-            ),
-            stats=(),
         ),
         Channel(
             name="temp_c",
             label="Temperature",
             kind="temperature",
-            description="Ambient temperature probe.",
+            description=(
+                "Ambient temperature probe. The station stands in shadow, so it "
+                "reads the air rather than the panel."
+            ),
             unit="degC",
-            raw_unit="degC",
-            scale=1.0,
-            band=(0.0, 60.0),
+            band=(0.0, 40.0),
             band_note=(
-                "Fires on the readings above 60 degC, reaching 63.3. That is not "
-                "plausible ambient in Ho Chi City, so the flag is the finding. "
-                "0.8 multiplied this by 10 at ingest and banded it 50-900 as if it "
-                "were tenths, so 32.5 degC was stored as 325 and sat inside a band "
-                "whose units were wrong by the same factor: two errors that "
-                "cancelled and left the record looking banded when it was only "
-                "rescaled. The sheet writes plain degrees -- 32.5, 32.6, 32.7 -- "
-                "and the collector converted the 1,480 pre-recompile readings at "
-                "source, so the whole record is degrees and no scale applies."
+                "0-40 degC, the collector's ceiling for a probe in shadow at this "
+                "site. 0.9.0 used 60 degC and flagged 119 readings; at 40 it flags "
+                "the readings above it and nothing else, which is the level the "
+                "hardware can actually reach here. The archive cannot say how much "
+                "of the record is a shaded reading and how much a heated one, and "
+                "December 2021 has several sources, so a reading above 40 degC is "
+                "a question rather than a fault."
             ),
         ),
         Channel(
             name="lipo_v",
             label="LiPo",
             kind="voltage",
-            description=(
-                "Single-cell LiPo pack. The record is bimodal: 3.98-4.13 V for "
-                "most readings, and a flat 6.84 V for 14,107 of them."
-            ),
+            description=("Single-cell LiPo pack. 14,107 of 77,526 readings sit at exactly 6.84 V."),
             unit="V",
-            band=(0.0, 8.7),
+            band=(0.0, 5.0),
             band_note=(
-                "Banded 0-8.7 V, not the 2.5-4.35 V of a 1S cell, and this is the "
-                "one place where the band is deliberately wider than the "
-                "documented cell. Banded as a 1S cell it fires on 20% of the "
-                "record, which is a count that cannot distinguish a contaminated "
-                "aggregate from an ordinary day. 6.84 V is about two cells, so "
-                "the channel is either a 2S pack for part of the record or a "
-                "scaled input; the archive cannot say which. Bounding at 8.7 V "
-                "flags nothing and leaves the bimodality as an open question."
+                "0-5 V, the collector's figure. It fires on 18.2% of the record, "
+                "which is why it needs a note rather than silence, and the note is "
+                "that 6.84 V is a single exact value across 14,107 readings: a "
+                "plateau, which is either a saturated input or a pack being read "
+                "through a divider. 0.9.0 bounded it at 0-8.7 V specifically to stop "
+                "this firing, and the collector has now said the ceiling is 5 V, so "
+                "it fires again and the 18.2% is the finding. Open question 2."
             ),
         ),
         Channel(
@@ -508,7 +663,8 @@ AISVN = Station(
             kind="count",
             description=(
                 "The logger's own monotonic submission counter, reset by a "
-                "reboot. Increments by exactly 1 on 98% of consecutive pairs."
+                "reboot. It reaches 21,660 without a reset, about 75 days at the "
+                "archive's cadence, so a 20,000 ceiling would not have been reached."
             ),
             unit="count",
             band_note=COUNTER_BAND_NOTE,
@@ -520,8 +676,17 @@ AISVN = Station(
         "battery_v reaches 29.8 V in 2020 and 17.9 V in 2021 against a confirmed "
         "12 V lead-acid pack. A second pack, a mis-scaled input, or a band "
         "wrong for what is installed.",
-        "lipo_v is bimodal at 3.98-4.13 V and 6.84 V. Nothing in the archive "
-        "records a recompile at the change.",
+        "lipo_v sits on a rail at exactly 6.84 V for 18% of the record, and "
+        "solar2_v on a rail at exactly 19.5 V. Saturation, a divider, or a real "
+        "ceiling -- the archive cannot tell them apart.",
+        "After the 2020-08-24 fault the current channel's variation is only about "
+        "0.3 A and does not track solar, so the +6.6 A correction removes the sign "
+        "error without restoring a usable signal. The power channel's does track "
+        "solar, which is why one correction looks like a repair and the other "
+        "looks like a patch.",
+        "temp_c has more than one source, at least in December 2021. Which "
+        "readings are which, and what the shaded ceiling really is, is asked of "
+        "the collector.",
         "load_v's full scale is unresolved, and the rail's 0 V state changes "
         "behaviour on 2020-07-10 with nothing recorded to explain it.",
         "No readings at all between 2020-10-25 and 2020-11-04, and September "
@@ -612,12 +777,16 @@ AISVN2 = Station(
             ),
             unit="",
             raw_unit=None,
-            band=None,
+            band=(None, 500.0),
             band_note=(
-                "No band, deliberately. Any band wide enough to hold both the "
-                "-307..1616 range and the -217..99 range the rest of the record "
-                "sits in would flag nothing, and any band tight enough to flag "
-                "something would flag most of the record. Open question 1."
+                "Upper limit 500, from the collector; no lower bound, because "
+                "55% of this channel's readings are negative and a floor at zero "
+                "would flag more than half the record for a sensor that is "
+                "working. It fires on 2,915 of 153,770 readings (1.9%), all of "
+                "them in the 2021-10 and 2021-11 stretch where the channel pins "
+                "at 1240 -- the ~200x step the collector has not yet explained. "
+                "The unit is still unresolved, so no lower bound is asserted and "
+                "no scale is applied. Open question 1."
             ),
         ),
         Channel(
@@ -631,7 +800,12 @@ AISVN2 = Station(
             unit="",
             raw_unit=None,
             band=None,
-            band_note="No band, for the same reason as channel A. Open question 1.",
+            band_note=(
+                "Upper limit 500, from the collector, and no lower bound: 17% of "
+                "this channel's readings are negative. It fires on 48 of 164,097 "
+                "readings, all of them part of the same 2021-10/11 step. Open "
+                "question 1."
+            ),
         ),
         Channel(
             name="lipo2_v",
@@ -825,12 +999,13 @@ AISVN_SOLAR = Station(
             unit="V",
             raw_unit="mV",
             scale=0.001,
-            band=(2.5, 4.35),
+            band=(0.0, 5.0),
             band_note=(
-                "Fires on 4 of 13,788 readings, all of them below 2.5 V. The rail "
-                "plateau itself is inside the band, so the flag means what it "
-                "says. Whether the pin is a full pack or a saturated input is "
-                "not recorded."
+                "0-5 V, the collector's figure, which replaces the 2.5-4.35 V of "
+                "a 1S cell. Nothing is flagged: 13,784 of the 13,788 readings sit "
+                "at exactly 3.532 V, this applet's ADC rail, and the four "
+                "0.9.0 flagged were all below 2.5 V. Whether the plateau is a "
+                "full pack or a saturated input is not recorded."
             ),
         ),
         Channel(
@@ -993,8 +1168,12 @@ MAKER_WEBHOOKS = Station(
             unit="V",
             raw_unit="mV",
             scale=0.001,
-            band=(0.0, 30.0),
-            band_note="Recorded 0.735-12.944 V. Nothing is flagged.",
+            band=(0.0, 15.0),
+            band_note=(
+                "0-15 V, the collector's figure. Recorded 0.735-12.944 V, so "
+                "nothing is flagged -- but only just, and the 0-30 V of 0.9.0 "
+                "was doing no work here."
+            ),
         ),
         Channel(
             name="battery_v",
@@ -1058,32 +1237,26 @@ MAKER_WEBHOOKS = Station(
         Channel(
             name="wind_v",
             label="Wind",
-            kind="voltage",
+            kind="power",
             description=(
-                "A wired input recording -984 to 14,686 mV. 4,095 is its own "
-                "mode, which is an ADC rail rather than a measurement."
+                "The generator's output, logged as the single voltage reading of "
+                "the three phases combined. Confirmed by the collector as a power "
+                "measurement in watts."
             ),
-            unit="V",
+            unit="W",
             raw_unit="mV",
             scale=0.001,
-            band=None,
+            band=(0.0, 50.0),
             band_note=(
-                "No band, and this is the load-bearing one. 0.8 banded this at "
-                "+/-2,000 W, where five readings were flagged and 415,112 zeros "
-                "were presented to a reader as a power curve. A band asserts "
-                "that the input carries a quantity, and this one does not: the "
-                "hardware was never implemented. Declaring no band is the "
-                "honest answer; declaring a wide one is the same claim in a "
-                "louder voice."
-            ),
-            stats=(),
-            publish=False,
-            exclude="not_measurement",
-            exclude_note=(
-                "Excluded from the site and the CSVs. It is wired and it logs, "
-                "and the values are not a plausible generator output, so there is "
-                "no band that could be honest about it. The values are in the "
-                "database. Open question 11."
+                "0-50 W, the collector's estimate for this generator. The cell is "
+                "in millivolts like every other channel this applet writes, so the "
+                "stored range is -0.984 to 14.686 W. It fires on 22 of 4,935 "
+                "readings, all of them marginally negative, which is a generator "
+                "that was not turning rather than a fault. 0.9.0 excluded this "
+                "channel as a not-a-measurement; that was the same mistake 0.8 "
+                "made on a per-column-name band, in the other direction -- the "
+                "reading was right and the unit was wrong, and the unit is the "
+                "collector's to confirm, not the reader's to assume."
             ),
         ),
         Channel(
@@ -1232,8 +1405,9 @@ PHUMY2 = Station(
             description=(
                 "Not a power measurement. The hardware was never implemented and "
                 "the ESP32 pin reads what the collector describes as phantasy "
-                "values: 415,112 of 415,117 readings are exactly 0 and the "
-                "remaining five are 13,810-19,877 W."
+                "values: 416,083 of 416,088 readings are exactly 0 and the "
+                "remaining five are 13,810-19,877 W. Six distinct values in six "
+                "years."
             ),
             unit="W",
             band=None,
@@ -1263,7 +1437,6 @@ PHUMY2 = Station(
             kind="temperature",
             description="Ambient temperature probe.",
             unit="degC",
-            raw_unit="degC",
             scale=1.0,
             band=(0.0, 60.0),
             band_note=(
@@ -1452,7 +1625,6 @@ TEST = Station(
                 "for that resolution on the probe; the sheet writes 29.47."
             ),
             unit="degC",
-            raw_unit="degC",
             scale=1.0,
             band=(0.0, 60.0),
             band_note=(

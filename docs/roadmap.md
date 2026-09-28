@@ -28,7 +28,7 @@ empty — so one cannot be quietly dropped.
 
 ### phumy2
 
-- **`power_w` is not a power measurement.** 415,112 of 415,117 readings are
+- **`power_w` is not a power measurement.** 416,083 of 416,088 readings are
   exactly 0 and the other five are 13,810-19,877 W. The collector describes the
   hardware as never having been implemented on that pin. The channel is in the
   database, unbanded, and not on the chart. *What is the pin connected to?*
@@ -67,9 +67,11 @@ empty — so one cannot be quietly dropped.
 
 - **`current_a_chA` and `current_a_chB` step by roughly 200×** between 2021-04
   and 2021-10, where channel A pins at exactly 1240 for 1,207 readings. The
-  factor is not a clean power of ten, so no scale is applied and no band is
-  asserted — the values are stored and published, with no unit. *Which is right:
-  the pre-April scale or the post?* This is the one channel where 0.8's detector
+  factor is not a clean power of ten, so **no scale is applied**. As of 0.10.0 the
+  collector's ceiling of 500 is asserted, and **above only**: a floor at zero
+  would flag 55% of channel A and 17% of channel B for a sensor that is working,
+  and a band that fires on half the record is not a band. *Which is right: the
+  pre-April scale or the post?* This is the one channel where 0.8's detector
   proposed a scale it could not confirm, and the proposal was never applied. It
   is now an open question rather than a proposal the detector re-makes on every
   build.
@@ -111,16 +113,44 @@ empty — so one cannot be quietly dropped.
 
 ### wind_v, everywhere
 
-Three stations wire a `wind` input and it logs. `aisvn` records 0-13.3 V hourly
-in 2021, up to 29.8 V in 2020, and exactly 0 for all of 2022.
-`maker-webhooks` reaches 14.7 V. `aisvn-solar`'s is exactly 0 for all 13,788 of
-its readings. 12,784 V is not a generator output, and 0 for a whole record is not
-a measurement either.
+**The unit is answered; what the wire is connected to is not.** The collector has
+confirmed `wind_v` as a **power measurement in watts**, so `aisvn` (0-29.8 W) and
+`maker-webhooks` (0-14.7 W after its confirmed ×0.001) are charted and banded
+0-50 W as of 0.10.0.
 
-*What is the input connected to?* Until then the channel is stored, unbanded, and
-not on the chart — and `etl.audit` re-checks `aisvn-solar`'s on every build, so if
-it ever starts moving the site says the exclusion is stale rather than quietly
-carrying a flat line at zero.
+Worth recording how the previous answer went wrong, because it is the same error
+0.8 made pointing the other way. 0.9.0 excluded the channel at all three stations
+because 12,784 V and 14,686 mV "are not a plausible generator output". The number
+was right and the unit was wrong: the reading was real, and reading it as volts
+produced a conclusion about the hardware rather than about the unit. A plausible
+value tested against a band in the wrong unit is not a measurement, and neither is
+an implausible one.
+
+`aisvn-solar`'s `wind_v` remains exactly 0 for all 13,788 of its readings and is
+hidden as `constant`. `etl.audit` re-checks it on every build, so if it ever
+starts moving the site says the exclusion is stale rather than quietly carrying a
+flat line at zero.
+
+*Still open:* *what is the input physically connected to?* A number that reads
+plausibly in watts is not the same answer as knowing what is on the other end of
+the wire, and only the collector can give the second one. `aisvn`'s 0-29.8 W
+envelope is consistent with a small generator and also with a rectified
+auxiliary rail.
+
+### aisvn, current and power
+
+Both faults are dated and both are now `etl.catalog.Correction` declarations, so
+this is no longer blocked — but one of the two repairs is incomplete, and the
+incompleteness is a finding.
+
+`power_w` × -0.25 tracks solar exactly: 0 W at night, 34.5 W at noon. `current_a`
++6.6 does **not** — its corrected curve varies by about 0.3 A and does not follow
+the panel. So the sign of the current channel's fault is fixed and its signal is
+not restored, and the evidence for that is the power channel's behaviour, not the
+current channel's own.
+
+*Open:* the collector asked for more insight at higher resolution. That request
+is about exactly this, and the archive cannot answer it at 10-minute sampling.
 
 ---
 
