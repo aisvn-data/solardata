@@ -2,6 +2,7 @@
 #
 #   make setup    install dependencies
 #   make build    full rebuild: ingest -> aggregate -> export -> report -> audit
+#   make fresh    the same, from nothing: delete the database first, then build
 #   make test     run the test suite
 #   make check    lint + test
 #
@@ -15,7 +16,7 @@ RUFF   ?= $(PYTHON) -m ruff
 ETL    := $(PYTHON) -m etl
 
 .DEFAULT_GOAL := help
-.PHONY: help setup build ingest aggregate export report audit verify test lint fmt check clean distclean query baseline
+.PHONY: help setup build fresh ingest aggregate export report audit verify test lint fmt check clean distclean query baseline
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -26,6 +27,22 @@ setup: ## Install Python dependencies
 
 build: ## Full rebuild of every artefact
 	$(ETL) all
+
+# `data_fresh.yml` from the command line. Removing the database is the point: a
+# database is a gitignored artefact some earlier run left behind, and a stale
+# table or a half-written file survives into the result.
+#
+# The `-wal` and `-shm` sidecars matter as much as the database. SQLite replays a
+# surviving write-ahead log on the next open, so deleting only the `.db` can hand
+# back rows from the previous run -- which is how a "fresh" build comes back
+# quietly not fresh. On Windows these are ordinary files and `-f` is enough; the
+# workflow uses `rm -f` for the same reason.
+fresh: ## Delete the database and rebuild it from nothing, then verify
+	rm -f data/processed/solardata.db
+	rm -f data/processed/solardata.db-wal
+	rm -f data/processed/solardata.db-shm
+	$(ETL) all
+	$(ETL) verify
 
 ingest: ## XLSX -> eight station tables, rebuilt from scratch
 	$(ETL) ingest

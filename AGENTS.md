@@ -60,6 +60,7 @@ Everything below follows from fixing that:
 pip install -r requirements.txt   # or: make setup
 
 python -m etl all                 # full rebuild (~2 min; the ingest is the slow part)
+python -m etl fresh               # delete the database, then all, then verify
 python -m etl ingest              # XLSX -> eight station tables, from scratch
 python -m etl aggregate           # rollups + the per-station channel measurements
 python -m etl export              # public/data, one CSV set per station
@@ -67,9 +68,21 @@ python -m etl report              # the per-station quality report
 python -m etl audit               # checks against the real archive
 python -m etl verify              # fail if the build != data/baseline.json
 python -m etl query "SELECT ..."  # ad-hoc read-only SQL
+
+python scripts/release_notes.py          # the notes for the version in package.json
+python scripts/release_notes.py --check  # exit 2 if version, code and changelog disagree
+
 make test                         # pytest
 make check                        # ruff + pytest
 ```
+
+`fresh` is `data_fresh.yml` from the command line, and it is the command to reach
+for after changing `etl/catalog.py`. It removes the database *and its `-wal` and
+`-shm` sidecars* first, because SQLite replays a surviving write-ahead log on the
+next open — deleting only the `.db` can hand back rows from the previous run.
+Excel also drops a 165-byte `~$`-prefixed owner file beside any workbook it has
+open; those are skipped rather than read, because openpyxl raises
+`PermissionError` on one and the build used to die on it.
 
 Five stages rather than 0.8's seven: there is no `regimes` stage, because the
 confirmed scales are declarations in `etl/catalog.py` rather than things a
@@ -130,19 +143,54 @@ are inventing data.
 Not to a column name, and not in the unit the sheet happened to write. Testing a
 millivolt cell against a volt band is what produced 631,252 flags.
 
+**That includes the shared rollup.** `readings_hourly` and `readings_daily` are one
+table fed by a `UNION ALL` of the eight station tables, so a `<channel>_n_oor`
+counter needs one SQL expression to serve all eight branches — and
+`_banded_published()` used to deduplicate by channel *name* and take the first
+station's band. `aisvn` is declared first, so its 9–16 V band was applied to
+every station's `battery_v`, and `aisvn-solar`'s, stored in volts at 0–5.148 V
+after a confirmed ×0.002, had **all 13,788 of its readings flagged**. The
+per-channel totals were all correct, so nothing noticed: the rollup was the only
+place the two disagreed. `_bound_case` now keys the test on the row's own
+`station_id`. Three stations publish a `battery_v`; a one-sided band tests only
+the side it declares, so `aisvn2.current_a_chA`'s ceiling of 500 does not report
+its 55% of negative readings as faults.
+
 **A band that fires on more than `BAND_FIRE_FRACTION` (1%) of a channel's own
 record is not a band.** It is reporting a unit mismatch, or the channel is
 bimodal, and either way a count that fires on one sample in five cannot tell a
 contaminated aggregate from a normal day. Anything above the threshold must carry
 a `band_note` saying why the fire *is* the finding, and `python -m etl audit`
-fails without one. `aisvn.lipo_v` sits at 6.84 V for 18% of its record, so it is
-bounded 0-8.7 V with a note, not banded as a 1S cell.
+fails without one. `aisvn.solar2_v` sits at 19.5 V and `aisvn.lipo_v` at 6.84 V,
+each for 18% of the record, so both are banded at the collector's stated ceiling
+**and** annotated — 0.9.0 bounded `lipo_v` at 0–8.7 V purely to stop it firing,
+which is a band widened to be quiet.
 
 A channel with **no** band is a decision, not an omission: an uncalibrated ADC
 count, an uptime counter, and any channel whose unit is unresolved. It needs a
-`band_note` saying so, and it is never flagged.
+`band_note` saying so, and it is never flagged. A one-sided band is the honest
+form for a sensor that is genuinely bipolar.
 
-### 5. Parse timestamps; never compare them as strings
+### 5. A time-scoped change is a `Correction`, dated and declared
+
+Not a scale, and not an average. `aisvn`'s current channel reads 6.6 A low from
+2020-08-24 18:42 local and its power channel's output is inverted and four times
+too large from the same instant; both are the collector's dated fault, and both
+are `etl.catalog.Correction` declarations — `add 6.6` and `factor -0.25` — applied
+once at ingest, after the scale, only where a declared window covers the reading's
+instant.
+
+Windows are half-open `[from_ts, to_ts)`, so a boundary cannot be claimed twice —
+with an `add` that is a double-counted offset, not a merely redundant one. `op`
+is deliberately only `add` and `factor`: a correction needing a conditional is a
+symptom that the period is described wrongly, and the way to find that out is to
+make the declaration impossible to write. Where no clock is available, nothing is
+applied, because guessing a period is the thing this exists to stop.
+
+0.8 needed 22 confirmed scale windows for one station and left 8 more unconfirmed
+forever. There are two declarations here, both dated, both from the collector.
+
+### 6. Parse timestamps; never compare them as strings
 
 Column A is US-locale free text (`July 14, 2020 at 10:12AM`). Lexicographic
 ordering is wrong — the sheets write `July 4` and `July 14` unpadded, so string
@@ -156,7 +204,7 @@ tables, which are not loaded on Windows. With `strptime` every cell in the
 archive fails to parse: zero readings and 738,358 rejects, in a shape that reads
 as a data problem and is a locale one.
 
-### 6. A file's column meanings come from the catalog, keyed on (station, width)
+### 7. A file's column meanings come from the catalog, keyed on (station, width)
 
 305 of the 364 raw files have no header row. Their schema is a declared layout in
 `etl/catalog.py`, looked up by the sheet's width. The archive contains exactly
@@ -170,14 +218,14 @@ while still ingesting every timestamp and reporting no problem.
 `tests/test_ingest.py` asserts both halves: that a headerless file resolves, and
 that an undeclared width stops the build.
 
-### 7. NULL and 0 are different facts
+### 8. NULL and 0 are different facts
 
 `0 W` at midnight is a real measurement. `NULL` means "not measured, or the
 sensor was disconnected". Aggregations must decide explicitly which they want;
 `COUNT(col)` versus `COUNT(*)` is usually the distinction that matters. An empty
 CSV cell stays empty and breaks the chart's line.
 
-### 8. A flag describes the value you stored, not the value you publish
+### 9. A flag describes the value you stored, not the value you publish
 
 They are the same value in 0.9, and that is the point. The confirmed scale is
 applied on the way in, so `flags`, the rollup's `<channel>_n_oor` counter and the
@@ -210,6 +258,7 @@ etl/
 scripts/
   check_frontend.mjs   chart + CSV semantics, over the real exports
   check_render.mjs     the component tree, rendered
+  release_notes.py     the version, and the notes for it, from one place
 ```
 
 Three tables are **generated** rather than written in `schema.sql`: the eight
@@ -234,7 +283,27 @@ the only check that sees the real archive.
 
 Current baseline, for comparison: **731,885 readings** across 8 stations from 364
 files, 2,250 duplicate timestamps absorbed, 259,463 rejected cells, 11 recovered
-notes, **3,695 out-of-range channel values** (0.8: 631,252).
+notes, **40,393 out-of-range channel values** (0.9.0: 3,695; 0.8: 631,252).
+
+The rise from 3,695 is deliberate and is almost entirely two channels:
+`aisvn.solar2_v` (0–15 V) and `aisvn.lipo_v` (0–5 V) each flag 14,107 readings,
+which are one exact value repeated — 19.5 V and 6.84 V, on 2020-07-16 →
+2020-08-05. Everything else is 12,179, or 1.7% of the archive. Both carry a
+`band_note` saying the fire *is* the finding, and
+`tests/test_catalog.py::TestBandsAreQuietOrExplained` pins both by name so a
+third band firing at 18% cannot be added silently. A band wide enough to be quiet
+about a plateau is a band that has been widened to lie.
+
+### Running a from-scratch rebuild locally
+
+```bash
+python -m etl fresh        # delete the database and its -wal/-shm, then all, then verify
+```
+
+`make fresh` is the same thing. The deletion is the point: a database is a
+gitignored artefact some earlier run left behind, and the `-wal` sidecar matters
+as much as the database because SQLite replays a surviving write-ahead log on the
+next open — deleting only the `.db` can hand back rows from the previous run.
 
 ### When the numbers *should* move
 
@@ -261,7 +330,7 @@ see the archive; `pages.yml` deploys; `release.yml` publishes the database.
 | `data.yml` | when `data/raw/**`, `etl/**`, `tests/**`, `data/baseline.json` or `requirements.txt` change; plus Mondays 03:17 UTC and on demand | `etl all` then `verify` |
 | `data_fresh.yml` | `workflow_dispatch` with a required reason, plus Mondays 04:23 UTC | **Deletes the database first**, then `etl all` and `verify`. Reports whether the rebuild moved anything. |
 | `pages.yml` | push to `main`, or manually | `vite build` and deploy; asserts `dist/data` has the three JSON files and all 32 CSVs |
-| `release.yml` | `v*` tag, or manually from `main` | `etl all`, `verify`, VACUUM, gzip, attach to a Release |
+| `release.yml` | `v*` tag, or manually from `main` | `etl all`, `verify`, `release_notes.py --check`, VACUUM, gzip, attach to a Release |
 
 **`ci.yml`** is deliberately *not* path-gated: a docs-only change must still show
 a CI run. A path-gated required check produces no run at all when the paths do not
@@ -282,12 +351,13 @@ not commit; a human reads the summary and decides.
 
 `tests/test_guards.py` asserts the shape of all of this: that `data_fresh.yml`
 deletes the database, that `ci.yml` does not build the data, that `data.yml` is
-gated on the right paths and has a schedule, and that any workflow calling
-`verify` runs every stage the baseline depends on.
+gated on the right paths and has a schedule, that any workflow calling `verify`
+runs every stage the baseline depends on, and that `release.yml` gets its notes
+from `scripts/release_notes.py` rather than from its own `awk`.
 
 ### Why the test suite is fast, and why the archive is not in it
 
-159 tests over real XLSX fixtures, slowest 0.07 s. 0.8 had 147 and one of them
+167 tests over real XLSX fixtures, slowest 0.07 s. 0.8 had 147 and one of them
 read all 364 raw files, which took about fifty seconds and stalled the run at
 test 40 — a suite you stop waiting for is a suite you stop running.
 
@@ -400,9 +470,24 @@ hardcoded dates. Three things about it are easy to break:
   **not** on the resolution. `ranges` arrives after the CSV and re-runs the
   effect; clearing on every run wipes the default. Keying on the resolution made
   the Hour button throw away the reader's From/To.
+- **The controls and the data are a pair, and a mismatched pair must be
+  unrepresentable.** `yearForPick()` returns the year a station publishes rather
+  than reading `.year` off a string — the bug that set it to `undefined` for every
+  station, aborted the loader, and left the previous station's rollup on screen
+  under this station's name with *this* station's bands on the *previous*
+  station's values, ringing every point. The loader now records which
+  station/year/resolution a rollup belongs to, and a rollup that is not the
+  current period is waited for, never drawn. `scripts/check_render.mjs` resolves
+  `yearForPick()` against the real `stations.json`; mutation-test it.
+- The channel selection is keyed on the **station**, not `station:resolution`. A
+  resolution switch is a different sampling of the same days and must not change
+  what is being measured. The set actually drawn is derived by intersecting with
+  the rollup at render time, so a channel a year does not carry is not drawn
+  without the choice being lost.
 - `wind_v` is **not** one of the default channels and must not become one. It is
-  wired and logging and is not a measurement; the site lists it under "recorded
-  but not charted" with the reason.
+  now charted — the collector confirmed it as a power measurement in watts — so
+  the reason it is not a *default* is that it is not what the default view is
+  about, not that it is unmeasured.
 
 ## Open questions a human still has to answer
 
@@ -416,28 +501,36 @@ carries its own list in `etl/catalog.py` — asserted non-empty by
    channel. The band is right, so the readings are the question: a second pack, a
    mis-scaled input, or a band wrong for what is installed.
 2. **`aisvn.lipo_v` and `maker-webhooks.lipo_v` are bimodal** — 6.84 V and
-   0.735 V plateaus against a 1S cell's 2.5-4.35 V. Nothing records a recompile at
-   the change. Both are bounded so the plateau is not a per-reading flag.
+   0.735 V plateaus against a 1S cell's 2.5-4.35 V. The collector has since given
+   the ceiling as 5 V, so both are banded there **and** annotated: the plateau
+   fires on 18% of `aisvn.lipo_v`'s record, and that fire is the finding. Nothing
+   records a recompile at the change.
 3. **`aisvn2.current_a_chA` and `current_a_chB` step by roughly 200×** between
    2021-04 and 2021-10, pinning at exactly 1240, and it is not a clean factor.
-   No recompile is recorded, so no scale is applied and no band is asserted.
+   No recompile is recorded, so no scale is applied. The collector has given a
+   ceiling of 500 for both, so both are banded **above only** — a floor at zero
+   would flag 55% and 17% of the record respectively, for a sensor that is
+   working. The unit is still unresolved.
 4. **`aisvn-solar.solar_v` maxes at 3,532 mV.** A photovoltaic panel should
    reach 15-20 V open circuit. Either the input is not a panel or the station
    never saw a real panel voltage.
 5. **`phumy2.power_w` is not a power measurement.** The hardware was never
-   implemented: 415,112 of 415,117 readings are exactly 0 and the remaining five
-   are 13,810-19,877 W. It is in the database, unbanded, and not on the chart.
-6. **`wind_v` is wired and it logs.** `aisvn` records 0-13.3 V hourly in 2021,
-   up to 29.8 V in 2020, exactly 0 for all of 2022; `aisvn-solar`'s is exactly 0
-   for all 13,788 of its readings; `maker-webhooks` reaches 14.7 V. It has no
-   band, because a band would have to be a guess — the values are not a plausible
-   generator output either. What the input is connected to is asked of the
-   collector.
+   implemented: 416,083 of 416,088 readings are exactly 0 and the remaining five
+   are 13,810-19,877 W — six distinct values in six years. It is in the database,
+   unbanded, and not on the chart.
+6. **`aisvn-solar.wind_v` is wired and it logs nothing.** It is exactly 0 for all
+   13,788 of its readings, so it is hidden as `constant`. The other two stations'
+   `wind_v` is now charted: the collector confirmed it as a power measurement in
+   watts, so `aisvn` is 0-29.8 W and `maker-webhooks` 0-14.7 W, banded 0-50 W
+   after their confirmed scales. What the *input* is connected to is still asked
+   of the collector — a number that reads plausibly in watts is not the same
+   answer as knowing what is on the other end of the wire.
 7. **`aisvn-solar.load1_v` and `load2_v` are in an unestablished unit.** They
    record 0-1,598 and 0-3,026, which cannot be volts. Millivolts would make them
    plausible; nothing confirms it, so they are neither charted nor banded.
 8. **`aisvn.load_v`'s 0 V state changes behaviour on 2020-07-10** and nothing
-   recorded explains it. The rail's full scale is also unresolved.
+   recorded explains it. The rail's full scale is also unresolved, so the 0-20 V
+   band is the collector's figure rather than a measured ceiling.
 9. **`phumy2.solar2_v` is a divider output after a bridge and load were fitted**,
    stepping from ~5,000 mV to ~1,200 mV, so it is not a panel voltage and should
    not be charted as one. The bridge ratio is unknown.
@@ -452,6 +545,12 @@ carries its own list in `etl/catalog.py` — asserted non-empty by
 12. **`aisvn` has no readings between 2020-10-25 and 2020-11-04**, and September
     2020 has 12 readings. The collector confirmed the collector was down and no
     data was lost in the export, so there is nothing to fix.
+13. **`aisvn.current_a` does not track solar even after the +6.6 A correction.**
+    The corrected curve varies by about 0.3 A where `power_w`'s corrected curve
+    tracks the panel exactly (0 W at night, 34.5 W at noon), which is the evidence
+    for the −0.25 sign. So one correction is a repair and the other is a patch:
+    the current channel's sign is fixed and its signal is not restored. The
+    collector's request for more insight at higher resolution is about this.
 
 ## Conventions
 

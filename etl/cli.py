@@ -215,6 +215,33 @@ def cmd_query(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def cmd_fresh(args: argparse.Namespace) -> int:
+    """Delete the database, then rebuild and verify it. `data_fresh.yml`, locally.
+
+    A database is a gitignored artefact that some earlier run left behind, and
+    "rebuild in place" cannot tell you the result does not inherit from it. This is
+    the same thing the workflow does, in the same order, for the same reason.
+
+    The `-wal` and `-shm` sidecars are removed alongside the database, and that is
+    not tidiness. SQLite replays a surviving write-ahead log the next time the file
+    is opened, so deleting only the `.db` can hand back rows from the previous run
+    -- a "fresh" build that is quietly not fresh, which is the one outcome this
+    command exists to rule out.
+
+    `ingest` already rebuilds from scratch, so nothing is appended or patched here;
+    what this adds is a guaranteed-empty starting state and a verify at the end.
+    """
+    settings = _settings(args)
+    for suffix in ("", "-wal", "-shm"):
+        target = Path(settings.db_path).with_name(Path(settings.db_path).name + suffix)
+        if target.exists():
+            target.unlink()
+            _say(args, f"removed {target.name}")
+    if not Path(settings.db_path).exists():
+        _say(args, "starting from no database")
+    return cmd_all(args)
+
+
 STAGE_FUNCS = {
     "ingest": cmd_ingest,
     "aggregate": cmd_aggregate,
@@ -223,6 +250,7 @@ STAGE_FUNCS = {
     "audit": cmd_audit,
     "verify": cmd_verify,
     "all": cmd_all,
+    "fresh": cmd_fresh,
     "query": cmd_query,
 }
 
@@ -284,6 +312,7 @@ HELP = {
     "audit": "build-time checks against the real archive",
     "verify": "fail if the build does not match data/baseline.json",
     "all": "every stage, in order",
+    "fresh": "delete the database, then every stage, then verify: data_fresh locally",
     "query": "read-only SQL against the built database",
 }
 

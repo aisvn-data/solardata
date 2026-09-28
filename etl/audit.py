@@ -40,7 +40,7 @@ import sqlite3
 from dataclasses import dataclass, field
 
 from . import build_aggregate, catalog
-from .config import FLAG_OUT_OF_RANGE
+from .config import FLAG_OUT_OF_RANGE, is_excel_lock_file
 from .readers import xlsx
 
 __all__ = ["Check", "check_bands", "check_exclusions", "check_flag_agreement", "run"]
@@ -208,6 +208,12 @@ def check_catalog(raw_dir) -> Check:
             check.note(f"folder {folder.name}/ is not in the station registry; ignored")
             continue
         for path in sorted(folder.glob("*.xlsx"), key=lambda p: p.name.lower()):
+            # An Excel owner file is a 165-byte lock, not a sheet, and openpyxl
+            # cannot open one. The ingest skips them; the audit has to skip them
+            # for the same reason or it re-introduces the failure it is checking.
+            if is_excel_lock_file(path.name):
+                check.note(f"skipped Excel owner file, not a sheet: {folder.name}/{path.name}")
+                continue
             block = xlsx.detect_block(path)
             key = (station.station_id, block.n_columns)
             seen[key] = seen.get(key, 0) + 1

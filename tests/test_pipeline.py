@@ -58,12 +58,50 @@ def aisvn_fixture(count: int = 4) -> list[list[object]]:
                 0,
                 0,
                 32.0 + index * 0.01,
-                12.0,
+                4.0,
                 4.0,
                 100 + index,
             ]
         )
     return rows
+
+
+PHUMY2_HEADER = [
+    "time",
+    "solar2",
+    "current2",
+    "power",
+    "temp",
+    "LiPo2",
+    "boot",
+]
+
+
+def phumy2_fixture(count: int = 4) -> list[list[object]]:
+    """``count`` readings, with the power pin at its real value: exactly zero.
+
+    phumy2 is the station whose `power_w` nobody can vouch for, so it is the one
+    the exclusion audit has to report. 0.9.0 used `aisvn.wind_v` for that, which
+    stopped being usable when the collector confirmed `wind_v` as a power
+    measurement in watts. A fixture that put a plausible number in this column
+    would not exercise the exclusion at all, which is the mistake 0.8 made by
+    charting 415,112 zeros as a power curve.
+    """
+    from tests.test_ingest import aisvn_times
+
+    times = aisvn_times(count)
+    return [
+        [
+            stamp,
+            3000,
+            1200,
+            0,
+            32.0,
+            4000,
+            100 + index,
+        ]
+        for index, stamp in enumerate(times)
+    ]
 
 
 class AggregateCase(TempArchiveCase):
@@ -148,6 +186,142 @@ class TestRollupShape(AggregateCase):
             )
 
 
+class TestPerStationBandsInTheSharedRollup(AggregateCase):
+    """The rollup is one table, so one expression has to serve eight stations.
+
+    This is the test for the bug that made the site report aisvn-solar's battery
+    as 100% out of band. `readings_hourly` is fed by a `UNION ALL` of the eight
+    station tables, so `<channel>_n_oor` needs a single SQL expression for all
+    eight branches -- and the expression deduplicated banded channels by *name* and
+    took the first station's band. `aisvn` is declared first, so its 9-16 V band
+    was applied to every station's `battery_v`, including aisvn-solar's, which is
+    stored in volts at 0-5.148 V after a confirmed x0.002. All 13,788 of its
+    readings were flagged; the 7 that genuinely are were not the ones being
+    counted.
+
+    The per-channel totals were all correct, which is why nothing caught it: the
+    rollup was the only place the two disagreed.
+    """
+
+    def _two_stations_built(self) -> None:
+        """Two stations, same column name, bands that disagree, values in band for one.
+
+        `aisvn`'s battery is 4.5 V, below its 9 V floor. `aisvn-solar`'s is 2000 mV,
+        which its confirmed x0.002 makes 4.0 V -- inside its own 0-5.1 V band. The
+        dates differ so the three readings land in three hourly buckets, which is
+        why the assertions sum rather than read a single row.
+        """
+        aisvn = [
+            [
+                f"August {10 + i:02d}, 2020 at 08:{i * 2:02d}AM",
+                14.0,
+                4.5,
+                1.0,
+                17.0,
+                0,
+                0,
+                30.0,
+                4.0,
+                4.0,
+                100,
+            ]
+            for i in range(3)
+        ]
+        # aisvn-solar's 9-column layout: timestamp then 8 channels.
+        solar = [
+            [
+                f"May {10 + i:02d}, 2020 at 08:{i * 2:02d}AM",
+                2000,
+                2000,
+                1500,
+                2900,
+                3500,
+                0,
+                0,
+                100,
+            ]
+            for i in range(3)
+        ]
+        from etl import build_aggregate, build_db
+        from etl.readers import xlsx as reader
+
+        from tests.support import write_xlsx
+
+        write_xlsx(self.raw / "aisvn" / "IFTTT_test.xlsx", AISVN_HEADER, aisvn)
+        write_xlsx(self.raw / "AISVN_Solar" / "IFTTT_test.xlsx", None, solar)
+        reader.clear_read_cache()
+        self.addCleanup(reader.clear_read_cache)
+        build_db.ingest(self.settings, verbose=False)
+
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        self.conn = conn
+        build_aggregate.build(conn, verbose=False)
+
+    def test_each_station_is_counted_with_its_own_band(self) -> None:
+        self._two_stations_built()
+        rows = {
+            r["station_id"]: r
+            for r in self.conn.execute(
+                "SELECT station_id, SUM(battery_v_n_oor) oor, AVG(battery_v_avg) avg"
+                " FROM readings_hourly GROUP BY station_id"
+            )
+        }
+        self.assertIn("aisvn", rows)
+        self.assertEqual(rows["aisvn"]["oor"], 3, "4.5 V is below aisvn's own 9 V floor")
+
+        self.assertIn("aisvn-solar", rows)
+        self.assertAlmostEqual(
+            rows["aisvn-solar"]["avg"],
+            4.0,
+            places=6,
+            msg="2000 mV x 0.002 is 4.0 V, stored in volts",
+        )
+        self.assertEqual(
+            rows["aisvn-solar"]["oor"],
+            0,
+            "4.0 V is inside aisvn-solar's own 0-5.1 V band; the old expression "
+            "counted these 3, and the real archive counted all 13,788 of them",
+        )
+
+    def test_a_station_with_no_band_contributes_nothing(self) -> None:
+        # The CASE has no arm for a station that does not band the channel, so the
+        # comparison is NULL and the reading is not counted. Counting it anyway
+        # would be a band invented at query time.
+        from etl import build_aggregate
+
+        exprs = " ".join(build_aggregate._oor_exprs())
+        for station_id in ("aisvn", "aisvn2", "aisvn-solar", "maker-webhooks", "phumy2"):
+            self.assertIn(f"WHEN '{station_id}'", exprs, f"{station_id} arms the band test")
+
+    def test_a_one_sided_band_tests_only_the_side_it_declares(self) -> None:
+        # aisvn2's current_a_chA is ceiling-only, because 55% of its readings are
+        # negative and a floor at zero would flag more than half the record for a
+        # working sensor.
+        from etl import build_aggregate
+
+        text = " ".join(build_aggregate._oor_exprs())
+        self.assertIn("current_a_chA_n_oor", text)
+        self.assertIn("current_a_chA > CASE station_id WHEN 'aisvn2' THEN 500.0 END", text)
+        self.assertNotIn("current_a_chA <", text, "no floor is asserted on a one-sided band")
+
+    def test_the_flags_agree_with_the_counter_in_both_directions(self) -> None:
+        # The counter is recomputed from the values rather than read from the row
+        # flags, so the two are independent routes to the same answer and a
+        # disagreement between them is a build failure. `etl.audit` checks this
+        # over the real archive; here it is checked on the two stations above.
+        self._two_stations_built()
+        for station_id, expected in (("aisvn", 3), ("aisvn-solar", 0)):
+            row = self.conn.execute(
+                "SELECT COALESCE(SUM(battery_v_n_oor), 0) oor,"
+                " COALESCE(SUM(n_out_of_range), 0) flagged"
+                " FROM readings_hourly WHERE station_id = ?",
+                (station_id,),
+            ).fetchone()
+            self.assertEqual(row["oor"], expected, station_id)
+            self.assertEqual(row["oor"], row["flagged"], f"{station_id}: counter vs row flags")
+
+
 class TestPerChannelCounters(AggregateCase):
     def test_a_channel_out_of_band_is_counted_on_its_own(self) -> None:
         # The row-level count cannot say which channel broke. 0.8's worked example
@@ -169,9 +343,18 @@ class TestPerChannelCounters(AggregateCase):
     def test_a_channel_with_no_band_gets_no_counter(self) -> None:
         # A counter that can only ever be zero is worse than no column: a zero
         # that means "not measured" reads as a measurement.
+        #
+        # `wind_v` used to be the example, back when no station banded it. It
+        # cannot be: the collector has confirmed it as watts at aisvn and
+        # maker-webhooks, so `wind_v_n_oor` now legitimately exists. The unbanded
+        # channels are the counters (`boot_count`, `millis_ms`) and the raw counts
+        # -- an ADC reading and an uptime are not physical quantities, and a range
+        # that could be asserted about them would be a claim about the station's
+        # uptime rather than about the hardware.
         self.build_all()
         columns = {r["name"] for r in self.conn.execute("PRAGMA table_info(readings_hourly)")}
-        self.assertNotIn("wind_v_n_oor", columns, "wind_v has no band")
+        for unbanded in ("boot_count_n_oor", "nix_raw_n_oor", "adc_raw_n_oor", "millis_ms_n_oor"):
+            self.assertNotIn(unbanded, columns, f"{unbanded} has no band")
         self.assertIn("battery_v_n_oor", columns)
 
     def test_the_daily_counter_is_the_sum_of_the_hourly_ones(self) -> None:
@@ -335,9 +518,6 @@ class TestExports(TempArchiveCase):
         )
         self.assertTrue(
             any(c.startswith("power_w") for c in aisvn), "aisvn's power channel is real"
-        )
-        self.assertFalse(
-            any(c.startswith("wind_v") for c in aisvn), "aisvn's wind input is not charted"
         )
 
     def test_the_csv_starts_with_the_bucket_metadata(self) -> None:

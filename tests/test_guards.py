@@ -10,6 +10,7 @@ guard, and the guard itself runs in the build.
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from etl.cli import build_parser, main
 from etl.readers import xlsx
 
 from tests.support import TempArchiveCase
-from tests.test_pipeline import AISVN_HEADER, aisvn_fixture
+from tests.test_pipeline import AISVN_HEADER, PHUMY2_HEADER, aisvn_fixture, phumy2_fixture
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -100,7 +101,12 @@ class TestAuditChecks(TempArchiveCase):
     def test_the_audit_reports_a_not_measurement_exclusion_without_judging_it(self) -> None:
         # Nothing asserts phumy2's power pin is or is not a measurement -- nobody
         # knows -- so the audit prints the range it recorded and moves on.
-        self.build({"aisvn": aisvn_fixture(3)}, {"aisvn": AISVN_HEADER})
+        #
+        # 0.9.0 used `aisvn.wind_v` as the example. It cannot be any more: the
+        # collector has since confirmed that channel as a power measurement in
+        # watts, so aisvn has no `not_measurement` exclusion left. The pin nobody
+        # can vouch for is phumy2's, which is why the fixture is phumy2's.
+        self.build({"phumy2": phumy2_fixture(3)}, {"phumy2": PHUMY2_HEADER})
         conn = self.connect()
         self.addCleanup(conn.close)
         from etl import build_aggregate
@@ -109,8 +115,67 @@ class TestAuditChecks(TempArchiveCase):
         check = audit.check_exclusions(conn)
         self.assertTrue(check.ok, check.failures)
         self.assertTrue(
-            any("aisvn.wind_v excluded as not a measurement" in n for n in check.notes),
+            any("phumy2.power_w excluded as not a measurement" in n for n in check.notes),
             check.notes,
+        )
+
+
+class TestReleaseNotes(unittest.TestCase):
+    """The version and its notes come from one place, or a release does not happen.
+
+    `release.yml` had an inline `awk` over `CHANGELOG.md` that would produce notes
+    for a version that had never been built, from a tag that did not match
+    `package.json`, and publish it. `scripts/release_notes.py` exists so that
+    failure is a non-zero exit rather than a release.
+    """
+
+    @staticmethod
+    def _module():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "release_notes", REPO / "scripts" / "release_notes.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_repository_is_publishable_right_now(self) -> None:
+        notes, problems = self._module().release_notes()
+        self.assertEqual(problems, [], "a release cannot be cut from this state")
+        self.assertTrue(notes.strip(), "and the notes are not empty")
+
+    def test_a_version_with_no_changelog_section_is_a_problem(self) -> None:
+        # The failure this whole script exists for. Named explicitly, so the error
+        # names the version that has no section rather than "notes not found".
+        _notes, problems = self._module().release_notes("0.0.1")
+        self.assertTrue(problems)
+        self.assertTrue(
+            any("CHANGELOG.md has no '## [0.0.1]' section" in p for p in problems),
+            problems,
+        )
+
+    def test_a_version_the_code_does_not_declare_is_a_problem(self) -> None:
+        problems = self._module().check_versions_agree("9.9.9")
+        self.assertEqual(len(problems), 2, problems)
+        self.assertTrue(any("etl/__init__.py" in p for p in problems), problems)
+        self.assertTrue(any("pyproject.toml" in p for p in problems), problems)
+
+    def test_the_script_fails_loudly_and_names_the_file(self) -> None:
+        # Exit 2, not 0 and not a traceback: `release.yml` treats non-zero as a
+        # failure, and a script that returns 0 with an empty body is the bug.
+        code = self._module().main(["--check", "--version", "0.0.1"])
+        self.assertEqual(code, 2)
+
+    def test_release_yml_uses_the_script_rather_than_its_own_awk(self) -> None:
+        # Otherwise there are two implementations of "which section belongs to this
+        # version", and the one in the workflow is the one that ships.
+        workflow = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn("scripts/release_notes.py", workflow, "the workflow does not call the script")
+        self.assertNotIn(
+            "CHANGELOG.md >",
+            workflow,
+            "the workflow still extracts the section itself",
         )
 
 
@@ -222,18 +287,27 @@ class TestCli(unittest.TestCase):
 
 class TestVersionConsistency(unittest.TestCase):
     def test_the_version_is_the_same_everywhere(self) -> None:
-
         import etl
 
-        self.assertEqual(etl.__version__, "0.9.0")
-        pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn(f'version = "{etl.__version__}"', pyproject)
+        # Derived from the canonical version rather than written out, so bumping
+        # the version does not require editing a test that would then agree with
+        # whatever was typed -- which is the failure this test exists to catch.
+        # `package.json` is canonical; `etl/__init__.py` and `pyproject.toml` are
+        # checked against it, never read from it.
         package = json.loads((REPO / "package.json").read_text(encoding="utf-8"))
-        self.assertEqual(package["version"], etl.__version__)
+        self.assertEqual(etl.__version__, package["version"], "etl and package.json")
+        pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn(f'version = "{etl.__version__}"', pyproject, "pyproject.toml")
+        init = (REPO / "etl/__init__.py").read_text(encoding="utf-8")
+        self.assertIn(f'__version__ = "{etl.__version__}"', init, "etl/__init__.py")
 
     def test_the_changelog_has_a_section_for_this_version(self) -> None:
+        import etl
+
+        # Likewise derived: the point is that the changelog has a section for
+        # whatever the code says it is, not that it has a section for 0.9.0.
         changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-        self.assertRegex(changelog, r"(?m)^## \[0\.9\.0\]")
+        self.assertRegex(changelog, rf"(?m)^## \[{re.escape(etl.__version__)}\]")
 
     def test_no_module_still_imports_a_deleted_one(self) -> None:
         # 0.9 deleted build_regimes, normalize/units, rollup_schema, stations and

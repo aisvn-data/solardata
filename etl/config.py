@@ -28,6 +28,7 @@ from pathlib import Path
 
 __all__ = [
     "BAD_WINDOWS",
+    "EXCEL_LOCK_PREFIX",
     "FILE_EXCLUSIONS",
     "FLAG_BAD_WINDOW",
     "FLAG_FREE_TEXT",
@@ -41,10 +42,43 @@ __all__ = [
     "ROW_EXCLUSIONS",
     "SENTINELS",
     "Settings",
+    "is_excel_lock_file",
     "settings_from_env",
 ]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# ---------------------------------------------------------------------------
+# Files that are not in the archive, whatever they are called.
+#
+# Excel writes a 165-byte owner file next to any workbook it has open, named
+# ``~$`` plus the workbook's own name -- so ``Voltage_phumy.xlsx`` sitting open in
+# Excel puts ``~$Voltage_phumy.xlsx`` in the same folder. It is not a sheet, it
+# holds no rows, and openpyxl cannot open it at all: the build died on
+#
+#     PermissionError: data/raw/Voltage_phumy/~$Voltage_phumy.xlsx
+#
+# which is a bad failure in three ways. It names a file that looks like archive
+# content, it says "permission denied" about a directory nobody has protected, and
+# it costs the two minutes of ingest to find out that somebody has a spreadsheet
+# open.
+#
+# Matched on the ``~$`` prefix rather than added one name at a time, because the
+# name is derived from the workbook's, so an allowlist of filenames would go stale
+# the next time a sheet is opened. The prefix is Microsoft's, not ours, and it is
+# not a legal first character for a name the collector would have used.
+#
+# These are skipped, not read, so they are not in `source_files` and cannot reach
+# a reading. The build reports how many it skipped, so a run that skipped one is
+# visible rather than silent.
+# ---------------------------------------------------------------------------
+EXCEL_LOCK_PREFIX = "~$"
+
+
+def is_excel_lock_file(name: str) -> bool:
+    """True for an Excel owner file, which is never a sheet in the archive."""
+    return name.startswith(EXCEL_LOCK_PREFIX)
+
 
 # ---------------------------------------------------------------------------
 # Placeholder values the collector wrote instead of a measurement.

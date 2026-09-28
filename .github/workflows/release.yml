@@ -194,6 +194,17 @@ jobs:
       - name: Verify against the baseline
         run: python -m etl verify
 
+      # A release is three facts that have to agree: the version, the code that
+      # declares it, and the notes describing it. `package.json` is canonical --
+      # it is the one the frontend build already reads, so it cannot be the one
+      # that was forgotten -- and this step refuses to publish if `etl/__init__.py`
+      # or `pyproject.toml` disagree, or if the changelog has no section for it.
+      #
+      # This runs before the 19 MiB upload rather than inside the notes step, so a
+      # version bump that forgot the changelog fails in two seconds.
+      - name: The version and its release notes agree
+        run: python scripts/release_notes.py --check
+
       - name: Package
         run: |
           # VACUUM rewrites the file without the free pages left by the build,
@@ -276,15 +287,25 @@ jobs:
           ls -lh data/processed/solardata.db.gz
 
           # The changelog section for this tag: everything under `## [<version>]`
-          # up to the next `## [`. awk rather than sed because the section heading
-          # is a bracket expression, and this is the one place in the repository
-          # that has to agree with CHANGELOG.md's shape -- which
-          # `tests/test_changelog.py` enforces from the other side.
+          # up to the next `## [`.
           #
-          # The tag carries a `v` and the changelog heading does not, so the `v`
-          # is stripped first. Matching the tag as given is how this step would
-          # silently find nothing and fall through to the generated notes.
+          # Extracted by `scripts/release_notes.py`, which is also what decides
+          # whether the three places that repeat a version agree -- and is the only
+          # implementation of "which section belongs to this tag". The inline awk
+          # this replaces matched the tag as given, and the tag carries a `v` that
+          # the changelog heading does not, so it would silently find nothing and
+          # fall through to generated notes for a release that did have notes.
+          #
+          # The script takes the notes verbatim. A release note a script assembled
+          # is a release note that drifts from the changelog.
           version="${TAG#v}"
+          python scripts/release_notes.py --version "$version" \
+            > "$RUNNER_TEMP/changelog.md" 2> "$RUNNER_TEMP/changelog.err" || true
+          if [ -s "$RUNNER_TEMP/changelog.err" ]; then
+            while read -r line; do
+              echo "::warning::$line"
+            done < "$RUNNER_TEMP/changelog.err"
+          fi
           {
             echo "## solardata $TAG"
             echo
@@ -307,21 +328,12 @@ jobs:
             echo "carries the same declaration per station, and \`etl/catalog.py\` is where"
             echo "it is written down."
             echo
-            awk -v want="$version" '
-              /^## \[/ {
-                if (found) exit
-                if (index($0, "[" want "]") > 0) { found = 1; sub(/^## \[[^]]*\][^#]*/, ""); next }
-                next
-              }
-              found
-            ' CHANGELOG.md > "$RUNNER_TEMP/changelog.md"
-
             if [ -s "$RUNNER_TEMP/changelog.md" ]; then
               echo "---"
               echo
               cat "$RUNNER_TEMP/changelog.md"
             elif [ "$CHANGELOG_ONLY" = "true" ]; then
-              echo "::error::CHANGELOG.md has no section for $TAG and CHANGELOG_ONLY is set"
+              echo "::error::no CHANGELOG.md section for $TAG, and CHANGELOG_ONLY is set"
               exit 1
             else
               echo "_No CHANGELOG.md section for $TAG; the list below is generated from the commit and pull request history._"

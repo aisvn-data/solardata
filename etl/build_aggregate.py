@@ -95,45 +95,93 @@ def _value_exprs() -> list[str]:
     return [f"{stat.upper()}({ch}) AS {col}" for col, ch, stat in db.rollup_columns()]
 
 
-def _banded_published() -> list[catalog.Channel]:
-    """Banded published channels, deduplicated, in catalog order.
+def _banded_published() -> list[str]:
+    """The names of banded published channels, deduplicated, in catalog order.
 
-    A channel can be published by several stations, and two stations can band it
-    differently.  The rollup table is shared, so it gets one counter and one
-    test; the per-channel counters that are actually *published* to a browser
-    live in each station's own CSV, computed from that station's own band.  The
-    counter here is the archive-wide one and is documented as such.
+    Dedup is on the *name* and only because the rollup is one shared table: a
+    column can only exist once in it, however many stations publish a channel of
+    that name. It says nothing about which band applies -- that is
+    `_bound_case`'s job, and conflating the two is the bug this function used to
+    cause. See `_oor_exprs`.
     """
-    seen: dict[str, catalog.Channel] = {}
+    seen: set[str] = set()
+    names: list[str] = []
     for station in catalog.STATIONS:
         for ch in station.published:
             if ch.band and ch.kind != "text" and ch.name not in seen:
-                seen[ch.name] = ch
-    return list(seen.values())
+                seen.add(ch.name)
+                names.append(ch.name)
+    return names
+
+
+def _bound_case(name: str, lo: bool) -> str | None:
+    """A ``CASE station_id`` giving each station its own band bound, or None.
+
+    Built from the catalog, so a band is only ever in one place. A station that
+    publishes a channel of this name without a bound on this side contributes no
+    arm, and therefore no test on that side.
+    """
+    arms: list[str] = []
+    for station in catalog.STATIONS:
+        for ch in station.channels:
+            if ch.name != name or ch.kind == "text" or not ch.band:
+                continue
+            bound = ch.band_lo if lo else ch.band_hi
+            if bound is not None:
+                arms.append(f"WHEN '{station.station_id}' THEN {float(bound)!r}")
+    if not arms:
+        return None
+    return "CASE station_id " + " ".join(arms) + " END"
 
 
 def _oor_exprs() -> list[str]:
-    exprs = []
-    for ch in _banded_published():
-        test = _band_test(ch)
-        if test is None:
+    """One ``<channel>_n_oor`` per banded channel name, keyed on the row's station.
+
+    Three stations publish a column called ``battery_v`` and each has its own band:
+    aisvn 9-16 V, aisvn-solar 0-5.1 V, maker-webhooks 9-16 V. The values are stored
+    in each station's own unit, so aisvn-solar's 0-5.148 V is in band and aisvn's
+    10.5-14.9 V is too.
+
+    A single expression had to serve all eight branches of the union, and it took
+    the band of whichever station was seen first -- so aisvn's volts band was
+    applied to aisvn-solar's millivolt-scaled values and counted all 13,788 of
+    them as out of range. That is 0.8's bug, a band per column name, rebuilt
+    inside the rollup, and the union is exactly what made it possible. It is
+    caught nowhere by the per-station totals, because each of those was right.
+
+    So the test is keyed on the row's own ``station_id``. A station with no band
+    for the channel falls to NULL, the comparison is NULL, and nothing is counted.
+    A one-sided band tests only the side it declares, so aisvn2's
+    ``current_a_chA`` (no floor, ceiling 500) is counted against the ceiling and
+    its 55% of negative readings are not reported as faults.
+    """
+    exprs: list[str] = []
+    for name in _banded_published():
+        tests: list[str] = []
+        lo = _bound_case(name, lo=True)
+        if lo is not None:
+            tests.append(f"{name} < {lo}")
+        hi = _bound_case(name, lo=False)
+        if hi is not None:
+            tests.append(f"{name} > {hi}")
+        if not tests:
             continue
+        test = " OR ".join(tests)
         exprs.append(
-            f"SUM(CASE WHEN {ch.name} IS NOT NULL AND ({test}) THEN 1 ELSE 0 END)"
-            f" AS {ch.name}_n_oor"
+            f"SUM(CASE WHEN {name} IS NOT NULL AND ({test}) THEN 1 ELSE 0 END) AS {name}_n_oor"
         )
     return exprs
 
 
 def _oor_params() -> list[float]:
-    params: list[float] = []
-    for ch in _banded_published():
-        if _band_test(ch) is None:
-            continue
-        for bound in (ch.band_lo, ch.band_hi):
-            if bound is not None:
-                params.append(float(bound))
-    return params
+    """No parameters: the bounds are literals from the catalog, not user input.
+
+    They used to be bound because the test was a single band's. There is no longer
+    a single band to bind -- each station carries its own, keyed on ``station_id`` --
+    so the values are emitted by `_bound_case` and this returns nothing. The
+    catalog is the only place a band is written, and it is Python source.
+    """
+    return []
 
 
 def _band_test(ch: catalog.Channel) -> str | None:

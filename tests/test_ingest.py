@@ -12,7 +12,7 @@ from __future__ import annotations
 import unittest
 
 from etl import catalog
-from etl.config import SENTINELS
+from etl.config import SENTINELS, is_excel_lock_file
 from etl.readers import xlsx
 
 from tests.support import TempArchiveCase, write_xlsx
@@ -59,7 +59,7 @@ def aisvn_rows() -> list[list[object]]:
         [times[3], 14.60, -992, 1.10, 17.70, 0, 0, 32.8, 12.05, 4.09, 451],
         # Blank cells are gaps, not zeros.
         [times[4], "", "", "", "", "", "", "", "", "", ""],
-        # Above the 60 degC ambient band: kept, and flagged.
+        # Above the 0-40 degC ambient band for a probe in shadow: kept, and flagged.
         [times[5], 14.10, 12.70, 1.30, 17.40, 0, 0, 63.3, 12.20, 4.20, 453],
     ]
 
@@ -468,6 +468,46 @@ class TestWindowsAndExclusions(TempArchiveCase):
 
 
 class TestRebuildFromScratch(TempArchiveCase):
+    def test_an_excel_owner_file_is_skipped_not_read(self) -> None:
+        # Excel writes a 165-byte `~$<name>.xlsx` next to any workbook it has open,
+        # so somebody reading `data/raw/Voltage_phumy/Voltage_phumy.xlsx` in Excel
+        # leaves `~$Voltage_phumy.xlsx` beside it. It holds no rows and openpyxl
+        # raises `PermissionError` on it, so leaving it to the layout lookup failed
+        # the whole build with an error that named a file which looked like archive
+        # content and blamed the directory for it:
+        #
+        #     PermissionError: data/raw/Voltage_phumy/~$Voltage_phumy.xlsx
+        #
+        # Matched on the `~$` prefix rather than added one filename at a time,
+        # because the name is derived from the workbook's, so an allowlist goes
+        # stale the next time a sheet is opened.
+        lock = self.write("aisvn", aisvn_rows(), AISVN_HEADER)
+        owner = lock.with_name("~$" + lock.name)
+        owner.write_bytes(b"\x00" * 165)  # not a workbook: the point is that it is read
+
+        from etl import build_db
+        from etl.readers import xlsx
+
+        xlsx.clear_read_cache()
+        self.addCleanup(xlsx.clear_read_cache)
+        result = build_db.ingest(self.settings, verbose=False)
+
+        self.assertEqual(result.rows_ingested, 6, "the owner file contributed no readings")
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        files = [r["filename"] for r in conn.execute("SELECT filename FROM source_files")]
+        self.assertEqual(files, ["IFTTT_test.xlsx"], "only the real sheet is in source_files")
+
+    def test_a_sheet_the_collector_actually_named_is_not_mistaken_for_a_lock(self) -> None:
+        # The prefix is Microsoft's, and it is not a character the collector's
+        # naming scheme produces -- but the test is here because the alternative
+        # failure is a silently unread archive, and a substring match on ".xlsx"
+        # would have taken a real sheet with "~$" somewhere in its name.
+        self.assertTrue(is_excel_lock_file("~$Voltage_phumy.xlsx"))
+        self.assertTrue(is_excel_lock_file("~$Voltage_phumy (1).xlsx"))
+        for real in ("Voltage_phumy.xlsx", "IFTTT_aisvn.xlsx", "~backup.xlsx", "$.xlsx"):
+            self.assertFalse(is_excel_lock_file(real), real)
+
     def test_a_second_ingest_replaces_rather_than_appends(self) -> None:
         # No incremental path, and that is the point: an incremental update has to
         # be right about which rows changed and what a partial failure left behind,
@@ -677,6 +717,132 @@ class TestSideBlocks(TempArchiveCase):
         conn = self.connect()
         self.addCleanup(conn.close)
         self.assertEqual(conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0], 0)
+
+
+class TestDeclaredCorrections(TempArchiveCase):
+    """A correction is a dated declaration, applied once, where a window covers it.
+
+    These are the two `aisvn` faults the collector dated: the current channel
+    reads 6.6 A low from 2020-08-24 18:42 local, and the power channel's output is
+    inverted and four times too large from the same instant. 0.8 needed 22
+    confirmed scale windows for one station and left 8 more unconfirmed, so what
+    is being tested here is that a *dated, bounded, arithmetic* declaration is
+    enough, and that the awkward cases are handled by refusing to express them.
+    """
+
+    def test_a_correction_applies_only_inside_its_window(self) -> None:
+        from etl.catalog import Correction
+
+        correction = Correction("2020-08-01T00:00:00Z", "2020-09-01T00:00:00Z", "add", 6.6, "t")
+        self.assertTrue(correction.applies_at("2020-08-01T00:00:00Z"), "from_ts is inclusive")
+        self.assertTrue(correction.applies_at("2020-08-31T23:59:59Z"))
+        self.assertFalse(correction.applies_at("2020-09-01T00:00:00Z"), "to_ts is exclusive")
+        self.assertFalse(correction.applies_at("2020-07-31T23:59:59Z"))
+
+    def test_a_half_open_window_cannot_be_claimed_twice(self) -> None:
+        # The reason for `[from, to)` rather than `[from, to]`: a boundary both
+        # windows claim is a boundary that is wrong twice, and with an `add` that
+        # is a double-counted offset rather than a merely redundant one.
+        from etl.catalog import Correction
+
+        a = Correction("2020-08-01T00:00:00Z", "2020-09-01T00:00:00Z", "add", 6.6, "a")
+        b = Correction("2020-09-01T00:00:00Z", None, "add", 6.6, "b")
+        self.assertFalse(a.applies_at("2020-09-01T00:00:00Z"))
+        self.assertTrue(b.applies_at("2020-09-01T00:00:00Z"))
+
+    def test_an_open_window_never_closes(self) -> None:
+        from etl.catalog import Correction
+
+        c = Correction("2020-08-01T00:00:00Z", None, "factor", -0.25, "still broken")
+        self.assertTrue(c.applies_at("2020-08-01T00:00:00Z"))
+        self.assertTrue(c.applies_at("2026-09-27T07:10:00Z"))
+
+    def test_a_correction_with_no_clock_applies_nothing(self) -> None:
+        # `ts_utc is None` only where no clock was available, and guessing a period
+        # is the whole thing this mechanism exists to stop.
+        from etl.catalog import BY_ID
+
+        channel = BY_ID["aisvn"].channel("current_a")
+        self.assertTrue(channel.corrections)
+        self.assertEqual(channel.correct(-6.0, None), -6.0, "no window, no correction")
+
+    def test_the_two_aisvn_corrections_are_the_collectors_arithmetic(self) -> None:
+        from etl.catalog import BY_ID
+
+        aisvn = BY_ID["aisvn"]
+        current = aisvn.channel("current_a")
+        power = aisvn.channel("power_w")
+
+        self.assertEqual({c.op for c in current.corrections}, {"add"})
+        self.assertEqual({c.value for c in current.corrections}, {6.6})
+        self.assertEqual({c.op for c in power.corrections}, {"factor"})
+        self.assertEqual({c.value for c in power.corrections}, {-0.25})
+
+        # Both start at the same instant, which is the collector's statement that
+        # one fault explains both channels. If that ever stops being true, the
+        # declarations are wrong and this says so.
+        self.assertEqual(
+            {c.from_ts for c in current.corrections},
+            {c.from_ts for c in power.corrections},
+            "the current and power faults begin together, so they are declared together",
+        )
+
+    def test_every_correction_window_is_documented_and_bounded(self) -> None:
+        from etl.catalog import STATIONS
+
+        seen = 0
+        for station in STATIONS:
+            for channel in station.channels:
+                for correction in channel.corrections:
+                    seen += 1
+                    self.assertTrue(
+                        len(correction.note) > 40,
+                        f"{station.station_id}.{channel.name} has a correction with a "
+                        "stub note: which file, which fault and which instant",
+                    )
+                    self.assertLess(
+                        correction.from_ts,
+                        "9999",
+                        f"{station.station_id}.{channel.name} has a non-ISO from_ts",
+                    )
+                    if correction.to_ts is not None:
+                        self.assertLess(
+                            correction.from_ts,
+                            correction.to_ts,
+                            f"{station.station_id}.{channel.name} has an empty window",
+                        )
+        self.assertEqual(seen, 4, "two channels, two windows each: 0.8 had 30 for one station")
+
+    def test_a_corrected_value_lands_in_the_database_in_its_published_unit(self) -> None:
+        # End to end: a fixture whose current reading is -6.0 A and whose power
+        # reading is 40 W, both dated inside the first window. The stored values
+        # must be the corrected ones, because the correction is applied at ingest
+        # and not to a downstream copy -- which is what 0.8's regimes did.
+        from datetime import datetime, timedelta
+
+        base = datetime(2020, 9, 15, 8, 0)
+        rows = [
+            [
+                (base + timedelta(hours=i)).strftime("%B %d, %Y at %I:%M%p"),
+                14.0,
+                12.5,
+                -6.0,
+                40.0,
+                0,
+                0,
+                30.0,
+                4.0,
+                4.0,
+                100,
+            ]
+            for i in range(3)
+        ]
+        self.build({"aisvn": rows}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        values = conn.execute("SELECT current_a, power_w FROM s_aisvn ORDER BY ts_utc").fetchall()
+        self.assertEqual([round(r["current_a"], 6) for r in values], [0.6, 0.6, 0.6])
+        self.assertEqual([round(r["power_w"], 6) for r in values], [-10.0, -10.0, -10.0])
 
 
 if __name__ == "__main__":
