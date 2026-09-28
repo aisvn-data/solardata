@@ -290,6 +290,10 @@ class Settings:
         return self.out_dir / "solardata.db"
 
     @property
+    def raw_db_path(self) -> Path:
+        return self.out_dir / "solardata_raw.db"
+
+    @property
     def parquet_dir(self) -> Path:
         return self.out_dir / "parquet"
 

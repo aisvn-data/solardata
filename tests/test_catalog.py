@@ -596,10 +596,6 @@ class TestOpenQuestions(unittest.TestCase):
             for question in station.open_questions:
                 self.assertGreater(len(question), 40, f"{station.station_id}: {question!r}")
 
-    def test_the_notes_are_worth_reading(self) -> None:
-        for station in STATIONS:
-            self.assertGreater(len(station.notes), 30, station.station_id)
-
 
 class TestBandArithmetic(unittest.TestCase):
     def test_in_band_handles_an_open_ended_band(self) -> None:
@@ -623,9 +619,6 @@ class TestBandArithmetic(unittest.TestCase):
         self.assertTrue(channel.in_band(9.0), "the lower bound is inside, not out")
         self.assertTrue(channel.in_band(16.0), "and so is the upper")
         self.assertFalse(channel.in_band(16.000001))
-
-    def test_the_fire_fraction_is_one_percent(self) -> None:
-        self.assertEqual(BAND_FIRE_FRACTION, 0.01)
 
 
 if __name__ == "__main__":

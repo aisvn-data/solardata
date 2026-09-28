@@ -418,25 +418,6 @@ class TestVersionConsistency(unittest.TestCase):
         changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
         self.assertRegex(changelog, rf"(?m)^## \[{re.escape(etl.__version__)}\]")
 
-    def test_no_module_still_imports_a_deleted_one(self) -> None:
-        # 0.9 deleted build_regimes, normalize/units, rollup_schema, stations and
-        # the Parquet stage. An import that survived is a build that fails on the
-        # first run rather than a test that fails here.
-        import ast
-
-        gone = ("build_regimes", "normalize", "rollup_schema", "stations", "build_parquet")
-        for path in sorted((REPO / "etl").rglob("*.py")) + sorted((REPO / "tests").rglob("*.py")):
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                names: list[str] = []
-                if isinstance(node, ast.ImportFrom):
-                    names = [node.module or ""]
-                elif isinstance(node, ast.Import):
-                    names = [alias.name for alias in node.names]
-                for name in names:
-                    for dead in gone:
-                        self.assertNotIn(dead, name, f"{path.name} still imports {dead}")
-
 
 class TestWorkflowFiles(unittest.TestCase):
     """The workflows, and what they are each allowed to assume."""

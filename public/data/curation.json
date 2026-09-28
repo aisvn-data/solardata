@@ -1,0 +1,855 @@
+{
+  "stations": {
+    "aisvn": {
+      "open_questions": [
+        "battery_v reaches 29.8 V in 2020 and 17.9 V in 2021 against a confirmed 12 V lead-acid pack. A second pack, a mis-scaled input, or a band wrong for what is installed.",
+        "lipo_v sits on a rail at exactly 6.84 V for 18% of the record, and solar2_v on a rail at exactly 19.5 V. Saturation, a divider, or a real ceiling -- the archive cannot tell them apart.",
+        "After the 2020-08-24 fault the current channel's variation is only about 0.3 A and does not track solar, so the +6.6 A correction removes the sign error without restoring a usable signal. The power channel's does track solar, which is why one correction looks like a repair and the other looks like a patch.",
+        "temp_c has more than one source, at least in December 2021. Which readings are which, and what the shaded ceiling really is, is asked of the collector.",
+        "load_v's full scale is unresolved, and the rail's 0 V state changes behaviour on 2020-07-10 with nothing recorded to explain it.",
+        "No readings at all between 2020-10-25 and 2020-11-04, and September 2020 has 12 readings. The collector confirmed the collector was down and no data was lost in the export, so there is nothing to fix."
+      ],
+      "channels": {
+        "solar_v": {
+          "label": "Solar",
+          "description": "Collector input 1, the panel the station was built around. The input saturates at 29.8 V, so readings above 25 V are the rail and not the panel.",
+          "band": [
+            0.0,
+            25.0
+          ],
+          "band_note": "0.8 used 0-60 V for every station's solar_v, which flagged nothing here because 0.8's scale never reached the stored value. 0.9 drew it at 25 V, below this station's 29.8 V saturation, so the readings on the rail are marked. They are the readings that coincide with the collector's reconfiguration window (2020-10-23 to 10-30), which is flagged separately and is the more specific explanation.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "solar2_v": {
+          "label": "Solar 2",
+          "description": "Second collector input. Sits on a rail at exactly 19.5 V for 14,107 of 77,526 readings.",
+          "band": [
+            0.0,
+            15.0
+          ],
+          "band_note": "15 V, below this channel's own 19.5 V saturation, so the rail is flagged -- and that is 18.2% of the record, which is why it needs a note rather than silence. 0.8 carried one global 0-60 V band per column name, which both missed this and flagged the millivolt stations. Whether 19.5 V is a saturated input or a real ceiling is a question for the collector: 0-15 V is the ceiling of a two-cell series string and a 19.5 V rail is a plausible ADC top, and the archive cannot tell them apart.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "battery_v": {
+          "label": "Battery",
+          "description": "A 12 V lead-acid car battery, confirmed by the collector. Rests at 12.4-12.8 V, charges to 14.4 V, reads about 10.1 V flat.",
+          "band": [
+            9.0,
+            16.0
+          ],
+          "band_note": "Fires on 1,717 of 77,526 readings (2.2%) and that is the finding, not a false positive: the bank reaches 29.8 V in 2020 and 17.9 V in 2021, which is a second pack, a mis-scaled input or a band wrong for what is installed. The collector confirmed a lead pack, which is what makes 29.8 V a question rather than an explanation. See open question 1 in AGENTS.md.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "current_a": {
+          "label": "Current",
+          "description": "Primary current channel. On 2020-08-24 at 18:42 local the electronics latched into a state that read about 6.6 A low, so almost every later reading is negative.",
+          "band": [
+            0.0,
+            3.0
+          ],
+          "band_note": "0-3 A, the collector's figure for this panel. It fires on the 1,823 readings inside the 2020-10-23 to 10-30 reconfiguration window, where the raw channel reads near zero and the +6.6 A correction is deliberately not applied -- they are half-built hardware, flagged as such by BAD_WINDOWS, and their values are not measurements. Nothing outside that window is flagged. Note also that the corrected current after 2020-08-24 varies by only about 0.3 A and does not track solar, so the correction removes the sign error but does not restore a usable signal; that is what the collector's request for more insight at higher resolution is about.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "power_w": {
+          "label": "Power",
+          "description": "Reported power. From 2020-08-24 18:42 local the output is inverted and four times too large, so almost every later reading is negative.",
+          "band": [
+            0.0,
+            50.0
+          ],
+          "band_note": "0-50 W, the collector's figure. Fires on 217 readings before the fault (40 slightly negative, 177 above 50 W) and on the reconfiguration window afterwards, where the -0.25 factor is not applied. Nothing else is flagged, and the corrected record runs 0-34.5 W, which is a plausible output for this panel and tracks the solar curve. 0.8 asserted energy_wh as avg_power * n_samples * 2 / 3600 for every station, which multiplied this channel by an assumed cadence; there is no such column in 0.9.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "load_v": {
+          "label": "Load",
+          "description": "Load / dump rail. The collector reports 10-12 V with a load switched on and 0 with none present, saturating at 29.7 V.",
+          "band": [
+            0.0,
+            20.0
+          ],
+          "band_note": "20 V, below the rail. It fires on the same readings as solar_v and for the same reason -- the 2020-10-23 to 10-30 reconfiguration window -- which is a useful cross-check: two independent inputs flag the same 1,612 readings. The rail's true full scale is still unrecorded, so this is the collector's figure rather than a measured ceiling. Open question 6.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "wind_v": {
+          "label": "Wind",
+          "description": "The generator's output, logged as the single voltage reading of the three phases combined. Confirmed by the collector as a power measurement in watts, which is why it is charted and was not in 0.9.0.",
+          "band": [
+            0.0,
+            50.0
+          ],
+          "band_note": "0-50 W, the collector's estimate for this generator. Nothing is flagged: the record runs 0-29.8 W. 0.9.0 excluded this channel because 12,784 V is not a plausible *voltage*; that reading was right and the unit was wrong, and the collector has now said so.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "temp_c": {
+          "label": "Temperature",
+          "description": "Ambient temperature probe. The station stands in shadow, so it reads the air rather than the panel.",
+          "band": [
+            0.0,
+            40.0
+          ],
+          "band_note": "0-40 degC, the collector's ceiling for a probe in shadow at this site. 0.9.0 used 60 degC and flagged 119 readings; at 40 it flags the readings above it and nothing else, which is the level the hardware can actually reach here. The archive cannot say how much of the record is a shaded reading and how much a heated one, and December 2021 has several sources, so a reading above 40 degC is a question rather than a fault.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "lipo_v": {
+          "label": "LiPo",
+          "description": "Single-cell LiPo pack. 14,107 of 77,526 readings sit at exactly 6.84 V.",
+          "band": [
+            0.0,
+            5.0
+          ],
+          "band_note": "0-5 V, the collector's figure. It fires on 18.2% of the record, which is why it needs a note rather than silence, and the note is that 6.84 V is a single exact value across 14,107 readings: a plateau, which is either a saturated input or a pack being read through a divider. 0.9.0 bounded it at 0-8.7 V specifically to stop this firing, and the collector has now said the ceiling is 5 V, so it fires again and the 18.2% is the finding. Open question 2.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "boot_count": {
+          "label": "Boot counter",
+          "description": "The logger's own monotonic submission counter, reset by a reboot. It reaches 21,660 without a reset, about 75 days at the archive's cadence, so a 20,000 ceiling would not have been reached.",
+          "band": null,
+          "band_note": "No band, deliberately. A counter is not a physical quantity: it starts at 1 after a reboot and climbs, so the only thing a range could say is the station's uptime, which is not what the site draws it for. It is published because the logger's own view of its uptime is the only channel recording that, and a bucket whose minimum is 1 restarted.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "min",
+            "max"
+          ]
+        }
+      }
+    },
+    "aisvn2": {
+      "open_questions": [
+        "current_a_chA and current_a_chB step by roughly 200x between 2021-04 and 2021-10, with no recompile recorded at the boundary. Not a clean factor, so no scale is applied and no band is asserted.",
+        "lipo2_v is a 2S pack and pins at 7.097 V. Whether the pin is the pack's own plateau or a saturated input is not recorded."
+      ],
+      "channels": {
+        "solar3_v": {
+          "label": "Solar",
+          "description": "Third collector input. The only solar channel this station has.",
+          "band": [
+            0.0,
+            30.0
+          ],
+          "band_note": "Recorded 0-23,860 mV, 16.7 V at the 99th percentile. 0.8 stored the millivolts and tested them against a 0-60 V band, so every reading above 60 mV flagged.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "battery2_v": {
+          "label": "Battery",
+          "description": "Second bank, in millivolts, resting around 12.2 V.",
+          "band": [
+            9.0,
+            16.0
+          ],
+          "band_note": "Fires on 1,070 of 164,098 readings (0.65%), all of them below 9 V. A lead-acid bank at 0.46 V is a disconnected or failed pack, which is what the flag is for. 0.8's override of 0-8,000 mV was not applied to the other half of the pair.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "current_a_chA": {
+          "label": "Current A",
+          "description": "Channel A. The scale steps by roughly 200x between 2021-04 and 2021-10, where it pins at exactly 1240 for 1,207 readings, and the factor is not a clean power of ten. No recompile is recorded at the change, so no scale is applied and no band is asserted. The values are still published, because the station does collect them; what is missing is the unit, and the picker therefore prints none.",
+          "band": [
+            null,
+            500.0
+          ],
+          "band_note": "Upper limit 500, from the collector; no lower bound, because 55% of this channel's readings are negative and a floor at zero would flag more than half the record for a sensor that is working. It fires on 2,915 of 153,770 readings (1.9%), all of them in the 2021-10 and 2021-11 stretch where the channel pins at 1240 -- the ~200x step the collector has not yet explained. The unit is still unresolved, so no lower bound is asserted and no scale is applied. Open question 1.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "current_a_chB": {
+          "label": "Current B",
+          "description": "Channel B, same applet and the same unresolved scale as channel A: 0-1,618 with a median of 64, and a bulk between -267 and 196.",
+          "band": null,
+          "band_note": "Upper limit 500, from the collector, and no lower bound: 17% of this channel's readings are negative. It fires on 48 of 164,097 readings, all of them part of the same 2021-10/11 step. Open question 1.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "lipo2_v": {
+          "label": "LiPo 2",
+          "description": "2S LiPo pack, pinned at 7.097 V for 161,790 of 164,097 readings.",
+          "band": [
+            0.0,
+            8.7
+          ],
+          "band_note": "Banded 0-8.7 V, the full range of a 2S pack, rather than the 2.5-4.35 V of a 1S cell. A 1S band fires on 4,231 readings that are simply a two-cell pack. 0.8 carried a 0-8,000 mV override in config.CHANNEL_UNITS and read it in three places; it is a number on the channel now.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "load_v": {
+          "label": "Load",
+          "description": "A logic level, not a voltage: the column is 0 or 1 and nothing else, with 133,138 of 164,097 readings at 0. The header says 'load' and 0.8 stored it as load_v banded 0-60 V, where it could never be out of range.",
+          "band": [
+            0.0,
+            1.0
+          ],
+          "band_note": "0-1 is the channel's whole domain, so nothing is flagged.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "boot_count": {
+          "label": "Boot counter",
+          "description": "The logger's own monotonic submission counter, reset by a reboot.",
+          "band": null,
+          "band_note": "No band, deliberately. A counter is not a physical quantity: it starts at 1 after a reboot and climbs, so the only thing a range could say is the station's uptime, which is not what the site draws it for. It is published because the logger's own view of its uptime is the only channel recording that, and a bucket whose minimum is 1 restarted.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "min",
+            "max"
+          ]
+        }
+      }
+    },
+    "aisvn-solar": {
+      "open_questions": [
+        "solar_v maxes at 3,532 mV. A photovoltaic panel should reach 15-20 V open circuit, so either the input is not a panel or the station never saw a real panel voltage.",
+        "load1_v and load2_v are recorded in an unestablished unit. Millivolts would make them plausible; nothing confirms it.",
+        "lipo_v and solar_v both pin at 3,532, which is this applet's ADC rail."
+      ],
+      "channels": {
+        "solar_v": {
+          "label": "Solar",
+          "description": "Collector input, in millivolts. Maxes at 3,532 mV where a photovoltaic panel should reach 15-20 V open circuit.",
+          "band": [
+            0.0,
+            60.0
+          ],
+          "band_note": "Nothing is flagged. 3.5 V is inside a 0-60 V band and the station's own ceiling is not ours to tighten: either the input is not a panel or the station never saw a real panel voltage. The collector is asked. Open question 2.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "battery_v": {
+          "label": "Battery",
+          "description": "Bank behind a 50/50 divider, so the raw cell is multiplied by 2 on the way in and the result is still millivolts.",
+          "band": [
+            0.0,
+            5.1
+          ],
+          "band_note": "0-5.1 V, the documented 0-5,100 mV ceiling. Fires on 7 of 13,788 readings, all of them between 5.1 and 5.148 V -- over the divider's documented rail by up to 48 mV. A real boundary finding, which is what a band is for. 0.9.0 reported 0 here: the shared rollup tested this station's volts against aisvn's 9-16 V band, and this station's readings were all below 9, so the counter was counting the wrong thing entirely.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "load1_v": {
+          "label": "Load 1",
+          "description": "First load rail. Recorded 0-1,598, which cannot be volts: at that magnitude a load rail is implausible by three orders, and millivolts would put it at a plausible 0-1.6 V. No confirmation exists, so none is applied.",
+          "band": null,
+          "band_note": "No band, because there is no unit to band it in. A band is a range on a number with a dimension; this channel's dimension is the thing that is unknown, so any number written here would be a guess dressed as a criterion.",
+          "publish": false,
+          "exclude": "unresolved_unit",
+          "exclude_note": "Excluded from the site and the CSVs. The header says load_1 and 0.8 stored it as volts, which would have published 1,598 V. The millivolt reading is likely but unconfirmed, and publishing a guessed unit is the same error as publishing a guessed scale. The values are in the database. If the collector confirms millivolts this becomes scale 0.001 and unit V.",
+          "stats": []
+        },
+        "load2_v": {
+          "label": "Load 2",
+          "description": "Second load rail. Recorded 0-3,026. Same unresolved unit as load 1.",
+          "band": null,
+          "band_note": "No band, because there is no unit to band it in. A band is a range on a number with a dimension; this channel's dimension is the thing that is unknown, so any number written here would be a guess dressed as a criterion.",
+          "publish": false,
+          "exclude": "unresolved_unit",
+          "exclude_note": "Excluded from the site and the CSVs, for the same reason as load 1: 3,026 V is not a rail and 3.026 V is a guess.",
+          "stats": []
+        },
+        "lipo_v": {
+          "label": "LiPo",
+          "description": "Single-cell pack, pinned at 3,532 mV for 13,784 of 13,788 readings. 3,532 is this applet's ADC rail and was 0.8's CLIP_CANDIDATES entry.",
+          "band": [
+            0.0,
+            5.0
+          ],
+          "band_note": "0-5 V, the collector's figure, which replaces the 2.5-4.35 V of a 1S cell. Nothing is flagged: 13,784 of the 13,788 readings sit at exactly 3.532 V, this applet's ADC rail, and the four 0.9.0 flagged were all below 2.5 V. Whether the plateau is a full pack or a saturated input is not recorded.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "wind_v": {
+          "label": "Wind",
+          "description": "A wired input that is exactly 0 for all 13,788 readings.",
+          "band": null,
+          "band_note": "No band. The channel records exactly one value, so every plausibility question about it is settled by the value itself; a band would add a number next to a constant and invite the reader to compare them.",
+          "publish": false,
+          "exclude": "constant",
+          "exclude_note": "Excluded because it never varies, not because of what it measures. etl.audit re-checks the constancy on every build, so this exclusion cannot go stale.",
+          "stats": []
+        },
+        "dump_adc": {
+          "label": "Dump ADC",
+          "description": "Uncalibrated dump-channel ADC reading, exactly 0 for all 13,788 readings.",
+          "band": null,
+          "band_note": "No band. An uncalibrated ADC count is not a physical quantity, and it is constant here anyway -- see the exclusion note.",
+          "publish": false,
+          "exclude": "constant",
+          "exclude_note": "Excluded because it never varies. etl.audit re-checks the constancy on every build.",
+          "stats": []
+        },
+        "boot_count": {
+          "label": "Boot counter",
+          "description": "The logger's own monotonic submission counter, reset by a reboot.",
+          "band": null,
+          "band_note": "No band, deliberately. A counter is not a physical quantity: it starts at 1 after a reboot and climbs, so the only thing a range could say is the station's uptime, which is not what the site draws it for. It is published because the logger's own view of its uptime is the only channel recording that, and a bucket whose minimum is 1 restarted.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "min",
+            "max"
+          ]
+        }
+      }
+    },
+    "maker-webhooks": {
+      "open_questions": [
+        "The boot counter resets every 16 readings -- 526 times in 8,535 readings, 523 of them with no gap in sampling. A genuine reboot looks like that when the station keeps sampling, but a counter that moves that fast may be something else. Unexplained.",
+        "current_a_chA and current_a_chB have no established unit."
+      ],
+      "channels": {
+        "solar_v": {
+          "label": "Solar",
+          "description": "Collector input, in millivolts. Absent from 1,902 of 8,535 readings.",
+          "band": [
+            0.0,
+            30.0
+          ],
+          "band_note": "Fires on 17 of 6,649 readings: a -984 mV reading and readings up to 34.0 V. Both are outside what a panel input can do and are kept, flagged.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "solar2_v": {
+          "label": "Solar 2",
+          "description": "Second collector input. Only in the two 11-column files, so 2,583 of 8,535 readings.",
+          "band": [
+            0.0,
+            15.0
+          ],
+          "band_note": "0-15 V, the collector's figure. Recorded 0.735-12.944 V, so nothing is flagged -- but only just, and the 0-30 V of 0.9.0 was doing no work here.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "battery_v": {
+          "label": "Battery",
+          "description": "Bank in millivolts, resting around 11.9 V.",
+          "band": [
+            9.0,
+            16.0
+          ],
+          "band_note": "Fires on 138 of 8,529 readings (1.6%), all of them below 9 V, down to 0.757 V. That is the same lead-acid bank reading as aisvn's and the same question: what is installed here. 0.8's 0-60 V band flagged every millivolt reading instead, which is 2,041 false positives on this channel alone.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "current_a_chA": {
+          "label": "Current A",
+          "description": "Channel A, recorded 784-4,095 with a median of 998. Milliamps would put the median at 1.0 A, which is plausible; nothing confirms it.",
+          "band": null,
+          "band_note": "No scale and no band. This applet's confirmed scales cover solar, battery, load and LiPo, and the current channels were never among them, so applying 0.001 here would be inventing a conversion. 0.8 tested 784-4,095 against a +/-50 A band, which flagged all 8,535 readings -- the band was asserting an amplitude the archive cannot support.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "current_a_chB": {
+          "label": "Current B",
+          "description": "Channel B, recorded 0-3,967 with a median of 1,009. Same unresolved unit as channel A.",
+          "band": null,
+          "band_note": "No scale and no band, for the same reason as channel A.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "load_v": {
+          "label": "Load",
+          "description": "Load / dump rail in millivolts. Absent from 2,849 of 8,535 readings.",
+          "band": [
+            0.0,
+            30.0
+          ],
+          "band_note": "Recorded 0.067-12.242 V. Nothing is flagged.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "wind_v": {
+          "label": "Wind",
+          "description": "The generator's output, logged as the single voltage reading of the three phases combined. Confirmed by the collector as a power measurement in watts.",
+          "band": [
+            0.0,
+            50.0
+          ],
+          "band_note": "0-50 W, the collector's estimate for this generator. The cell is in millivolts like every other channel this applet writes, so the stored range is -0.984 to 14.686 W. It fires on 22 of 4,935 readings, all of them marginally negative, which is a generator that was not turning rather than a fault. 0.9.0 excluded this channel as a not-a-measurement; that was the same mistake 0.8 made on a per-column-name band, in the other direction -- the reading was right and the unit was wrong, and the unit is the collector's to confirm, not the reader's to assume.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "dump_adc": {
+          "label": "Dump ADC",
+          "description": "Uncalibrated dump-channel ADC reading, 0-5,075.",
+          "band": null,
+          "band_note": "No band, and none is possible: an uncalibrated ADC count is not a physical quantity. Published, because the station does log it and it varies.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "lipo_v": {
+          "label": "LiPo",
+          "description": "Single-cell pack in millivolts, bimodal: a 0.735 V plateau for about a fifth of the record and 4.04-4.13 V for the rest.",
+          "band": [
+            0.0,
+            4.35
+          ],
+          "band_note": "Upper bound at the 1S cell ceiling of 4.35 V, lower bound at 0 rather than 2.5 V. Banded 2.5-4.35 V, 1,656 readings -- 19% of the channel -- would have fired on the 0.735 V plateau, and a flag that fires on one sample in five cannot mark a contaminated aggregate. The plateau is a finding and stays in the database and in the report; it is simply not a per-reading out-of-range, and at 0-4.35 V the channel fires on 4 of 8,535.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "boot_count": {
+          "label": "Boot counter",
+          "description": "The logger's own monotonic submission counter. It resets every 16 readings, 526 times in 8,535, and 523 of those resets have no gap in sampling.",
+          "band": null,
+          "band_note": "No band, deliberately. A counter is not a physical quantity: it starts at 1 after a reboot and climbs, so the only thing a range could say is the station's uptime, which is not what the site draws it for. It is published because the logger's own view of its uptime is the only channel recording that, and a bucket whose minimum is 1 restarted.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "min",
+            "max"
+          ]
+        }
+      }
+    },
+    "phumy2": {
+      "open_questions": [
+        "solar2_v is a divider output after a bridge and load were fitted, so it is not a panel voltage and should not be charted as one. The bridge ratio is unknown.",
+        "power_w is not a power measurement. The hardware was never implemented."
+      ],
+      "channels": {
+        "solar2_v": {
+          "label": "Solar",
+          "description": "The station's only collector input, in millivolts. The level steps from about 5,000 mV to about 1,200 mV when a bridge and a load were fitted, so after that date it is a divider output rather than a panel voltage.",
+          "band": [
+            0.0,
+            30.0
+          ],
+          "band_note": "Nothing is flagged, and nothing should be: 0.8 nulled 220,069 readings over 2022-10 to 2024-01 on the grounds that the input was disconnected, and then banded the survivors against a 0-60 V panel ceiling while they were millivolts. The value is real either way. Open question 5.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "current2_a": {
+          "label": "Current",
+          "description": "Secondary current channel, in milliamps. Median 0.231 A, and it is the only channel at this station that measures a current.",
+          "band": [
+            -5.0,
+            5.0
+          ],
+          "band_note": "This is the single largest correction in 0.9. 0.8 stored 232 mA and banded the column at +/-50 A, so all 416,088 of this station's samples carried out_of_range, and the site used that count to decide whether an aggregate was contaminated -- so the whole station read as broken on a sensor measuring a quarter of an amp. With the confirmed millivolt-equivalent scale applied at ingest the range is 0.155-1.997 A and nothing is flagged. The band is +/-5 A rather than the generic +/-50 A because 50 A is four orders of magnitude above this sensor's full scale and could never catch anything.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "power_w": {
+          "label": "Power",
+          "description": "Not a power measurement. The hardware was never implemented and the ESP32 pin reads what the collector describes as phantasy values: 416,083 of 416,088 readings are exactly 0 and the remaining five are 13,810-19,877 W. Six distinct values in six years.",
+          "band": null,
+          "band_note": "No band, and this is the load-bearing one. 0.8 banded this at +/-2,000 W, where five readings were flagged and 415,112 zeros were presented to a reader as a power curve. A band asserts that the input carries a quantity, and this one does not: the hardware was never implemented. Declaring no band is the honest answer; declaring a wide one is the same claim in a louder voice.",
+          "publish": false,
+          "exclude": "not_measurement",
+          "exclude_note": "Excluded from the site and the CSVs, and the reason is that it is not a measurement rather than that it is implausible. 0.8 published it banded at +/-2,000 W, where five readings were flagged and 415,112 zeros were presented as a power curve. The values are in the database, with no band, because a band would assert a quantity the pin does not carry. Open question 3.",
+          "stats": []
+        },
+        "temp_c": {
+          "label": "Temperature",
+          "description": "Ambient temperature probe.",
+          "band": [
+            0.0,
+            60.0
+          ],
+          "band_note": "Fires on the readings above 60 degC, reaching 80.6. That is not plausible ambient in Ho Chi City. 0.8 multiplied this by 10 at ingest and banded it 50-900 as tenths, so 29.1 degC was stored as 291 inside a band that was wrong by the same factor; the scale and the band were each measured against the other. The sheet writes plain degrees -- 24.2, 24.1, 24.2.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "lipo2_v": {
+          "label": "LiPo 2",
+          "description": "Single-cell pack in millivolts, resting around 3.9 V.",
+          "band": [
+            2.5,
+            4.35
+          ],
+          "band_note": "Fires on 5 of 416,083 readings, all of them below 2.5 V. A flat or absent pack.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "boot_count": {
+          "label": "Boot counter",
+          "description": "The logger's own monotonic submission counter, reset by a reboot, reaching 71,854 by the end of the record.",
+          "band": null,
+          "band_note": "No band, deliberately. A counter is not a physical quantity: it starts at 1 after a reboot and climbs, so the only thing a range could say is the station's uptime, which is not what the site draws it for. It is published because the logger's own view of its uptime is the only channel recording that, and a bucket whose minimum is 1 restarted.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "min",
+            "max"
+          ]
+        }
+      }
+    },
+    "solar-2020-05": {
+      "open_questions": [
+        "lipo_v reaches 13.637 V, which is three times a 1S cell's ceiling."
+      ],
+      "channels": {
+        "event": {
+          "label": "Event",
+          "description": "The IFTTT event name, 'solar_reading'. The only text column in the archive.",
+          "band": null,
+          "band_note": "No band, because it is a label and not a number. It is not aggregated into the rollups for the same reason: a per-hour count of the string 'solar_reading' is a constant, and a constant in a chart is a flat line at the floor.",
+          "publish": false,
+          "exclude": "text_label",
+          "exclude_note": "The only text channel in the archive, and the only channel with no statistics. It is stored on every row so a reader can see which applet produced a reading, and it is not charted because there is nothing to plot.",
+          "stats": []
+        },
+        "digital_adc": {
+          "label": "Digital ADC",
+          "description": "Uncalibrated digital-channel ADC count, 0-4,962, at 0 for 65% of the record.",
+          "band": null,
+          "band_note": "No band: an uncalibrated ADC count is not a physical quantity.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "voltage_adc": {
+          "label": "Voltage ADC",
+          "description": "Uncalibrated voltage-channel ADC count, 0-9,828.",
+          "band": null,
+          "band_note": "No band, for the same reason as digital_adc.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "lipo_v": {
+          "label": "LiPo",
+          "description": "Single-cell pack in millivolts, median 3.640 V, with a 13.637 V spike that no single cell can produce.",
+          "band": [
+            2.5,
+            4.35
+          ],
+          "band_note": "Fires on 148 of 12,920 readings (1.15%): 139 below 2.5 V and 9 above 4.35 V, the largest of which is 13.637 V. Both directions are the finding.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        }
+      }
+    },
+    "test": {
+      "open_questions": [
+        "IFTTT_test (1).xlsx is excluded whole on the collector's word, because its 4,120 unique readings are dated 2020-07-01 to 07-08 and duplicate the probe data IFTTT_test (2).xlsx carries. The collector described it as an 11-column solar layout; the 0.8.0 raw repair removed that stretch and the file is now the same probe as its neighbours. The exclusion is still defensible on the overlap, but the reason it was given no longer describes the file, and that is a question for the collector."
+      ],
+      "channels": {
+        "nix_raw": {
+          "label": "Nix probe",
+          "description": "Uncalibrated probe channel, 70-102. The only other thing this station logs.",
+          "band": null,
+          "band_note": "No band: an uncalibrated probe count is not a physical quantity.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "temp_c": {
+          "label": "Temperature",
+          "description": "Ambient temperature, to two decimal places. The collector asked for that resolution on the probe; the sheet writes 29.47.",
+          "band": [
+            0.0,
+            60.0
+          ],
+          "band_note": "Recorded 21.49-31.31 degC, median 27.70. Nothing is flagged. 0.8 multiplied this by 100 at ingest and banded it 2149-3131 as hundredths, which agreed with each other and with nothing else: the sheet writes 29.47, so 0.8 stored 2947. The `test` station was the archive's only 'hundredths' channel only because of that multiply, and a per-station unit override in config.py existed solely to keep the band and the scale back in step -- read in three places, of which one was the frontend. All three temperature channels in the archive are plain degrees.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "wifi_raw": {
+          "label": "WiFi TX",
+          "description": "How long the probe's WiFi transmit took, in milliseconds. The collector named the column `wifi_tx_ms` in the repair of `test/IFTTT_test (1)` and `(2)`, where the header row went from `nix, temp, wifi` to `nix, temp_c, wifi_tx_ms`. This channel's own name is the internal one; the header is the collector's, and it is the authority on what the column measures. It was published as `count` and described as a counter until 0.10.1, so the site labelled a duration in milliseconds as a tally.",
+          "band": null,
+          "band_note": "No band, and the reason is that none is available rather than that none is wanted. The collector named the unit and gave no ceiling, and unlike a voltage, a current or a power reading there is no hardware limit a transmission time can be tested against: it depends on the protocol, the distance and the noise, and a band wide enough to hold 1,605-56,708 ms would be a band that flags nothing. A plausible-looking range here would be invented rather than measured, so the channel is published with none.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        }
+      }
+    },
+    "voltage-phumy": {
+      "open_questions": [
+        "The ADC-to-voltage conversion is applied as solar_v in the consolidated sheet."
+      ],
+      "channels": {
+        "adc_raw": {
+          "label": "ADC raw",
+          "description": "Raw calibration-channel ADC count, 2,107-3,127. Deliberately mid-scale.",
+          "band": null,
+          "band_note": "No band: this is the channel being calibrated, not a measurement.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "voltage_adc": {
+          "label": "Voltage ADC",
+          "description": "Raw voltage-channel ADC count, 1,862-2,511.",
+          "band": null,
+          "band_note": "No band, for the same reason as adc_raw.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        },
+        "millis_ms": {
+          "label": "Uptime",
+          "description": "millis() since boot, 2.2 s to 7.9 days. The hardware's own view of its uptime.",
+          "band": null,
+          "band_note": "No band, deliberately. A counter is not a physical quantity: it starts at 1 after a reboot and climbs, so the only thing a range could say is the station's uptime, which is not what the site draws it for. It is published because the logger's own view of its uptime is the only channel recording that, and a bucket whose minimum is 1 restarted.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "min",
+            "max"
+          ]
+        },
+        "solar_v": {
+          "label": "Solar",
+          "description": "Calibrated solar/battery voltage, 10.6-14.3 V.",
+          "band": null,
+          "band_note": "No band: bench calibration channel, not a production solar sensor.",
+          "publish": true,
+          "exclude": null,
+          "exclude_note": "",
+          "stats": [
+            "avg",
+            "min",
+            "max"
+          ]
+        }
+      }
+    }
+  }
+}

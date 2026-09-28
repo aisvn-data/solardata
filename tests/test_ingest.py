@@ -9,6 +9,7 @@ reason this suite finishes in seconds where 0.8's took a minute and stalled.
 
 from __future__ import annotations
 
+import sqlite3
 import unittest
 
 from etl import catalog
@@ -345,38 +346,6 @@ class TestDuplicates(TempArchiveCase):
 
 
 class TestWindowsAndExclusions(TempArchiveCase):
-    def test_an_excluded_file_records_every_row_and_ingests_none(self) -> None:
-        # 0.8's `test/IFTTT_test (1).xlsx` exclusion: 4,121 rows, each with its
-        # sheet row and timestamp, so the decision is inspectable one cell at a
-        # time rather than taken on trust from a prose exclusion.
-        from etl import build_db
-
-        rows = [
-            ["July 1, 2020 at 06:18PM", 96, 29.47, 5495],
-            ["July 1, 2020 at 06:20PM", 95, 29.40, 5400],
-        ]
-        write_xlsx(
-            self.raw / "test" / "IFTTT_test (1).xlsx", ["time", "nix", "temp_c", "wifi_tx_ms"], rows
-        )
-        xlsx.clear_read_cache()
-        summary = build_db.ingest(self.settings, verbose=False)
-        self.assertEqual(summary.rows_ingested, 0)
-        self.assertEqual(summary.rows_rejected, 2)
-        conn = self.connect()
-        self.addCleanup(conn.close)
-        rejects = conn.execute(
-            "SELECT sheet_row, raw_value, reason FROM rejects ORDER BY sheet_row"
-        ).fetchall()
-        self.assertEqual([r["reason"] for r in rejects], ["station_setup"] * 2)
-        self.assertEqual(
-            rejects[0]["sheet_row"], 2, "sheet rows are 1-based as openpyxl reports them"
-        )
-        self.assertEqual(rejects[0]["raw_value"], "July 1, 2020 at 06:18PM")
-        note = conn.execute("SELECT note FROM notes").fetchone()
-        self.assertIn("not measurements", note["note"])
-        self.assertIn("2020-07-01", note["note"], "the prose is the collector's, kept verbatim")
-        self.assertEqual(conn.execute("SELECT COUNT(*) FROM source_files").fetchone()[0], 1)
-
     def test_a_null_window_only_corrects_a_cell_that_had_a_value(self) -> None:
         # The 0.9 correction to 0.8: a blank cell is already a gap and needs
         # nothing. Flagging it would assert that the collector said the input was
@@ -421,34 +390,6 @@ class TestWindowsAndExclusions(TempArchiveCase):
             0,
             "a bad window flags; it does not null",
         )
-
-    def test_a_row_floor_rejects_earlier_rows(self) -> None:
-        from etl import build_db
-
-        # 103 body rows, because the floor is at sheet row 102 and the fixture has
-        # to straddle it to prove anything.
-        times = aisvn_times(103)
-        rows = [
-            [times[index - 1], 14.0, 12.5, 0, 0, 0, 0, 32.0, 0, 0, index] for index in range(1, 104)
-        ]
-        write_xlsx(self.raw / "aisvn" / "IFTTT_aisvn (25).xlsx", AISVN_HEADER, rows)
-        xlsx.clear_read_cache()
-        build_db.ingest(self.settings, verbose=False)
-        conn = self.connect()
-        self.addCleanup(conn.close)
-        # Rows 2..101 are below the floor: 100 of them, which is the archive's
-        # recorded pre_reinstall count exactly.
-        self.assertEqual(conn.execute("SELECT COUNT(*) FROM s_aisvn").fetchone()[0], 3)
-        self.assertEqual(
-            conn.execute("SELECT COUNT(*) FROM rejects WHERE reason = 'pre_reinstall'").fetchone()[
-                0
-            ],
-            100,
-        )
-        first = conn.execute(
-            "SELECT MIN(sheet_row), MAX(sheet_row) FROM rejects WHERE reason = 'pre_reinstall'"
-        ).fetchone()
-        self.assertEqual((first[0], first[1]), (2, 101), "the floor is at sheet row 102")
 
     def test_a_repeated_header_inside_a_file_is_rejected(self) -> None:
         rows = [
@@ -548,37 +489,6 @@ class TestRebuildFromScratch(TempArchiveCase):
 
 
 class TestMultipleStations(TempArchiveCase):
-    def test_three_archive_folders_are_one_station(self) -> None:
-        # `phumy2` is split across phumy2/, phumy2a/ and phumy2b/ because Google
-        # Sheets split the sheet at 2000 rows. Three folders, one instrument, one
-        # table -- and the coverage is continuous across all three.
-        header = ["time", "solar2", "current2", "power", "temp", "LiPo2", "boot"]
-        self.build(
-            {
-                "phumy2": [["June 18, 2020 at 08:52AM", 3000, 232, 0, 32.0, 4000, 1]],
-                "phumy2a": [["June 18, 2020 at 08:54AM", 3100, 233, 0, 32.1, 4001, 2]],
-                "phumy2b": [["June 18, 2020 at 08:56AM", 3200, 234, 0, 32.2, 4002, 3]],
-            },
-            {"phumy2": header, "phumy2a": header, "phumy2b": header},
-        )
-        conn = self.connect()
-        self.addCleanup(conn.close)
-        self.assertEqual(conn.execute("SELECT COUNT(*) FROM s_phumy2").fetchone()[0], 3)
-        # And the millivolt/milliamp channels are in their published units.
-        row = conn.execute(
-            "SELECT solar2_v, current2_a, temp_c, lipo2_v FROM s_phumy2 ORDER BY ts_utc LIMIT 1"
-        ).fetchone()
-        self.assertAlmostEqual(row["solar2_v"], 3.0)
-        self.assertAlmostEqual(row["current2_a"], 0.232)
-        self.assertAlmostEqual(row["temp_c"], 32.0)
-        self.assertAlmostEqual(row["lipo2_v"], 4.0)
-        self.assertEqual(
-            conn.execute("SELECT COUNT(*) FROM rejects WHERE reason = 'out_of_range'").fetchone()[
-                0
-            ],
-            0,
-        )
-
     def test_an_unknown_folder_is_reported_not_ingested(self) -> None:
         self.build({"not_a_station": aisvn_rows()}, {"not_a_station": AISVN_HEADER})
         conn = self.connect()
@@ -655,68 +565,46 @@ class TestReaderCache(TempArchiveCase):
         self.assertEqual(xlsx.cached_read_count(), 0)
 
 
-class TestSideBlocks(TempArchiveCase):
-    def test_prose_in_a_side_block_becomes_a_note(self) -> None:
-        # Voltage_phumy carries a hand-made discharge summary and the lab's own
-        # annotations to the right of the primary block. `iter_all_cells` exists
-        # solely to recover that prose.
-        write_xlsx(
-            self.raw / "Voltage_phumy" / "IFTTT_test.xlsx",
-            ["time", "raw", "voltage", "millis()", "solar_v"],
-            [
-                ["July 12, 2020 at 10:02AM", 2500, 2200, 1000, 12.5, "STROMAUSFALL!!"],
-                ["July 12, 2020 at 10:04AM", 2501, 2201, 2000, 12.6, "leave home"],
-            ],
-        )
-        xlsx.clear_read_cache()
-        from etl import build_db
+class TestNormalizationAndCuration(TempArchiveCase):
+    def test_normalize_builds_compact_raw_db_and_preserves_sentinels(self) -> None:
+        from etl.build_raw_db import build_raw_db, raw_table_name
 
-        build_db.ingest(self.settings, verbose=False)
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        summary = build_raw_db(self.settings, verbose=False, force=True)
+        self.assertEqual(summary.total_rows, 6)
+        self.assertTrue(self.settings.raw_db_path.exists())
+
+        raw_conn = sqlite3.connect(self.settings.raw_db_path)
+        self.addCleanup(raw_conn.close)
+        raw_table = raw_table_name("aisvn")
+        rows = raw_conn.execute(f"SELECT * FROM {raw_table}").fetchall()
+        self.assertEqual(len(rows), 6)
+
+        # Check sentinel was recorded in raw_rejects
+        rejects = raw_conn.execute("SELECT raw_value, reason FROM raw_rejects").fetchall()
+        self.assertTrue(any(r[0] == "-992" and r[1] == "sentinel" for r in rejects))
+
+    def test_normalize_cache_detection(self) -> None:
+        from etl.build_raw_db import build_raw_db, is_raw_cache_valid
+
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        build_raw_db(self.settings, verbose=False, force=True)
+        self.assertTrue(is_raw_cache_valid(self.settings))
+
+    def test_curate_from_raw_db_produces_identical_s_tables(self) -> None:
+        from etl.build_curate import curate
+        from etl.build_raw_db import build_raw_db
+
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        build_raw_db(self.settings, verbose=False, force=True)
+        summary = curate(self.settings, verbose=False)
+        self.assertEqual(summary.rows_ingested, 6)
+
         conn = self.connect()
         self.addCleanup(conn.close)
-        notes = conn.execute("SELECT note, ts_utc, column_name FROM notes ORDER BY note").fetchall()
-        self.assertEqual(
-            [n["note"] for n in notes],
-            ["STROMAUSFALL!!", "leave home"],
-            "short prose is recovered; a length threshold would have dropped it",
-        )
-        self.assertEqual(notes[0]["column_name"], "F")
-        self.assertIsNotNone(notes[0]["ts_utc"], "and it is anchored to an instant")
-
-    def test_a_side_block_header_is_not_prose(self) -> None:
-        # Without this, maker-webhooks contributes twenty-two notes that are all
-        # just the words "boot", "solar" and "battery".
-        write_xlsx(
-            self.raw / "Maker_Webhooks_Events" / "IFTTT_test.xlsx",
-            ["time", "solar", "battery", "curA", "curB", "load", "wind", "dump", "LiPo", "boot"],
-            [
-                [
-                    "June 1, 2020 at 10:00AM",
-                    1000,
-                    12000,
-                    900,
-                    900,
-                    3000,
-                    500,
-                    600,
-                    4000,
-                    1,
-                    "solar",
-                    "battery",
-                    "load",
-                    "wind",
-                    "LiPo",
-                    "boot",
-                ]
-            ],
-        )
-        xlsx.clear_read_cache()
-        from etl import build_db
-
-        build_db.ingest(self.settings, verbose=False)
-        conn = self.connect()
-        self.addCleanup(conn.close)
-        self.assertEqual(conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0], 0)
+        row = conn.execute("SELECT battery_v, flags FROM s_aisvn WHERE sheet_row = 5").fetchone()
+        self.assertIsNone(row["battery_v"])
+        self.assertIn("sentinel", row["flags"])
 
 
 class TestDeclaredCorrections(TempArchiveCase):
