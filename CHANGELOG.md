@@ -29,6 +29,21 @@ records what each edit changed. Every previous version is in git history.
 
 ### Added
 
+- **A manual release is a first-class trigger, and it is guarded.** `release.yml`
+  already had `workflow_dispatch`; what it lacked was anything stopping a run from
+  a branch nobody merged. `workflow_dispatch` runs against whichever ref is
+  selected in the Actions tab, and `gh release create` creates the tag at *that*
+  commit, so a run from a feature branch publishes a database built from
+  unmerged work under a tag. A `guard` job now refuses any ref other than
+  `refs/heads/main` for a manual run, and the build `needs` it, so a refusal costs
+  a second rather than three minutes of ingest and a 19 MiB upload. A tag push is
+  unaffected: there the ref is the tag, which is the point of that trigger.
+- **The repository allowlist accepts both origins.** `expected_repository` is now a
+  comma-separated list defaulting to `aisvn-data/solardata,kreier/solardata`, so a
+  manual run works in either repository with nothing typed and a run in a third
+  still fails. Previously the check only worked if you remembered to edit the input
+  for whichever repository you were in. Pass `*` to switch the check off.
+
 - `aisvn-solar.battery_v` is a **50/50 voltage divider**, so the input is
   multiplied by 2 at ingest and stored and displayed in millivolts, with a
   per-station band of 0–5,100 mV. It was being read as volts and flagged out of

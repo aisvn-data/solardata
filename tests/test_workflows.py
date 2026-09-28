@@ -254,13 +254,27 @@ class TestWorkflowFiles(unittest.TestCase):
             inputs,
             "a release can be cut in the wrong repository with nothing to stop it",
         )
+        # The guard moved into its own job so a wrong repository costs a second
+        # rather than three minutes of ingest, so this looks across every job
+        # rather than at one named step in the build.
         guard = next(
-            s
-            for s in doc["jobs"]["build-and-attach"]["steps"]
-            if (s.get("name") or "").startswith("Confirm this is the repository")
+            (
+                s
+                for job in doc["jobs"].values()
+                for s in job["steps"]
+                if "GITHUB_REPOSITORY" in (s.get("run") or "") and "exit 1" in (s.get("run") or "")
+            ),
+            None,
         )
-        self.assertIn("GITHUB_REPOSITORY", guard["run"], "the guard does not read the repository")
-        self.assertIn("exit 1", guard["run"], "the guard does not fail the run")
+        self.assertIsNotNone(guard, "the release has no step that refuses a wrong repository")
+        # The allowlist arrives as an input, so the name is in the step's `env`
+        # rather than its script -- which is also why the tag-push fallback has
+        # to be an expression: `inputs.*` is empty on a `push`.
+        self.assertIn(
+            "expected_repository",
+            guard.get("env", {}).get("EXPECTED", ""),
+            "the repository guard is not driven by the expected_repository input",
+        )
         # And the notes say where they came from.
         attach = next(
             s
@@ -272,6 +286,70 @@ class TestWorkflowFiles(unittest.TestCase):
             attach["run"],
             "the release notes do not say which repository they are from",
         )
+
+    def test_a_manual_release_is_refused_on_any_branch_but_main(self):
+        # `workflow_dispatch` runs against whichever ref is selected in the
+        # Actions tab, and `gh release create` would create the tag at that
+        # commit -- so a run from a feature branch publishes a database built
+        # from work nobody merged. This has to be a guard, not a convention.
+        doc = load("release.yml")
+        # The check has to live in a job the build depends on, so a refusal
+        # actually stops the release rather than running alongside it.
+        self.assertIn("guard", doc["jobs"], "release.yml has no guard job")
+        self.assertEqual(
+            doc["jobs"]["build-and-attach"].get("needs"),
+            "guard",
+            "the build does not wait for the guard, so a refusal does not stop it",
+        )
+        guard_steps = doc["jobs"]["guard"]["steps"]
+        script = "\n".join(s.get("run") or "" for s in guard_steps)
+        self.assertIn(
+            "workflow_dispatch", script, "the branch guard does not know it is a manual run"
+        )
+        self.assertIn("refs/heads/main", script, "the branch guard does not name main")
+        self.assertIn("exit 1", script, "the branch guard does not fail the run")
+        # And it must be a *manual* run only. A tag push has a tag for a ref,
+        # which is the whole point of that trigger, so an unconditional
+        # `GITHUB_REF == main` test would break every tag release.
+        self.assertIn(
+            "GITHUB_EVENT_NAME",
+            script,
+            "the branch guard cannot tell a manual run from a tag push",
+        )
+
+    def test_the_repository_allowlist_covers_both_origins(self):
+        # The project exists in two repositories while the migration is in
+        # flight. The default has to accept either, or a manual run in one of
+        # them needs the input edited every time -- which is how an allowlist
+        # stops being a guard and becomes a thing people disable.
+        doc = load("release.yml")
+        default = doc[True]["workflow_dispatch"]["inputs"]["expected_repository"]["default"]
+        for repo in ("aisvn-data/solardata", "kreier/solardata"):
+            self.assertIn(repo, default, f"the default allowlist does not accept {repo}")
+        # A comma-separated list, so the two are one input rather than two that
+        # cannot both be set.
+        self.assertIn(",", default, "the allowlist is not comma-separated")
+
+    def test_an_empty_allowlist_defaults_rather_than_disabling_the_check(self):
+        # On a `push` every `inputs.*` is empty, so "empty means no check" would
+        # make the repository guard a no-op on exactly the trigger people use
+        # most -- a tag push -- and the guard would be one dropped token from
+        # being decorative. The script carries the default, and the input's
+        # declared default has to agree with it or the Actions tab lies about
+        # what a run will do.
+        doc = load("release.yml")
+        script = "\n".join(s.get("run") or "" for s in doc["jobs"]["guard"]["steps"])
+        self.assertIn("ALLOWED_DEFAULT", script, "the guard has no default allowlist")
+        for repo in ("aisvn-data/solardata", "kreier/solardata"):
+            self.assertIn(repo, script, f"the guard does not know about {repo}")
+        declared = doc[True]["workflow_dispatch"]["inputs"]["expected_repository"]["default"]
+        self.assertIn(
+            declared.split(",")[0].strip(),
+            script,
+            "the input's default allowlist and the guard's disagree",
+        )
+        # And opting out is a deliberate act, not an absent value.
+        self.assertIn('= "*"', script, "the guard cannot be disabled explicitly")
 
     def test_no_workflow_uses_a_deprecated_node20_action(self):
         # The Node 20 action runtimes emit a deprecation warning. Pin the

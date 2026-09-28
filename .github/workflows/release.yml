@@ -41,10 +41,19 @@
 #    whose copy of this file is the old one and the old behaviour runs; push it
 #    to the wrong repository and the release lands there.
 #
-# The project is moving from `kreier/solardata` to `aisvn-data/solardata`. Until
-# that is done, set `expected_repository` so a release cannot be cut in the wrong
-# place by accident -- it fails the run rather than publishing a database into a
-# repository nobody is maintaining. `docs/roadmap.md` carries the migration.
+# The project is moving from `kreier/solardata` to `aisvn-data/solardata`. Both
+# carry this file and both may cut a release, so the repository guard accepts a
+# *list* and defaults to the two of them: a manual run works in either repository
+# with nothing typed, and a run in some third repository still fails. Pass `*` to
+# switch the check off, and `docs/roadmap.md` carries the migration.
+#
+# A manual run is refused on any branch but `main`
+# ------------------------------------------------
+# `workflow_dispatch` runs against whichever ref is selected in the Actions tab,
+# so without a check a mistyped branch publishes a database built from work that
+# was never merged -- under a tag, because `gh release create` would create it.
+# The `guard` job refuses that before anything is built or uploaded. A tag push is
+# unaffected: there the ref is the tag, which is the whole point of the trigger.
 name: release
 
 on:
@@ -63,21 +72,91 @@ on:
         default: false
         type: boolean
       expected_repository:
-        description: "Fail unless the release lands here, e.g. aisvn-data/solardata (empty = no check)"
+        description: >-
+          Comma-separated allowlist of repositories this may release into.
+          Defaults to the project's own two; pass * to disable the check.
         required: false
-        default: ""
+        default: "aisvn-data/solardata,kreier/solardata"
         type: string
 
 permissions:
   contents: write
 
 jobs:
+  # First, cheap, and before anything is built. A wrong branch or a wrong
+  # repository should cost a second and a clear message, not three minutes of
+  # ingest and a 19 MiB upload that then has to be taken back down.
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse a manual run from a branch that is not main
+        env:
+          # Deliberately *not* `${{ inputs.expected_repository || '...' }}`. On a
+          # `push` every `inputs.*` is empty, so a fallback written in the
+          # expression is the only thing standing between a tag release and no
+          # repository check at all -- and it is one dropped token away. The
+          # default lives in the script instead, where the empty case is handled
+          # explicitly. `tests/test_workflows.py` asserts the two agree, so the
+          # duplication cannot drift.
+          EXPECTED: ${{ inputs.expected_repository }}
+        run: |
+          set -euo pipefail
+          echo "event:  $GITHUB_EVENT_NAME"
+          echo "ref:    $GITHUB_REF"
+          echo "repo:   $GITHUB_REPOSITORY"
+
+          # A manual run may be dispatched from any ref, and the release would
+          # then be built from a branch nobody merged and published under a tag.
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::refusing to release from ${GITHUB_REF}"
+            echo "A manual run must be dispatched from main. Select 'main' in the Actions"
+            echo "tab's branch picker and run it again."
+            exit 1
+          fi
+
+          # Empty means "the project's own repositories", never "no check". A
+          # missing value is what a tag push looks like, and reading it as a
+          # disabled guard would make every tag release land anywhere. Turning
+          # the check off takes a deliberate `*`.
+          ALLOWED_DEFAULT="aisvn-data/solardata,kreier/solardata"
+          if [ -z "$EXPECTED" ]; then
+            EXPECTED="$ALLOWED_DEFAULT"
+            echo "note: expected_repository was empty; defaulting to $ALLOWED_DEFAULT"
+          fi
+          echo "allowed: $EXPECTED"
+
+          if [ "$EXPECTED" = "*" ]; then
+            echo "repository check disabled by request; releasing into $GITHUB_REPOSITORY"
+            exit 0
+          fi
+
+          # A comma-separated allowlist, trimmed, so the input can be either
+          # repository without being edited per repository. An exact match only:
+          # a prefix or substring test would accept solardata-fork.
+          ok=0
+          IFS=',' read -ra wanted <<< "$EXPECTED"
+          for repo in "${wanted[@]}"; do
+            if [ "$(echo "$repo" | tr -d '[:space:]')" = "$GITHUB_REPOSITORY" ]; then
+              ok=1
+            fi
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::refusing to release into ${GITHUB_REPOSITORY}"
+            echo "Allowed: ${EXPECTED//,/, }"
+            echo "The project is moving from kreier/solardata to aisvn-data/solardata, and"
+            echo "a release in the wrong repository publishes a database nobody reads."
+            exit 1
+          fi
+
   build-and-attach:
+    needs: guard
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       # No `ref:` here on purpose -- checkout uses the triggering commit, which
-      # is the tag on a tag push and the selected branch on a manual run.
+      # is the tag on a tag push and main on a manual run, the `guard` job having
+      # established that it is main.
       - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v6
@@ -133,10 +212,14 @@ jobs:
           echo "Publishing under tag: $tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+      # The repository and branch guards live in the `guard` job, which runs first
+      # and fails in seconds. Leaving a copy here would be a second place for the
+      # rule to be edited, and this one ran after the ingest.
+      #
       # Uses the `gh` CLI that ships with the runner rather than a third-party
       # action. `softprops/action-gh-release@v2` still runs on the Node 20
-      # runtime, which is what produced the deprecation warning; this removes
-      # the dependency and the warning together.
+      # runtime, which is what produced the deprecation warning; this removes the
+      # dependency and the warning together.
       #
       # Four things this gets right that the previous version did not:
       #
@@ -150,20 +233,8 @@ jobs:
       #     assets and leaves the notes as they were. A re-run used to be
       #     incapable of updating anything but the binaries.
       #   * The asset sizes are measured, not asserted in a comment that drifts.
-      - name: Confirm this is the repository you meant to release from
-        env:
-          EXPECTED: ${{ inputs.expected_repository }}
-        run: |
-          set -euo pipefail
-          echo "publishing to: ${GITHUB_REPOSITORY} from ${GITHUB_REF}"
-          if [ -n "$EXPECTED" ] && [ "$EXPECTED" != "$GITHUB_REPOSITORY" ]; then
-            echo "::error::expected to release into $EXPECTED but this run is in $GITHUB_REPOSITORY"
-            echo "The project is moving from kreier/solardata to aisvn-data/solardata."
-            echo "Releasing into the wrong repository publishes a database nobody reads."
-            exit 1
-          fi
-
       - name: Attach to the release
+
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release.outputs.tag }}
