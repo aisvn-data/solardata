@@ -214,7 +214,7 @@ Four workflows, split by cost and by what they actually read.
 | `ci.yml` | every push and pull request | ~1 min |
 | `data.yml` | only when `data/raw/**`, `etl/**`, `data/baseline.json` or `requirements.txt` change; plus Mondays 03:17 UTC and on demand | ~1 min |
 | `pages.yml` | push to `main`, or manually | ~30 s |
-| `release.yml` | `v*` tag, or manually | ~2 min |
+| `release.yml` | `v*` tag, or manually from `main` | ~2 min |
 
 **`ci.yml`** is the required gate: `ruff check`, `ruff format --check`,
 `pytest`, the frontend checks and `npm run build`. It is deliberately *not*
@@ -250,7 +250,17 @@ redundancy is the whole win. `tests/test_ingest.py::TestReadCache` covers it.
 It is 166 MiB after `VACUUM` (181 MiB as the ingest leaves it), over GitHub's
 100 MiB per-file limit for a git blob, so a commit of it would be rejected
 outright. `release.yml` gzips it to a **19 MiB** Release asset, which is the form
-most people actually want. What *is* committed:
+most people actually want.
+
+A manual release is refused on any branch but `main`, and only into a repository
+on its allowlist — which is **both** `aisvn-data/solardata` and `kreier/solardata`,
+so the same file works in either while the migration is in flight. Both checks are
+a `guard` job that the build `needs`, so a refusal costs a second rather than
+three minutes of ingest. The default lives in the guard's *script* rather than in
+the input, because `inputs.*` is empty on a tag push and "empty means no check"
+would make the guard a no-op on the trigger people use most.
+
+What *is* committed:
 
 | Path | Size | Why |
 |---|---|---|
