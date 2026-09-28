@@ -294,7 +294,16 @@ function decorateRow(raw, folder, columns, timeColumn) {
  * Order is by kind then name, so the picker groups the way a reader thinks:
  * voltages, then currents, then power, then temperature, then the raw counts.
  */
-const KIND_ORDER = { voltage: 0, current: 1, power: 2, temperature: 3, digital: 4, count: 5, raw: 6 }
+const KIND_ORDER = {
+  voltage: 0,
+  current: 1,
+  power: 2,
+  temperature: 3,
+  duration: 4,
+  digital: 5,
+  count: 6,
+  raw: 7,
+}
 
 export function channelsFor(station) {
   if (!station) return []
