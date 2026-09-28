@@ -171,10 +171,12 @@ export async function initRawDatabase() {
   if (!rawDbPromise) {
     rawDbPromise = (async () => {
       try {
+        console.info('[solardata] Initializing SQLite Wasm and loading solardata_raw.db...')
         const sqlModule = await import('sql.js')
         const initSqlJs = sqlModule.default || sqlModule
+        const base = BASE_URL ? (BASE_URL.endsWith('/') ? BASE_URL : `${BASE_URL}/`) : '/'
         const SQL = await initSqlJs({
-          locateFile: (file) => `${BASE_URL || '/'}${file}`,
+          locateFile: (file) => `${base}${file}`,
         })
 
         let buf
@@ -191,12 +193,13 @@ export async function initRawDatabase() {
         } else {
           const resp = await fetch(`${DATA_ROOT}/solardata_raw.db`)
           if (!resp.ok) {
-            throw new Error(`Failed to load solardata_raw.db: ${resp.status}`)
+            throw new Error(`Failed to load solardata_raw.db: ${resp.status} ${resp.statusText}`)
           }
           buf = await resp.arrayBuffer()
         }
 
         rawDbInstance = new SQL.Database(new Uint8Array(buf))
+        console.info('[solardata] solardata_raw.db loaded successfully. Native raw resolution is ready!')
         for (const cb of rawDbListeners) {
           try {
             cb(rawDbInstance)
@@ -207,6 +210,7 @@ export async function initRawDatabase() {
         rawDbListeners.clear()
         return rawDbInstance
       } catch (err) {
+        console.error('[solardata] Error in initRawDatabase:', err)
         rawDbPromise = null
         throw err
       }

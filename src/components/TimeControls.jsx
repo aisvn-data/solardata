@@ -44,6 +44,7 @@ export default function TimeControls({
   hideFlagged,
   onHideFlaggedChange,
   rawDbReady = false,
+  rawDbError = null,
 }) {
   const firstDay = rows[0]?.dateDay ?? ''
   const lastDay = rows[rows.length - 1]?.dateDay ?? ''
@@ -71,6 +72,16 @@ export default function TimeControls({
             {available.map((g) => {
               const isRaw = g.folder === 'raw'
               const disabled = isRaw && !rawDbReady
+              let titleText
+              if (isRaw) {
+                if (rawDbError) {
+                  titleText = `Error loading solardata_raw.db: ${rawDbError}`
+                } else if (!rawDbReady) {
+                  titleText = 'Loading solardata_raw.db in background…'
+                } else {
+                  titleText = 'Native 1–2 min samples (60s on Maker Webhooks)'
+                }
+              }
               return (
                 <button
                   key={g.folder}
@@ -78,16 +89,14 @@ export default function TimeControls({
                   className={`${resolution === g.folder ? 'active' : ''} ${disabled ? 'muted' : ''}`}
                   aria-pressed={resolution === g.folder}
                   disabled={disabled}
-                  title={
-                    disabled
-                      ? 'Loading solardata_raw.db in background…'
-                      : isRaw
-                        ? 'Native 1–2 min samples (60s on Maker Webhooks)'
-                        : undefined
-                  }
+                  title={titleText}
                   onClick={() => onResolutionChange(g.folder)}
                 >
-                  {disabled ? `${g.label} (loading…)` : g.label}
+                  {isRaw && rawDbError
+                    ? `${g.label} (error)`
+                    : disabled
+                      ? `${g.label} (loading…)`
+                      : g.label}
                 </button>
               )
             })}

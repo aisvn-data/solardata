@@ -401,9 +401,15 @@ export default function StationExplorer() {
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [rawDbReady, setRawDbReady] = useState(isRawDbReady())
+  const [rawDbError, setRawDbError] = useState(null)
 
   useEffect(() => {
-    initRawDatabase().catch((e) => console.warn('Raw DB load error:', e))
+    initRawDatabase()
+      .then(() => setRawDbReady(true))
+      .catch((e) => {
+        console.error('[solardata] Failed to load raw database:', e)
+        setRawDbError(e.message)
+      })
     const unsubscribe = onRawDbReady(() => setRawDbReady(true))
     return unsubscribe
   }, [])
@@ -766,6 +772,7 @@ export default function StationExplorer() {
               hideFlagged={hideFlagged}
               onHideFlaggedChange={setHideFlagged}
               rawDbReady={rawDbReady}
+              rawDbError={rawDbError}
             />
 
             <TimeSeriesChart
