@@ -248,8 +248,26 @@ def cmd_normalize(args: argparse.Namespace) -> int:
 
     settings = _settings(args)
     _say(args, f"solardata {__version__}: normalizing raw archive to {settings.raw_db_path}")
-    summary = build_raw_db.build_raw_db(settings, verbose=not args.quiet)
+    force = getattr(args, "force", False)
+    summary = build_raw_db.build_raw_db(settings, verbose=not args.quiet, force=force)
     _say(args, f"  {summary.line()}")
+    if summary.failed:
+        _say(args, f"  WARNING: {summary.failed} file(s) failed")
+    return 1 if summary.failed else 0
+
+
+def cmd_curate(args: argparse.Namespace) -> int:
+    """Stage 2 Curation: solardata_raw.db -> solardata.db."""
+    from . import build_curate
+
+    settings = _settings(args)
+    _say(
+        args, f"solardata {__version__}: curating from {settings.raw_db_path} to {settings.db_path}"
+    )
+    summary = build_curate.curate(settings, verbose=not args.quiet)
+    _say(args, f"  {summary.line()}")
+    for station_id, (first, last) in sorted(summary.per_station_range.items()):
+        _say(args, f"    {station_id:<16} {first[:10]} .. {last[:10]}")
     if summary.failed:
         _say(args, f"  WARNING: {summary.failed} file(s) failed")
     return 1 if summary.failed else 0
@@ -258,6 +276,7 @@ def cmd_normalize(args: argparse.Namespace) -> int:
 STAGE_FUNCS = {
     "ingest": cmd_ingest,
     "normalize": cmd_normalize,
+    "curate": cmd_curate,
     "aggregate": cmd_aggregate,
     "export": cmd_export,
     "report": cmd_report,
@@ -321,6 +340,7 @@ def _add_verify_flags(parser: argparse.ArgumentParser, *, defaults: bool = True)
 HELP = {
     "ingest": "XLSX -> eight station tables, rebuilt from scratch",
     "normalize": "raw XLSX -> compact solardata_raw.db with integer channels",
+    "curate": "solardata_raw.db -> solardata.db, applying scales, corrections, and curation bands",
     "aggregate": "hourly and daily rollups, and the per-station channel measurements",
     "export": "public/data: stations.json, metrics.json and one CSV set per station",
     "report": "the per-station data-quality report",
@@ -352,6 +372,13 @@ def build_parser() -> argparse.ArgumentParser:
         _add_common(p, defaults=False)
         if name in ("all", "verify"):
             _add_verify_flags(p, defaults=False)
+        if name == "normalize":
+            p.add_argument(
+                "--force",
+                action="store_true",
+                default=False,
+                help="rebuild solardata_raw.db from scratch even if inputs match",
+            )
         if name == "query":
             p.add_argument(
                 "sql",
@@ -370,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
         ("baseline", None),
         ("update_baseline", False),
         ("reason", ""),
+        ("force", False),
         ("only", list(ALL_STAGES)),
     ):
         if not hasattr(args, name):
