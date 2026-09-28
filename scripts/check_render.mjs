@@ -733,7 +733,7 @@ await check('the picker is driven by the station, not by a fixed list', () => {
     'aisvn-solar offers four: two load rails of unknown unit and two dead inputs are out',
   )
   assert.equal(counts.test, 3, 'the probe offers its three channels')
-  assert.equal(counts['voltage-phumy'], 3, 'the calibration sheet offers three')
+  assert.equal(counts['voltage-phumy'], 4, 'the calibration sheet offers four')
 })
 
 console.log(`\n${passed} render checks passed`)

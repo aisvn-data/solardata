@@ -1,14 +1,14 @@
 {
-  "tool_version": "0.10.0",
+  "tool_version": "0.10.1",
   "totals": {
-    "readings": 731885,
+    "readings": 731981,
     "stations": 8,
-    "files": 364,
-    "rejects": 259463,
-    "notes": 11,
-    "excluded_files": 1,
-    "hourly_buckets": 25566,
-    "daily_buckets": 1184
+    "files": 8,
+    "rejects": 254327,
+    "notes": 0,
+    "excluded_files": 0,
+    "hourly_buckets": 25579,
+    "daily_buckets": 1187
   },
   "stations": [
     {
@@ -25,7 +25,7 @@
       "notes": "11-channel logger. The applet was recompiled twice and the collector converted the sheet at source, so the whole record is volts and amps with no scale window to apply -- except for two hardware faults the collector dates exactly: the current channel gained a permanent offset at 2020-08-24 18:42 local, and the power channel's output was inverted and four times too large from the same instant. Both are declared as corrections rather than absorbed into the channel.",
       "first_ts_utc": "2020-06-15T06:10:00Z",
       "last_ts_utc": "2022-02-22T21:42:00Z",
-      "n_readings": 77526,
+      "n_readings": 77622,
       "table": "s_aisvn",
       "channels": [
         {
@@ -50,23 +50,23 @@
           "observed": {
             "station_id": "aisvn",
             "channel": "solar_v",
-            "n_values": 77526,
+            "n_values": 77622,
             "n_nulls": 0,
             "first_ts_utc": "2020-06-15T06:10:00Z",
             "last_ts_utc": "2022-02-22T21:42:00Z",
             "min": 0.0,
             "max": 29.8,
-            "mean": 8.011149898098703,
+            "mean": 8.029302478678725,
             "p01": 0.0,
-            "p50": 4.5,
+            "p50": 4.6,
             "p99": 29.06,
-            "n_zero": 36100,
+            "n_zero": 36121,
             "n_sentinel": 0,
             "n_null_window": 0,
-            "n_out_of_range": 1612,
+            "n_out_of_range": 1687,
             "n_constant": 0
           },
-          "fire_fraction": 0.02079302427572685
+          "fire_fraction": 0.021733529154105796
         },
         {
           "station_id": "aisvn",
@@ -90,23 +90,23 @@
           "observed": {
             "station_id": "aisvn",
             "channel": "solar2_v",
-            "n_values": 77526,
+            "n_values": 77622,
             "n_nulls": 0,
             "first_ts_utc": "2020-06-15T06:10:00Z",
             "last_ts_utc": "2022-02-22T21:42:00Z",
             "min": 0.0,
             "max": 19.5,
-            "mean": 6.0295281969919765,
+            "mean": 6.032494679343485,
             "p01": 0.0,
-            "p50": 4.18,
+            "p50": 4.123,
             "p99": 19.5,
-            "n_zero": 32102,
+            "n_zero": 31460,
             "n_sentinel": 0,
             "n_null_window": 0,
             "n_out_of_range": 14107,
             "n_constant": 0
           },
-          "fire_fraction": 0.1819647602094781
+          "fire_fraction": 0.181739712967973
         },
         {
           "station_id": "aisvn",
@@ -130,23 +130,23 @@
           "observed": {
             "station_id": "aisvn",
             "channel": "battery_v",
-            "n_values": 77526,
+            "n_values": 77622,
             "n_nulls": 0,
             "first_ts_utc": "2020-06-15T06:10:00Z",
             "last_ts_utc": "2022-02-22T21:42:00Z",
             "min": -0.99,
             "max": 29.8,
-            "mean": 13.329325658488765,
+            "mean": 13.340884169436501,
             "p01": 10.59,
             "p50": 12.79,
-            "p99": 29.19,
+            "p99": 29.2,
             "n_zero": 0,
             "n_sentinel": 0,
             "n_null_window": 0,
-            "n_out_of_range": 1717,
+            "n_out_of_range": 1813,
             "n_constant": 0
           },
-          "fire_fraction": 0.022147408611304594
+          "fire_fraction": 0.023356780294246475
         },
         {
           "station_id": "aisvn",
@@ -170,23 +170,23 @@
           "observed": {
             "station_id": "aisvn",
             "channel": "current_a",
-            "n_values": 77526,
+            "n_values": 77622,
             "n_nulls": 0,
             "first_ts_utc": "2020-06-15T06:10:00Z",
             "last_ts_utc": "2022-02-22T21:42:00Z",
             "min": -6.21,
-            "max": 6.65,
-            "mean": 0.3332838531589402,
+            "max": 6.66,
+            "mean": 0.335612635593002,
             "p01": -0.01,
             "p50": 0.12,
-            "p99": 2.69,
-            "n_zero": 617,
+            "p99": 2.7,
+            "n_zero": 620,
             "n_sentinel": 0,
             "n_null_window": 0,
-            "n_out_of_range": 1412,
+            "n_out_of_range": 1486,
             "n_constant": 0
           },
-          "fire_fraction": 0.018213244588912107
+          "fire_fraction": 0.019144057097214708
         },
         {
           "station_id": "aisvn",
@@ -210,23 +210,23 @@
           "observed": {
             "station_id": "aisvn",
             "channel": "power_w",
-            "n_values": 77525,
+            "n_values": 77621,
             "n_nulls": 1,
             "first_ts_utc": "2020-06-15T06:10:00Z",
             "last_ts_utc": "2022-02-22T21:42:00Z",
-            "min": -19.65,
+            "min": -22.4,
             "max": 76.64,
-            "mean": 7.699101726139955,
+            "mean": 7.689442886834748,
             "p01": 0.0,
-            "p50": 0.22,
-            "p99": 40.55,
-            "n_zero": 36277,
+            "p50": 0.21117569999999997,
+            "p99": 40.53,
+            "n_zero": 36307,
             "n_sentinel": 1,
             "n_null_window": 0,
-            "n_out_of_range": 879,
+            "n_out_of_range": 907,
             "n_constant": 0
           },
-          "fire_fraction": 0.011338277974846824
+          "fire_fraction": 0.011684982156890532
         },
         {
           "station_id": "aisvn",
@@ -250,23 +250,23 @@
           "observed": {
             "station_id": "aisvn",
             "channel": "load_v",
-            "n_values": 77526,
+            "n_values": 77622,
             "n_nulls": 0,
             "first_ts_utc": "2020-06-15T06:10:00Z",
             "last_ts_utc": "2022-02-22T21:42:00Z",
             "min": 0.0,
-            "max": 29.67,
-            "mean": 8.119609008590666,
+            "max": 29.73,
+            "mean": 8.137833835768209,
             "p01": 0.0,
-            "p50": 11.87,
-            "p99": 29.44,
-            "n_zero": 28387,
+            "p50": 11.88,
+            "p99": 29.45,
+            "n_zero": 28408,
             "n_sentinel": 0,
             "n_null_window": 0,
-            "n_out_of_range": 1612,
+            "n_out_of_range": 1687,
             "n_constant": 0
           },
-          "fire_fraction": 0.02079302427572685
+          "fire_fraction": 0.021733529154105796
         },
         {
           "station_id": "aisvn",
@@ -290,17 +290,17 @@
           "observed": {
             "station_id": "aisvn",
             "channel": "wind_v",
-            "n_values": 77526,
+            "n_values": 77622,
             "n_nulls": 0,
             "first_ts_utc": "2020-06-15T06:10:00Z",
             "last_ts_utc": "2022-02-22T21:42:00Z",
             "min": 0.0,
             "max": 29.8,
-            "mean": 1.5454602455950261,
+            "mean": 1.5723011646182783,
             "p01": 0.0,
             "p50": 0.0,
             "p99": 29.79,
-            "n_zero": 67744,
+            "n_zero": 67765,
             "n_sentinel": 0,
             "n_null_window": 0,
             "n_out_of_range": 0,
@@ -330,23 +330,23 @@
           "observed": {
             "station_id": "aisvn",
             "channel": "temp_c",
-            "n_values": 62060,
+            "n_values": 62156,
             "n_nulls": 15466,
             "first_ts_utc": "2020-06-15T06:10:00Z",
             "last_ts_utc": "2022-02-22T21:42:00Z",
             "min": 14.0,
             "max": 63.3,
-            "mean": 32.33068804382855,
+            "mean": 32.30955016410322,
             "p01": 16.0,
             "p50": 32.5,
             "p99": 37.0,
             "n_zero": 0,
             "n_sentinel": 14108,
-            "n_null_window": 0,
-            "n_out_of_range": 155,
+            "n_null_window": 1359,
+            "n_out_of_range": 156,
             "n_constant": 0
           },
-          "fire_fraction": 0.0024975829842088302
+          "fire_fraction": 0.0025098140163459684
         },
         {
           "station_id": "aisvn",
@@ -370,23 +370,23 @@
           "observed": {
             "station_id": "aisvn",
             "channel": "lipo_v",
-            "n_values": 77526,
-            "n_nulls": 0,
+            "n_values": 77621,
+            "n_nulls": 1,
             "first_ts_utc": "2020-06-15T06:10:00Z",
             "last_ts_utc": "2022-02-22T21:42:00Z",
             "min": 0.26,
-            "max": 6.84,
-            "mean": 4.465711387147537,
+            "max": 1361.0,
+            "mean": 16.321725795854217,
             "p01": 0.34,
             "p50": 4.07,
-            "p99": 6.84,
+            "p99": 585.0,
             "n_zero": 0,
-            "n_sentinel": 0,
+            "n_sentinel": 1,
             "n_null_window": 0,
-            "n_out_of_range": 14107,
+            "n_out_of_range": 15460,
             "n_constant": 0
           },
-          "fire_fraction": 0.1819647602094781
+          "fire_fraction": 0.199172904239832
         },
         {
           "station_id": "aisvn",
@@ -410,16 +410,16 @@
           "observed": {
             "station_id": "aisvn",
             "channel": "boot_count",
-            "n_values": 77516,
-            "n_nulls": 10,
+            "n_values": 76254,
+            "n_nulls": 1368,
             "first_ts_utc": "2020-06-15T06:10:00Z",
             "last_ts_utc": "2022-02-22T21:42:00Z",
             "min": 1.0,
             "max": 21660.0,
-            "mean": 6612.0476417771815,
-            "p01": 41.0,
-            "p50": 5515.0,
-            "p99": 19674.0,
+            "mean": 6711.136425630131,
+            "p01": 40.0,
+            "p50": 5647.0,
+            "p99": 19699.0,
             "n_zero": 0,
             "n_sentinel": 10,
             "n_null_window": 0,
@@ -445,23 +445,20 @@
       "rejects": [
         {
           "reason": "sentinel",
-          "n": 14120
+          "n": 14118
         },
         {
-          "reason": "pre_reinstall",
-          "n": 100
-        },
-        {
-          "reason": "duplicate_ts",
-          "n": 22
+          "reason": "null_window",
+          "n": 1359
         }
       ],
       "flag_totals": {
-        "out_of_range": 16404,
+        "out_of_range": 17848,
         "sentinel": 14116,
-        "bad_window:solar_v": 1610,
-        "bad_window:battery_v": 1610,
-        "bad_window:temp_c": 1610
+        "bad_window:solar_v": 1641,
+        "bad_window:battery_v": 1641,
+        "bad_window:temp_c": 1641,
+        "no_signal:temp_c": 1359
       },
       "open_questions": [
         "battery_v reaches 29.8 V in 2020 and 17.9 V in 2021 against a confirmed 12 V lead-acid pack. A second pack, a mis-scaled input, or a band wrong for what is installed.",
@@ -856,10 +853,6 @@
       ],
       "rejects": [
         {
-          "reason": "duplicate_ts",
-          "n": 6
-        },
-        {
           "reason": "sentinel",
           "n": 3
         }
@@ -1185,11 +1178,7 @@
       "rejects": [
         {
           "reason": "sentinel",
-          "n": 10354
-        },
-        {
-          "reason": "duplicate_ts",
-          "n": 48
+          "n": 10348
         }
       ],
       "flag_totals": {
@@ -1635,15 +1624,7 @@
       "rejects": [
         {
           "reason": "sentinel",
-          "n": 8351
-        },
-        {
-          "reason": "duplicate_ts",
-          "n": 47
-        },
-        {
-          "reason": "repeated_header",
-          "n": 2
+          "n": 8342
         }
       ],
       "flag_totals": {
@@ -1936,15 +1917,11 @@
       "rejects": [
         {
           "reason": "null_window",
-          "n": 220074
+          "n": 220069
         },
         {
           "reason": "sentinel",
           "n": 87
-        },
-        {
-          "reason": "duplicate_ts",
-          "n": 63
         }
       ],
       "flag_totals": {
@@ -2153,10 +2130,6 @@
       ],
       "rejects": [
         {
-          "reason": "duplicate_ts",
-          "n": 39
-        },
-        {
           "reason": "sentinel",
           "n": 1
         }
@@ -2313,16 +2286,7 @@
         "wifi_raw"
       ],
       "hidden_channels": [],
-      "rejects": [
-        {
-          "reason": "station_setup",
-          "n": 4121
-        },
-        {
-          "reason": "duplicate_ts",
-          "n": 12
-        }
-      ],
+      "rejects": [],
       "flag_totals": {},
       "open_questions": [
         "IFTTT_test (1).xlsx is excluded whole on the collector's word, because its 4,120 unique readings are dated 2020-07-01 to 07-08 and duplicate the probe data IFTTT_test (2).xlsx carries. The collector described it as an 11-column solar layout; the 0.8.0 raw repair removed that stretch and the file is now the same probe as its neighbours. The exclusion is still defensible on the overlap, but the reason it was given no longer describes the file, and that is a question for the collector."
@@ -2373,7 +2337,7 @@
             "last_ts_utc": "2020-07-12T18:03:00Z",
             "min": 2107.0,
             "max": 3127.0,
-            "mean": 2506.5890509634432,
+            "mean": 2506.532504952278,
             "p01": 2166.0,
             "p50": 2495.0,
             "p99": 3019.0,
@@ -2413,7 +2377,7 @@
             "last_ts_utc": "2020-07-12T18:03:00Z",
             "min": 1862.0,
             "max": 2511.0,
-            "mean": 2158.4233747523863,
+            "mean": 2158.418152350081,
             "p01": 1909.0,
             "p50": 2155.0,
             "p99": 2481.0,
@@ -2451,12 +2415,52 @@
             "n_nulls": 0,
             "first_ts_utc": "2020-07-04T21:08:00Z",
             "last_ts_utc": "2020-07-12T18:03:00Z",
-            "min": 2204.0,
-            "max": 685487226.0,
-            "mean": 342656912.2708446,
-            "p01": 6018441.0,
-            "p50": 342584237.0,
-            "p99": 678734068.0,
+            "min": 2150.0,
+            "max": 685364571.0,
+            "mean": 342533468.1728795,
+            "p01": 5895329.0,
+            "p50": 342461573.0,
+            "p99": 678611242.0,
+            "n_zero": 0,
+            "n_sentinel": 0,
+            "n_null_window": 0,
+            "n_out_of_range": 0,
+            "n_constant": 0
+          },
+          "fire_fraction": 0.0
+        },
+        {
+          "station_id": "voltage-phumy",
+          "channel": "solar_v",
+          "col_index": 4,
+          "label": "Solar",
+          "kind": "voltage",
+          "description": "Calibrated solar/battery voltage, 10.6-14.3 V.",
+          "unit": "V",
+          "raw_unit": null,
+          "scale": 1.0,
+          "band_lo": null,
+          "band_hi": null,
+          "band_note": "No band: bench calibration channel, not a production solar sensor.",
+          "stats": "avg,min,max",
+          "published": 1,
+          "exclude_reason": null,
+          "exclude_note": "",
+          "is_counter": 0,
+          "decimals": 1,
+          "observed": {
+            "station_id": "voltage-phumy",
+            "channel": "solar_v",
+            "n_values": 5553,
+            "n_nulls": 0,
+            "first_ts_utc": "2020-07-04T21:08:00Z",
+            "last_ts_utc": "2020-07-12T18:03:00Z",
+            "min": 10.6134,
+            "max": 14.3127,
+            "mean": 12.302983468395462,
+            "p01": 10.8813,
+            "p50": 12.2835,
+            "p99": 14.1417,
             "n_zero": 0,
             "n_sentinel": 0,
             "n_null_window": 0,
@@ -2469,175 +2473,89 @@
       "published_channels": [
         "adc_raw",
         "voltage_adc",
-        "millis_ms"
+        "millis_ms",
+        "solar_v"
       ],
       "hidden_channels": [],
-      "rejects": [
-        {
-          "reason": "duplicate_ts",
-          "n": 2013
-        }
-      ],
+      "rejects": [],
       "flag_totals": {},
       "open_questions": [
-        "The ADC-to-voltage conversion this sheet calibrates is not recorded here, so neither channel can be published as a voltage."
+        "The ADC-to-voltage conversion is applied as solar_v in the consolidated sheet."
       ]
     }
   ],
   "rejects_by_reason": [
     {
       "reason": "null_window",
-      "n": 220074
+      "n": 221428
     },
     {
       "reason": "sentinel",
-      "n": 32916
-    },
-    {
-      "reason": "station_setup",
-      "n": 4121
-    },
-    {
-      "reason": "duplicate_ts",
-      "n": 2250
-    },
-    {
-      "reason": "pre_reinstall",
-      "n": 100
-    },
-    {
-      "reason": "repeated_header",
-      "n": 2
+      "n": 32899
     }
   ],
   "flag_totals": {
     "no_signal:solar2_v": 220069,
     "sentinel": 28594,
-    "out_of_range": 21191,
-    "bad_window:solar_v": 1610,
-    "bad_window:battery_v": 1610,
-    "bad_window:temp_c": 1610
+    "out_of_range": 22635,
+    "bad_window:solar_v": 1641,
+    "bad_window:battery_v": 1641,
+    "bad_window:temp_c": 1641,
+    "no_signal:temp_c": 1359
   },
-  "notes": [
-    {
-      "station_id": "aisvn",
-      "ts_utc": "2020-10-25T19:23:00Z",
-      "column_name": "L",
-      "note": "this all is just garbage"
-    },
-    {
-      "station_id": "aisvn",
-      "ts_utc": "2020-10-27T09:09:00Z",
-      "column_name": "L",
-      "note": "STROMAUSFALL!!"
-    },
-    {
-      "station_id": "aisvn",
-      "ts_utc": "2020-10-27T13:05:00Z",
-      "column_name": "L",
-      "note": "Note8 provides Internet"
-    },
-    {
-      "station_id": "aisvn",
-      "ts_utc": "2020-10-27T23:43:00Z",
-      "column_name": "L",
-      "note": "normal Internet wieder da"
-    },
-    {
-      "station_id": "aisvn",
-      "ts_utc": "2020-10-29T10:29:00Z",
-      "column_name": "L",
-      "note": "at Library ..."
-    },
-    {
-      "station_id": "aisvn",
-      "ts_utc": "2020-10-29T10:30:00Z",
-      "column_name": "L",
-      "note": "Pin 4 is temperature - calibrated ..."
-    },
-    {
-      "station_id": "aisvn",
-      "ts_utc": "2020-10-30T06:52:00Z",
-      "column_name": "L",
-      "note": "leave home"
-    },
-    {
-      "station_id": "aisvn",
-      "ts_utc": "2020-10-30T09:17:00Z",
-      "column_name": "L",
-      "note": "arrive at school"
-    },
-    {
-      "station_id": "aisvn",
-      "ts_utc": "2020-10-30T11:05:00Z",
-      "column_name": "L",
-      "note": "Installed in the dark, let's start again!"
-    },
-    {
-      "station_id": "test",
-      "ts_utc": null,
-      "column_name": null,
-      "note": "collector: the 4,120 readings this file uniquely contributes are dated 2020-07-01 to 07-08, after the probe had already begun and after IFTTT_test (2).xlsx had started covering the same stretch, so they are not measurements. 0.8 described this file as an 11-column solar layout; the raw repair removed that stretch, and what is left is 4,121 rows of the same nix/temp/wifi probe the neighbouring files carry. The exclusion is kept on the collector's word and the overlap is still there; the description is corrected"
-    },
-    {
-      "station_id": "voltage-phumy",
-      "ts_utc": "2020-07-12T03:02:00Z",
-      "column_name": "H",
-      "note": "discharge 7.5 Ah with 0.3A - 25 hours, starting at 18:00 on July 11th"
-    }
-  ],
+  "notes": [],
   "source_files": [
     {
       "source_dir": "AISVN_Solar",
       "station_id": "aisvn-solar",
-      "files": 7,
-      "with_header": 7,
+      "files": 1,
+      "with_header": 1,
       "n_ingested": 13788,
-      "n_duplicate_ts": 6,
+      "n_duplicate_ts": 0,
       "min_ts_utc": "2020-05-21T02:52:00Z",
       "max_ts_utc": "2020-06-12T05:04:00Z",
-      "extra_blocks": 7
+      "extra_blocks": 0
     },
     {
       "source_dir": "Maker_Webhooks_Events",
       "station_id": "maker-webhooks",
-      "files": 5,
-      "with_header": 5,
+      "files": 1,
+      "with_header": 1,
       "n_ingested": 8535,
-      "n_duplicate_ts": 47,
+      "n_duplicate_ts": 0,
       "min_ts_utc": "2020-05-30T06:03:00Z",
       "max_ts_utc": "2020-06-12T15:21:00Z",
-      "extra_blocks": 7
+      "extra_blocks": 0
     },
     {
       "source_dir": "Solar_2020-05-16",
       "station_id": "solar-2020-05",
-      "files": 7,
-      "with_header": 7,
+      "files": 1,
+      "with_header": 1,
       "n_ingested": 12920,
-      "n_duplicate_ts": 39,
+      "n_duplicate_ts": 0,
       "min_ts_utc": "2020-05-16T15:52:00Z",
       "max_ts_utc": "2020-06-15T02:51:00Z",
-      "extra_blocks": 7
+      "extra_blocks": 0
     },
     {
       "source_dir": "Voltage_phumy",
       "station_id": "voltage-phumy",
-      "files": 3,
+      "files": 1,
       "with_header": 1,
       "n_ingested": 5553,
-      "n_duplicate_ts": 2013,
+      "n_duplicate_ts": 0,
       "min_ts_utc": "2020-07-04T21:08:00Z",
       "max_ts_utc": "2020-07-12T18:03:00Z",
-      "extra_blocks": 2
+      "extra_blocks": 0
     },
     {
       "source_dir": "aisvn",
       "station_id": "aisvn",
-      "files": 39,
-      "with_header": 17,
-      "n_ingested": 77526,
-      "n_duplicate_ts": 22,
+      "files": 1,
+      "with_header": 1,
+      "n_ingested": 77622,
+      "n_duplicate_ts": 0,
       "min_ts_utc": "2020-06-15T06:10:00Z",
       "max_ts_utc": "2022-02-22T21:42:00Z",
       "extra_blocks": 0
@@ -2645,10 +2563,10 @@
     {
       "source_dir": "aisvn2",
       "station_id": "aisvn2",
-      "files": 79,
-      "with_header": 9,
+      "files": 1,
+      "with_header": 1,
       "n_ingested": 164098,
-      "n_duplicate_ts": 48,
+      "n_duplicate_ts": 0,
       "min_ts_utc": "2020-06-18T09:45:00Z",
       "max_ts_utc": "2021-11-01T02:49:00Z",
       "extra_blocks": 0
@@ -2656,43 +2574,21 @@
     {
       "source_dir": "phumy2",
       "station_id": "phumy2",
-      "files": 102,
-      "with_header": 21,
-      "n_ingested": 209652,
-      "n_duplicate_ts": 58,
+      "files": 1,
+      "with_header": 1,
+      "n_ingested": 416088,
+      "n_duplicate_ts": 0,
       "min_ts_utc": "2020-06-15T02:29:00Z",
-      "max_ts_utc": "2022-11-21T21:45:00Z",
-      "extra_blocks": 0
-    },
-    {
-      "source_dir": "phumy2a",
-      "station_id": "phumy2",
-      "files": 100,
-      "with_header": 2,
-      "n_ingested": 199514,
-      "n_duplicate_ts": 4,
-      "min_ts_utc": "2022-11-21T21:49:00Z",
-      "max_ts_utc": "2024-01-16T05:34:00Z",
-      "extra_blocks": 0
-    },
-    {
-      "source_dir": "phumy2b",
-      "station_id": "phumy2",
-      "files": 4,
-      "with_header": 3,
-      "n_ingested": 6922,
-      "n_duplicate_ts": 1,
-      "min_ts_utc": "2024-01-16T05:36:00Z",
       "max_ts_utc": "2026-09-27T07:10:00Z",
       "extra_blocks": 0
     },
     {
       "source_dir": "test",
       "station_id": "test",
-      "files": 18,
-      "with_header": 2,
+      "files": 1,
+      "with_header": 1,
       "n_ingested": 33377,
-      "n_duplicate_ts": 12,
+      "n_duplicate_ts": 0,
       "min_ts_utc": "2020-07-05T04:40:00Z",
       "max_ts_utc": "2020-08-21T06:36:00Z",
       "extra_blocks": 0
@@ -2734,7 +2630,7 @@
           "solar2_v"
         ],
         "why": "collector: the collector input was disconnected and the sheet logged a flat 0.0 V for the whole window. Every one of the 220,069 readings is that placeholder, so there is no measurement to store. The window is half-open: the channel reads normally again from 2024-01-01.",
-        "n_rows": 220074
+        "n_rows": 220069
       },
       {
         "station_id": "aisvn",
@@ -2744,7 +2640,7 @@
           "temp_c"
         ],
         "why": "collector: a pre-recompile stretch where the sheet logged 200 as a stand-in for 'no temperature'. The window ends at 04:14 UTC precisely so the 114 genuine tenths that follow survive. Nothing is nulled today: the collector resolved the placeholder at source, and the window is kept because the archive still carries the boundary.",
-        "n_rows": 0
+        "n_rows": 1359
       }
     ],
     "bad": [
@@ -2783,7 +2679,7 @@
   "coverage": [
     {
       "station_id": "aisvn",
-      "n_readings": 77526,
+      "n_readings": 77622,
       "median_gap_seconds": 120,
       "p90_gap_seconds": 120
     },
@@ -2835,33 +2731,33 @@
     "rows": [
       {
         "station_id": "aisvn",
-        "channel": "solar2_v",
-        "unit": "V",
-        "band": [
-          0.0,
-          15.0
-        ],
-        "n_values": 77526,
-        "n_out_of_range": 14107,
-        "fraction": 0.181965,
-        "over_threshold": true,
-        "justified": true,
-        "note": "15 V, below this channel's own 19.5 V saturation, so the rail is flagged -- and that is 18.2% of the record, which is why it needs a note rather than silence. 0.8 carried one global 0-60 V band per column name, which both missed this and flagged the millivolt stations. Whether 19.5 V is a saturated input or a real ceiling is a question for the collector: 0-15 V is the ceiling of a two-cell series string and a 19.5 V rail is a plausible ADC top, and the archive cannot tell them apart."
-      },
-      {
-        "station_id": "aisvn",
         "channel": "lipo_v",
         "unit": "V",
         "band": [
           0.0,
           5.0
         ],
-        "n_values": 77526,
-        "n_out_of_range": 14107,
-        "fraction": 0.181965,
+        "n_values": 77621,
+        "n_out_of_range": 15460,
+        "fraction": 0.199173,
         "over_threshold": true,
         "justified": true,
         "note": "0-5 V, the collector's figure. It fires on 18.2% of the record, which is why it needs a note rather than silence, and the note is that 6.84 V is a single exact value across 14,107 readings: a plateau, which is either a saturated input or a pack being read through a divider. 0.9.0 bounded it at 0-8.7 V specifically to stop this firing, and the collector has now said the ceiling is 5 V, so it fires again and the 18.2% is the finding. Open question 2."
+      },
+      {
+        "station_id": "aisvn",
+        "channel": "solar2_v",
+        "unit": "V",
+        "band": [
+          0.0,
+          15.0
+        ],
+        "n_values": 77622,
+        "n_out_of_range": 14107,
+        "fraction": 0.18174,
+        "over_threshold": true,
+        "justified": true,
+        "note": "15 V, below this channel's own 19.5 V saturation, so the rail is flagged -- and that is 18.2% of the record, which is why it needs a note rather than silence. 0.8 carried one global 0-60 V band per column name, which both missed this and flagged the millivolt stations. Whether 19.5 V is a saturated input or a real ceiling is a question for the collector: 0-15 V is the ceiling of a two-cell series string and a 19.5 V rail is a plausible ADC top, and the archive cannot tell them apart."
       },
       {
         "station_id": "aisvn",
@@ -2871,9 +2767,9 @@
           9.0,
           16.0
         ],
-        "n_values": 77526,
-        "n_out_of_range": 1717,
-        "fraction": 0.022147,
+        "n_values": 77622,
+        "n_out_of_range": 1813,
+        "fraction": 0.023357,
         "over_threshold": true,
         "justified": true,
         "note": "Fires on 1,717 of 77,526 readings (2.2%) and that is the finding, not a false positive: the bank reaches 29.8 V in 2020 and 17.9 V in 2021, which is a second pack, a mis-scaled input or a band wrong for what is installed. The collector confirmed a lead pack, which is what makes 29.8 V a question rather than an explanation. See open question 1 in AGENTS.md."
@@ -2886,9 +2782,9 @@
           0.0,
           25.0
         ],
-        "n_values": 77526,
-        "n_out_of_range": 1612,
-        "fraction": 0.020793,
+        "n_values": 77622,
+        "n_out_of_range": 1687,
+        "fraction": 0.021734,
         "over_threshold": true,
         "justified": true,
         "note": "0.8 used 0-60 V for every station's solar_v, which flagged nothing here because 0.8's scale never reached the stored value. 0.9 drew it at 25 V, below this station's 29.8 V saturation, so the readings on the rail are marked. They are the readings that coincide with the collector's reconfiguration window (2020-10-23 to 10-30), which is flagged separately and is the more specific explanation."
@@ -2901,12 +2797,27 @@
           0.0,
           20.0
         ],
-        "n_values": 77526,
-        "n_out_of_range": 1612,
-        "fraction": 0.020793,
+        "n_values": 77622,
+        "n_out_of_range": 1687,
+        "fraction": 0.021734,
         "over_threshold": true,
         "justified": true,
         "note": "20 V, below the rail. It fires on the same readings as solar_v and for the same reason -- the 2020-10-23 to 10-30 reconfiguration window -- which is a useful cross-check: two independent inputs flag the same 1,612 readings. The rail's true full scale is still unrecorded, so this is the collector's figure rather than a measured ceiling. Open question 6."
+      },
+      {
+        "station_id": "aisvn",
+        "channel": "current_a",
+        "unit": "A",
+        "band": [
+          0.0,
+          3.0
+        ],
+        "n_values": 77622,
+        "n_out_of_range": 1486,
+        "fraction": 0.019144,
+        "over_threshold": true,
+        "justified": true,
+        "note": "0-3 A, the collector's figure for this panel. It fires on the 1,823 readings inside the 2020-10-23 to 10-30 reconfiguration window, where the raw channel reads near zero and the +6.6 A correction is deliberately not applied -- they are half-built hardware, flagged as such by BAD_WINDOWS, and their values are not measurements. Nothing outside that window is flagged. Note also that the corrected current after 2020-08-24 varies by only about 0.3 A and does not track solar, so the correction removes the sign error but does not restore a usable signal; that is what the collector's request for more insight at higher resolution is about."
       },
       {
         "station_id": "aisvn2",
@@ -2924,21 +2835,6 @@
         "note": "Upper limit 500, from the collector; no lower bound, because 55% of this channel's readings are negative and a floor at zero would flag more than half the record for a sensor that is working. It fires on 2,915 of 153,770 readings (1.9%), all of them in the 2021-10 and 2021-11 stretch where the channel pins at 1240 -- the ~200x step the collector has not yet explained. The unit is still unresolved, so no lower bound is asserted and no scale is applied. Open question 1."
       },
       {
-        "station_id": "aisvn",
-        "channel": "current_a",
-        "unit": "A",
-        "band": [
-          0.0,
-          3.0
-        ],
-        "n_values": 77526,
-        "n_out_of_range": 1412,
-        "fraction": 0.018213,
-        "over_threshold": true,
-        "justified": true,
-        "note": "0-3 A, the collector's figure for this panel. It fires on the 1,823 readings inside the 2020-10-23 to 10-30 reconfiguration window, where the raw channel reads near zero and the +6.6 A correction is deliberately not applied -- they are half-built hardware, flagged as such by BAD_WINDOWS, and their values are not measurements. Nothing outside that window is flagged. Note also that the corrected current after 2020-08-24 varies by only about 0.3 A and does not track solar, so the correction removes the sign error but does not restore a usable signal; that is what the collector's request for more insight at higher resolution is about."
-      },
-      {
         "station_id": "maker-webhooks",
         "channel": "battery_v",
         "unit": "V",
@@ -2954,6 +2850,21 @@
         "note": "Fires on 138 of 8,529 readings (1.6%), all of them below 9 V, down to 0.757 V. That is the same lead-acid bank reading as aisvn's and the same question: what is installed here. 0.8's 0-60 V band flagged every millivolt reading instead, which is 2,041 false positives on this channel alone."
       },
       {
+        "station_id": "aisvn",
+        "channel": "power_w",
+        "unit": "W",
+        "band": [
+          0.0,
+          50.0
+        ],
+        "n_values": 77621,
+        "n_out_of_range": 907,
+        "fraction": 0.011685,
+        "over_threshold": true,
+        "justified": true,
+        "note": "0-50 W, the collector's figure. Fires on 217 readings before the fault (40 slightly negative, 177 above 50 W) and on the reconfiguration window afterwards, where the -0.25 factor is not applied. Nothing else is flagged, and the corrected record runs 0-34.5 W, which is a plausible output for this panel and tracks the solar curve. 0.8 asserted energy_wh as avg_power * n_samples * 2 / 3600 for every station, which multiplied this channel by an assumed cadence; there is no such column in 0.9."
+      },
+      {
         "station_id": "solar-2020-05",
         "channel": "lipo_v",
         "unit": "V",
@@ -2967,21 +2878,6 @@
         "over_threshold": true,
         "justified": true,
         "note": "Fires on 148 of 12,920 readings (1.15%): 139 below 2.5 V and 9 above 4.35 V, the largest of which is 13.637 V. Both directions are the finding."
-      },
-      {
-        "station_id": "aisvn",
-        "channel": "power_w",
-        "unit": "W",
-        "band": [
-          0.0,
-          50.0
-        ],
-        "n_values": 77525,
-        "n_out_of_range": 879,
-        "fraction": 0.011338,
-        "over_threshold": true,
-        "justified": true,
-        "note": "0-50 W, the collector's figure. Fires on 217 readings before the fault (40 slightly negative, 177 above 50 W) and on the reconfiguration window afterwards, where the -0.25 factor is not applied. Nothing else is flagged, and the corrected record runs 0-34.5 W, which is a plausible output for this panel and tracks the solar curve. 0.8 asserted energy_wh as avg_power * n_samples * 2 / 3600 for every station, which multiplied this channel by an assumed cadence; there is no such column in 0.9."
       },
       {
         "station_id": "aisvn2",
@@ -3036,9 +2932,9 @@
           0.0,
           40.0
         ],
-        "n_values": 62060,
-        "n_out_of_range": 155,
-        "fraction": 0.002498,
+        "n_values": 62156,
+        "n_out_of_range": 156,
+        "fraction": 0.00251,
         "over_threshold": false,
         "justified": true,
         "note": "0-40 degC, the collector's ceiling for a probe in shadow at this site. 0.9.0 used 60 degC and flagged 119 readings; at 40 it flags the readings above it and nothing else, which is the level the hardware can actually reach here. The archive cannot say how much of the record is a shaded reading and how much a heated one, and December 2021 has several sources, so a reading above 40 degC is a question rather than a fault."
@@ -3111,7 +3007,7 @@
           0.0,
           50.0
         ],
-        "n_values": 77526,
+        "n_values": 77622,
         "n_out_of_range": 0,
         "fraction": 0.0,
         "over_threshold": false,

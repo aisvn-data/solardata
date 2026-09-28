@@ -714,6 +714,20 @@
       ],
       "band_note": "No band, deliberately. A counter is not a physical quantity: it starts at 1 after a reboot and climbs, so the only thing a range could say is the station's uptime, which is not what the site draws it for. It is published because the logger's own view of its uptime is the only channel recording that, and a bucket whose minimum is 1 restarted.",
       "published": true
+    },
+    "voltage-phumy.solar_v": {
+      "station_id": "voltage-phumy",
+      "channel": "solar_v",
+      "label": "Solar",
+      "kind": "voltage",
+      "description": "Calibrated solar/battery voltage, 10.6-14.3 V.",
+      "unit": "V",
+      "band": [
+        null,
+        null
+      ],
+      "band_note": "No band: bench calibration channel, not a production solar sensor.",
+      "published": true
     }
   }
 }

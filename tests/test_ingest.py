@@ -662,10 +662,10 @@ class TestSideBlocks(TempArchiveCase):
         # solely to recover that prose.
         write_xlsx(
             self.raw / "Voltage_phumy" / "IFTTT_test.xlsx",
-            ["time", "raw", "voltage", "millis()"],
+            ["time", "raw", "voltage", "millis()", "solar_v"],
             [
-                ["July 12, 2020 at 10:02AM", 2500, 2200, 1000, "STROMAUSFALL!!"],
-                ["July 12, 2020 at 10:04AM", 2501, 2201, 2000, "leave home"],
+                ["July 12, 2020 at 10:02AM", 2500, 2200, 1000, 12.5, "STROMAUSFALL!!"],
+                ["July 12, 2020 at 10:04AM", 2501, 2201, 2000, 12.6, "leave home"],
             ],
         )
         xlsx.clear_read_cache()
@@ -680,7 +680,7 @@ class TestSideBlocks(TempArchiveCase):
             ["STROMAUSFALL!!", "leave home"],
             "short prose is recovered; a length threshold would have dropped it",
         )
-        self.assertEqual(notes[0]["column_name"], "E")
+        self.assertEqual(notes[0]["column_name"], "F")
         self.assertIsNotNone(notes[0]["ts_utc"], "and it is anchored to an instant")
 
     def test_a_side_block_header_is_not_prose(self) -> None:

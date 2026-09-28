@@ -92,7 +92,7 @@ class TestLayouts(unittest.TestCase):
             "phumy2": ("solar2 current2 power temp LiPo2 boot", 7),
             "solar-2020-05": ("event digital voltage LiPo", 5),
             "test": ("nix temp_c wifi_tx_ms", 4),
-            "voltage-phumy": ("raw voltage millis()", 4),
+            "voltage-phumy": ("raw voltage millis() solar_v", 5),
         }
         for station_id, (header, width) in expected.items():
             station = BY_ID[station_id]
