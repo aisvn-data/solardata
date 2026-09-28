@@ -242,8 +242,22 @@ def cmd_fresh(args: argparse.Namespace) -> int:
     return cmd_all(args)
 
 
+def cmd_normalize(args: argparse.Namespace) -> int:
+    """Ingest raw files into compact solardata_raw.db with integer channels."""
+    from . import build_raw_db
+
+    settings = _settings(args)
+    _say(args, f"solardata {__version__}: normalizing raw archive to {settings.raw_db_path}")
+    summary = build_raw_db.build_raw_db(settings, verbose=not args.quiet)
+    _say(args, f"  {summary.line()}")
+    if summary.failed:
+        _say(args, f"  WARNING: {summary.failed} file(s) failed")
+    return 1 if summary.failed else 0
+
+
 STAGE_FUNCS = {
     "ingest": cmd_ingest,
+    "normalize": cmd_normalize,
     "aggregate": cmd_aggregate,
     "export": cmd_export,
     "report": cmd_report,
@@ -306,6 +320,7 @@ def _add_verify_flags(parser: argparse.ArgumentParser, *, defaults: bool = True)
 
 HELP = {
     "ingest": "XLSX -> eight station tables, rebuilt from scratch",
+    "normalize": "raw XLSX -> compact solardata_raw.db with integer channels",
     "aggregate": "hourly and daily rollups, and the per-station channel measurements",
     "export": "public/data: stations.json, metrics.json and one CSV set per station",
     "report": "the per-station data-quality report",

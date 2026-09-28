@@ -1,0 +1,843 @@
+{
+  "stations": {
+    "aisvn": {
+      "station_id": "aisvn",
+      "display_name": "AISVN #1",
+      "location": "Nha Be, Ho Chi City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "source_dirs": [
+        "aisvn"
+      ],
+      "applet": "IFTTT_aisvn",
+      "production": true,
+      "published_group": "solar production",
+      "notes": "11-channel logger. The applet was recompiled twice and the collector converted the sheet at source, so the whole record is volts and amps with no scale window to apply -- except for two hardware faults the collector dates exactly: the current channel gained a permanent offset at 2020-08-24 18:42 local, and the power channel's output was inverted and four times too large from the same instant. Both are declared as corrections rather than absorbed into the channel.",
+      "layouts": [
+        {
+          "n_columns": 11,
+          "header": [
+            "solar",
+            "battery",
+            "current",
+            "power",
+            "load",
+            "wind",
+            "temp",
+            "solar2",
+            "LiPo",
+            "boot"
+          ],
+          "channels": [
+            "solar_v",
+            "battery_v",
+            "current_a",
+            "power_w",
+            "load_v",
+            "wind_v",
+            "temp_c",
+            "solar2_v",
+            "lipo_v",
+            "boot_count"
+          ],
+          "n_files": 39,
+          "note": "One layout for all 39 files. 0.8.0 repaired the pre-recompile files at source, so the header now reads power, load here too and the width never changes."
+        }
+      ],
+      "channels": {
+        "solar_v": {
+          "name": "solar_v",
+          "kind": "voltage",
+          "raw_unit": null,
+          "unit": "V",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "solar2_v": {
+          "name": "solar2_v",
+          "kind": "voltage",
+          "raw_unit": null,
+          "unit": "V",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "battery_v": {
+          "name": "battery_v",
+          "kind": "voltage",
+          "raw_unit": null,
+          "unit": "V",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "current_a": {
+          "name": "current_a",
+          "kind": "current",
+          "raw_unit": null,
+          "unit": "A",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": [
+            {
+              "from_ts": "2020-08-24T11:42:00Z",
+              "to_ts": "2020-10-23T00:00:00Z",
+              "op": "add",
+              "value": 6.6,
+              "note": "The collector's dated fault: from 18:42 local on 2020-08-24 the channel records 6.6 A below the truth until the logger was reconfigured. The instant is the first reading that latches -- 11:41 still reads 0.02, 11:42 reads exactly -6.0 -- so the boundary is the second, not the hour."
+            },
+            {
+              "from_ts": "2020-10-30T00:00:00Z",
+              "to_ts": null,
+              "op": "add",
+              "value": 6.6,
+              "note": "The same fault again after the reconfiguration window (2020-10-23 to 10-30, which the collector says describes a half-built logger). The channel is back on the -6.0 A offset from 2020-10-30. Two windows rather than one because the correction is *not* applied inside the reconfiguration window, where the channel reads near zero rather than -6.0 and adding 6.6 to it would invent 6.6 A of phantom load."
+            }
+          ]
+        },
+        "power_w": {
+          "name": "power_w",
+          "kind": "power",
+          "raw_unit": null,
+          "unit": "W",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": [
+            {
+              "from_ts": "2020-08-24T11:42:00Z",
+              "to_ts": "2020-10-23T00:00:00Z",
+              "op": "factor",
+              "value": -0.25,
+              "note": "The collector's dated fault, same instant as the current channel's offset: the output is inverted and four times too large, so multiplying by -0.25 undoes both. The corrected curve tracks solar exactly -- 0 W at night, 34.5 W at noon -- which is the evidence that -0.25 and not +0.25 is the right sign."
+            },
+            {
+              "from_ts": "2020-10-30T00:00:00Z",
+              "to_ts": null,
+              "op": "factor",
+              "value": -0.25,
+              "note": "The same fault again after the reconfiguration window. Paused inside it for the same reason as the current channel: the readings there come from a half-built logger and are flagged rather than corrected."
+            }
+          ]
+        },
+        "load_v": {
+          "name": "load_v",
+          "kind": "voltage",
+          "raw_unit": null,
+          "unit": "V",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "wind_v": {
+          "name": "wind_v",
+          "kind": "power",
+          "raw_unit": null,
+          "unit": "W",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "temp_c": {
+          "name": "temp_c",
+          "kind": "temperature",
+          "raw_unit": null,
+          "unit": "degC",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "lipo_v": {
+          "name": "lipo_v",
+          "kind": "voltage",
+          "raw_unit": null,
+          "unit": "V",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "boot_count": {
+          "name": "boot_count",
+          "kind": "count",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": true,
+          "corrections": []
+        }
+      }
+    },
+    "aisvn2": {
+      "station_id": "aisvn2",
+      "display_name": "AISVN #2",
+      "location": "Nha Be, Ho Chi City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "source_dirs": [
+        "aisvn2"
+      ],
+      "applet": "IFTTT_aisvn2",
+      "production": true,
+      "published_group": "solar production",
+      "notes": "8-channel logger recording millivolts throughout. The LiPo channel is a 2S pack, not the 1S cell the archive once assumed.",
+      "layouts": [
+        {
+          "n_columns": 8,
+          "header": [
+            "solar3",
+            "battery2",
+            "currentA",
+            "currentB",
+            "LiPo2",
+            "load",
+            "boot"
+          ],
+          "channels": [
+            "solar3_v",
+            "battery2_v",
+            "current_a_chA",
+            "current_a_chB",
+            "lipo2_v",
+            "load_v",
+            "boot_count"
+          ],
+          "n_files": 79,
+          "note": "One layout for all 79 files. 70 of them are headerless."
+        }
+      ],
+      "channels": {
+        "solar3_v": {
+          "name": "solar3_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "battery2_v": {
+          "name": "battery2_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "current_a_chA": {
+          "name": "current_a_chA",
+          "kind": "current",
+          "raw_unit": null,
+          "unit": "",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "current_a_chB": {
+          "name": "current_a_chB",
+          "kind": "current",
+          "raw_unit": null,
+          "unit": "",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "lipo2_v": {
+          "name": "lipo2_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "load_v": {
+          "name": "load_v",
+          "kind": "digital",
+          "raw_unit": null,
+          "unit": "",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "boot_count": {
+          "name": "boot_count",
+          "kind": "count",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": true,
+          "corrections": []
+        }
+      }
+    },
+    "aisvn-solar": {
+      "station_id": "aisvn-solar",
+      "display_name": "AISVN Solar (archived applet)",
+      "location": "Nha Be, Ho Chi City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "source_dirs": [
+        "AISVN_Solar"
+      ],
+      "applet": "IFTTT_AISVN_Solar",
+      "production": true,
+      "published_group": "solar production",
+      "notes": "Superseded by aisvn. May 2020 only. 9 columns, of which two load rails have no established unit and two inputs never move.",
+      "layouts": [
+        {
+          "n_columns": 9,
+          "header": [
+            "solar",
+            "battery",
+            "load_1",
+            "load_2",
+            "LiPo",
+            "wind",
+            "dump",
+            "boot"
+          ],
+          "channels": [
+            "solar_v",
+            "battery_v",
+            "load1_v",
+            "load2_v",
+            "lipo_v",
+            "wind_v",
+            "dump_adc",
+            "boot_count"
+          ],
+          "n_files": 7,
+          "note": "One layout for all 7 files, all of which have a header. Carries a second column block to the right of the primary one."
+        }
+      ],
+      "channels": {
+        "solar_v": {
+          "name": "solar_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "battery_v": {
+          "name": "battery_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.002,
+          "counter": false,
+          "corrections": []
+        },
+        "load1_v": {
+          "name": "load1_v",
+          "kind": "voltage",
+          "raw_unit": null,
+          "unit": "",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "load2_v": {
+          "name": "load2_v",
+          "kind": "voltage",
+          "raw_unit": null,
+          "unit": "",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "lipo_v": {
+          "name": "lipo_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "wind_v": {
+          "name": "wind_v",
+          "kind": "voltage",
+          "raw_unit": null,
+          "unit": "",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "dump_adc": {
+          "name": "dump_adc",
+          "kind": "raw",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "boot_count": {
+          "name": "boot_count",
+          "kind": "count",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": true,
+          "corrections": []
+        }
+      }
+    },
+    "maker-webhooks": {
+      "station_id": "maker-webhooks",
+      "display_name": "Maker Webhooks (archived applet)",
+      "location": "Nha Be, Ho Chi City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "source_dirs": [
+        "Maker_Webhooks_Events"
+      ],
+      "applet": "IFTTT_Maker_Webhooks_Events",
+      "production": true,
+      "published_group": "solar production",
+      "notes": "Superseded by aisvn. June 2020 only. Two sheet widths, 10 and 11 columns, and the 11-column files carry a second solar input.",
+      "layouts": [
+        {
+          "n_columns": 10,
+          "header": [
+            "solar",
+            "battery",
+            "curA",
+            "curB",
+            "load",
+            "wind",
+            "dump",
+            "LiPo",
+            "boot"
+          ],
+          "channels": [
+            "solar_v",
+            "battery_v",
+            "current_a_chA",
+            "current_a_chB",
+            "load_v",
+            "wind_v",
+            "dump_adc",
+            "lipo_v",
+            "boot_count"
+          ],
+          "n_files": 3,
+          "note": "The earlier width. No solar2 column, so solar2_v is absent from these files."
+        },
+        {
+          "n_columns": 11,
+          "header": [
+            "solar",
+            "battery",
+            "curA",
+            "curB",
+            "load",
+            "wind",
+            "dump",
+            "solar2",
+            "LiPo",
+            "boot"
+          ],
+          "channels": [
+            "solar_v",
+            "battery_v",
+            "current_a_chA",
+            "current_a_chB",
+            "load_v",
+            "wind_v",
+            "dump_adc",
+            "solar2_v",
+            "lipo_v",
+            "boot_count"
+          ],
+          "n_files": 2,
+          "note": "The later width, which added solar2 between dump and LiPo. This is the only station in the archive with two layouts of different widths, and width alone tells them apart."
+        }
+      ],
+      "channels": {
+        "solar_v": {
+          "name": "solar_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "solar2_v": {
+          "name": "solar2_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "battery_v": {
+          "name": "battery_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "current_a_chA": {
+          "name": "current_a_chA",
+          "kind": "current",
+          "raw_unit": null,
+          "unit": "",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "current_a_chB": {
+          "name": "current_a_chB",
+          "kind": "current",
+          "raw_unit": null,
+          "unit": "",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "load_v": {
+          "name": "load_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "wind_v": {
+          "name": "wind_v",
+          "kind": "power",
+          "raw_unit": "mV",
+          "unit": "W",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "dump_adc": {
+          "name": "dump_adc",
+          "kind": "raw",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "lipo_v": {
+          "name": "lipo_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "boot_count": {
+          "name": "boot_count",
+          "kind": "count",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": true,
+          "corrections": []
+        }
+      }
+    },
+    "phumy2": {
+      "station_id": "phumy2",
+      "display_name": "Phu My Hung #2",
+      "location": "Phu My Hung, Ho Chi City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "source_dirs": [
+        "phumy2",
+        "phumy2a",
+        "phumy2b"
+      ],
+      "applet": "IFTTT_phumy2",
+      "production": true,
+      "published_group": "solar production",
+      "notes": "7-channel logger and by far the longest record: 416,088 readings from June 2020 to September 2026. Split across three archive folders because Google Sheets split the sheet at 2000 rows; they are one instrument.",
+      "layouts": [
+        {
+          "n_columns": 7,
+          "header": [
+            "solar2",
+            "current2",
+            "power",
+            "temp",
+            "LiPo2",
+            "boot"
+          ],
+          "channels": [
+            "solar2_v",
+            "current2_a",
+            "power_w",
+            "temp_c",
+            "lipo2_v",
+            "boot_count"
+          ],
+          "n_files": 206,
+          "note": "One layout for all 206 files across all three folders, 180 of them headerless. This is the layout that 0.8's donor search had to get right for 46% of the archive's readings."
+        }
+      ],
+      "channels": {
+        "solar2_v": {
+          "name": "solar2_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "current2_a": {
+          "name": "current2_a",
+          "kind": "current",
+          "raw_unit": "mA",
+          "unit": "A",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "power_w": {
+          "name": "power_w",
+          "kind": "power",
+          "raw_unit": null,
+          "unit": "W",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "temp_c": {
+          "name": "temp_c",
+          "kind": "temperature",
+          "raw_unit": null,
+          "unit": "degC",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "lipo2_v": {
+          "name": "lipo2_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        },
+        "boot_count": {
+          "name": "boot_count",
+          "kind": "count",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": true,
+          "corrections": []
+        }
+      }
+    },
+    "solar-2020-05": {
+      "station_id": "solar-2020-05",
+      "display_name": "Solar bench (2020-05-16 sheet)",
+      "location": "Nha Be, Ho Chi City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "source_dirs": [
+        "Solar_2020-05-16"
+      ],
+      "applet": "IFTTT_Solar_2020-05-16",
+      "production": true,
+      "published_group": "solar production",
+      "notes": "Bench sheet rather than an instrument, but it logged a real panel for a month alongside aisvn's first weeks, so it is kept as a station. The only source of the 'event' label in the archive.",
+      "layouts": [
+        {
+          "n_columns": 5,
+          "header": [
+            "event",
+            "digital",
+            "voltage",
+            "LiPo"
+          ],
+          "channels": [
+            "event",
+            "digital_adc",
+            "voltage_adc",
+            "lipo_v"
+          ],
+          "n_files": 7,
+          "note": "One layout for all 7 files, all with a header."
+        }
+      ],
+      "channels": {
+        "event": {
+          "name": "event",
+          "kind": "text",
+          "raw_unit": null,
+          "unit": "",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "digital_adc": {
+          "name": "digital_adc",
+          "kind": "raw",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "voltage_adc": {
+          "name": "voltage_adc",
+          "kind": "raw",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "lipo_v": {
+          "name": "lipo_v",
+          "kind": "voltage",
+          "raw_unit": "mV",
+          "unit": "V",
+          "scale": 0.001,
+          "counter": false,
+          "corrections": []
+        }
+      }
+    },
+    "test": {
+      "station_id": "test",
+      "display_name": "Test bench",
+      "location": "Nha Be, Ho Chi City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "source_dirs": [
+        "test"
+      ],
+      "applet": "IFTTT_test",
+      "production": false,
+      "published_group": "solar production",
+      "notes": "Not a solar station. What remains after the collector's exclusion is a 4-column nix/temp/wifi probe, July to August 2020. Published under 'Not solar production' and labelled with this note wherever it appears.",
+      "layouts": [
+        {
+          "n_columns": 4,
+          "header": [
+            "nix",
+            "temp_c",
+            "wifi_tx_ms"
+          ],
+          "channels": [
+            "nix_raw",
+            "temp_c",
+            "wifi_raw"
+          ],
+          "n_files": 18,
+          "note": "One layout for all 18 files in the folder, 16 of them headerless. 0.8 described the folder as holding two unrelated schemas and counted 19 files; the 0.8.0 raw repair deleted IFTTT_test.xlsx and removed the 11-column solar stretch from IFTTT_test (1).xlsx, so what is left is one schema. IFTTT_test (1).xlsx is excluded whole on the collector's word -- see config.FILE_EXCLUSIONS."
+        }
+      ],
+      "channels": {
+        "nix_raw": {
+          "name": "nix_raw",
+          "kind": "raw",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "temp_c": {
+          "name": "temp_c",
+          "kind": "temperature",
+          "raw_unit": null,
+          "unit": "degC",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "wifi_raw": {
+          "name": "wifi_raw",
+          "kind": "duration",
+          "raw_unit": null,
+          "unit": "ms",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        }
+      }
+    },
+    "voltage-phumy": {
+      "station_id": "voltage-phumy",
+      "display_name": "Phu My Hung voltage calibration",
+      "location": "Phu My Hung, Ho Chi City, Vietnam",
+      "tz": "Asia/Ho_Chi_Minh",
+      "source_dirs": [
+        "Voltage_phumy"
+      ],
+      "applet": "Voltage_phumy",
+      "production": false,
+      "published_group": "solar production",
+      "notes": "A bench calibration of the ADC-to-voltage conversion, not a station. It carries the hand-made discharge summary in its second column block and the lab's own annotations, which are recovered into notes.",
+      "layouts": [
+        {
+          "n_columns": 5,
+          "header": [
+            "raw",
+            "voltage",
+            "millis()",
+            "solar_v"
+          ],
+          "channels": [
+            "adc_raw",
+            "voltage_adc",
+            "millis_ms",
+            "solar_v"
+          ],
+          "n_files": 1,
+          "note": "Consolidated calibration sheet with raw ADC, voltage ADC, millis, and calibrated solar_v."
+        }
+      ],
+      "channels": {
+        "adc_raw": {
+          "name": "adc_raw",
+          "kind": "raw",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "voltage_adc": {
+          "name": "voltage_adc",
+          "kind": "raw",
+          "raw_unit": null,
+          "unit": "count",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        },
+        "millis_ms": {
+          "name": "millis_ms",
+          "kind": "count",
+          "raw_unit": null,
+          "unit": "ms",
+          "scale": 1.0,
+          "counter": true,
+          "corrections": []
+        },
+        "solar_v": {
+          "name": "solar_v",
+          "kind": "voltage",
+          "raw_unit": null,
+          "unit": "V",
+          "scale": 1.0,
+          "counter": false,
+          "corrections": []
+        }
+      }
+    }
+  }
+}

@@ -319,6 +319,20 @@ def build(conn: sqlite3.Connection, settings: Settings, *, verbose: bool = True)
     )
     (export_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
 
+    curation_src = Path(__file__).resolve().parent.parent / "data" / "config" / "curation.json"
+    if curation_src.exists():
+        (export_dir / "curation.json").write_text(
+            curation_src.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+    normalization_src = (
+        Path(__file__).resolve().parent.parent / "data" / "config" / "normalization.json"
+    )
+    if normalization_src.exists():
+        (export_dir / "normalization.json").write_text(
+            normalization_src.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
     summary = {
         "stations": len(stations),
         "csv_files": csv_files,

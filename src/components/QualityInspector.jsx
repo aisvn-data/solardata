@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { loadQuality } from '../data.js'
+import { loadQuality, loadCuration, loadNormalization } from '../data.js'
 
 /**
  * The per-station data-quality report.
@@ -19,8 +19,12 @@ import { loadQuality } from '../data.js'
  */
 export default function QualityInspector() {
   const [report, setReport] = useState(null)
+  const [curation, setCuration] = useState(null)
+  const [normalization, setNormalization] = useState(null)
   const [error, setError] = useState(null)
   const [section, setSection] = useState('stations')
+  const [editingBands, setEditingBands] = useState(false)
+  const [bandEdits, setBandEdits] = useState({})
 
   useEffect(() => {
     let cancelled = false
@@ -30,6 +34,20 @@ export default function QualityInspector() {
       })
       .catch((err) => {
         if (!cancelled) setError(err.message)
+      })
+    loadCuration()
+      .then((data) => {
+        if (!cancelled) setCuration(data)
+      })
+      .catch(() => {
+        // Curation is optional fallback
+      })
+    loadNormalization()
+      .then((data) => {
+        if (!cancelled) setNormalization(data)
+      })
+      .catch(() => {
+        // Normalization is optional fallback
       })
     return () => {
       cancelled = true
@@ -67,12 +85,92 @@ export default function QualityInspector() {
 
   const tabs = [
     ['stations', `Stations (${report.stations.length})`],
-    ['bands', `Bands (${audit.rows.length})`],
+    ['bands', `Bands & Curation (${audit.rows.length})`],
+    ['normalization', 'Hardware & Normalization'],
     ['flags', `Flags (${Object.keys(flags).length})`],
     ['windows', `Windows (${windows.null.length + windows.bad.length})`],
     ['notes', `Notes (${notes.length})`],
     ['rejects', `Rejected cells (${totals.rejects.toLocaleString()})`],
   ]
+
+  const handleDownloadCuration = () => {
+    const base = curation ?? { stations: {} }
+    const updated = JSON.parse(JSON.stringify(base))
+    for (const [key, edit] of Object.entries(bandEdits)) {
+      const [stationId, channel] = key.split('.')
+      if (!updated.stations) updated.stations = {}
+      if (!updated.stations[stationId]) {
+        updated.stations[stationId] = { open_questions: [], channels: {} }
+      }
+      if (!updated.stations[stationId].channels) {
+        updated.stations[stationId].channels = {}
+      }
+      if (!updated.stations[stationId].channels[channel]) {
+        updated.stations[stationId].channels[channel] = {
+          label: channel,
+          description: '',
+          band: [null, null],
+          band_note: '',
+          publish: true,
+          exclude: null,
+          exclude_note: '',
+          stats: ['avg', 'min', 'max'],
+        }
+      }
+      const chObj = updated.stations[stationId].channels[channel]
+      const lo = edit.band_lo === '' || edit.band_lo === null ? null : Number(edit.band_lo)
+      const hi = edit.band_hi === '' || edit.band_hi === null ? null : Number(edit.band_hi)
+      chObj.band = [Number.isNaN(lo) ? null : lo, Number.isNaN(hi) ? null : hi]
+      if (edit.note !== undefined) {
+        chObj.band_note = edit.note
+      }
+    }
+    const blob = new Blob([JSON.stringify(updated, null, 2) + '\n'], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'curation.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleProposeGitHubIssue = () => {
+    const editKeys = Object.keys(bandEdits)
+    if (editKeys.length === 0) return
+    const rowsMarkdown = editKeys
+      .map((key) => {
+        const [stationId, channel] = key.split('.')
+        const originalRow = audit.rows.find(
+          (r) => r.station_id === stationId && r.channel === channel,
+        )
+        const edit = bandEdits[key]
+        const origBand = originalRow
+          ? `${originalRow.band[0] ?? '−∞'} … ${originalRow.band[1] ?? '∞'}`
+          : '—'
+        const newLo = edit.band_lo === '' || edit.band_lo === null ? '−∞' : edit.band_lo
+        const newHi = edit.band_hi === '' || edit.band_hi === null ? '∞' : edit.band_hi
+        const newBand = `${newLo} … ${newHi}`
+        const note = edit.note !== undefined ? edit.note : originalRow?.note || ''
+        return `| \`${stationId}\` | \`${channel}\` | ${origBand} | ${newBand} | ${note} |`
+      })
+      .join('\n')
+
+    const stationsList = [...new Set(editKeys.map((k) => k.split('.')[0]))].join(', ')
+    const title = encodeURIComponent(`curation: propose boundary adjustments for ${stationsList}`)
+    const body = encodeURIComponent(
+      `### Proposed Curation Changes\n\n` +
+        `Boundary and note adjustments tuned in the Data Quality Inspector:\n\n` +
+        `| Station | Channel | Current Band | Proposed Band | Note |\n` +
+        `|---|---|---|---|---|\n` +
+        `${rowsMarkdown}\n\n` +
+        `### Rationale\n\n` +
+        `*Describe why these physical limits or notes should be updated.*\n`,
+    )
+    window.open(
+      `https://github.com/aisvn-data/solardata/issues/new?title=${title}&body=${body}`,
+      '_blank',
+    )
+  }
 
   return (
     <div className="inspector">
@@ -263,13 +361,90 @@ export default function QualityInspector() {
 
       {section === 'bands' && (
         <div className="panel">
-          <p className="muted">
-            How much of each channel&apos;s own record its own band rejects. A band is
-            a claim about a sensor at a site, and a flag that fires on more than{' '}
-            {((audit.threshold ?? 0.01) * 100).toFixed(0)}% of a channel cannot mark a
-            contaminated aggregate &mdash; it is reporting a unit mismatch. Every row
-            above the threshold carries a note saying why the fire is the finding.
-          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+            <p className="muted" style={{ margin: 0, maxWidth: '650px' }}>
+              How much of each channel&apos;s own record its own band rejects. A band is
+              a claim about a sensor at a site, and a flag that fires on more than{' '}
+              {((audit.threshold ?? 0.01) * 100).toFixed(0)}% of a channel cannot mark a
+              contaminated aggregate &mdash; it is reporting a unit mismatch. Every row
+              above the threshold carries a note saying why the fire is the finding.
+            </p>
+            <button
+              type="button"
+              className={editingBands ? 'active' : ''}
+              onClick={() => setEditingBands(!editingBands)}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: '1px solid #94a3b8',
+                background: editingBands ? '#102a43' : '#f8fafc',
+                color: editingBands ? '#fff' : '#1e293b',
+                fontWeight: '600',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {editingBands ? '✓ Close Tuning' : '✎ Tune Boundaries & Curation'}
+            </button>
+          </div>
+
+          {Object.keys(bandEdits).length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#0369a1' }}>
+                {Object.keys(bandEdits).length} channel{Object.keys(bandEdits).length === 1 ? '' : 's'} tuned
+              </span>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleDownloadCuration}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #0284c7',
+                    background: '#0284c7',
+                    color: '#fff',
+                    fontWeight: '600',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  📥 Download curation.json
+                </button>
+                <button
+                  type="button"
+                  onClick={handleProposeGitHubIssue}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #16a34a',
+                    background: '#16a34a',
+                    color: '#fff',
+                    fontWeight: '600',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  🐙 Propose via GitHub Issue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBandEdits({})}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    background: '#fff',
+                    color: '#64748b',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          )}
+
           <table className="data-table">
             <thead>
               <tr>
@@ -284,25 +459,120 @@ export default function QualityInspector() {
               </tr>
             </thead>
             <tbody>
-              {audit.rows.map((r) => (
-                <tr
-                  key={`${r.station_id}.${r.channel}`}
-                  className={r.over_threshold && !r.justified ? 'band-warn' : ''}
-                >
-                  <td>{r.station_id}</td>
-                  <td>
-                    <code>{r.channel}</code>
-                  </td>
-                  <td>{r.unit || '—'}</td>
-                  <td>
-                    {r.band[0] ?? '−∞'} … {r.band[1] ?? '∞'}
-                  </td>
-                  <td className="num">{r.n_values.toLocaleString()}</td>
-                  <td className="num">{r.n_out_of_range.toLocaleString()}</td>
-                  <td className="num">{(r.fraction * 100).toFixed(2)}%</td>
-                  <td className="small">{r.note}</td>
-                </tr>
-              ))}
+              {audit.rows.map((r) => {
+                const key = `${r.station_id}.${r.channel}`
+                const edit = bandEdits[key]
+                const isModified = edit !== undefined
+                const bandLo = isModified ? edit.band_lo : (r.band[0] ?? '')
+                const bandHi = isModified ? edit.band_hi : (r.band[1] ?? '')
+                const currentNote = isModified ? (edit.note ?? '') : (r.note ?? '')
+                const needsNote = r.over_threshold && !currentNote.trim()
+
+                return (
+                  <tr
+                    key={key}
+                    className={(r.over_threshold && !r.justified) || needsNote ? 'band-warn' : ''}
+                    style={isModified ? { background: '#f0fdf4' } : undefined}
+                  >
+                    <td>
+                      {r.station_id}
+                      {isModified && (
+                        <span style={{ marginLeft: '6px', fontSize: '0.7rem', color: '#16a34a', fontWeight: 'bold' }}>
+                          (modified)
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <code>{r.channel}</code>
+                    </td>
+                    <td>{r.unit || '—'}</td>
+                    <td>
+                      {editingBands ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <input
+                            type="number"
+                            step="any"
+                            placeholder="−∞"
+                            value={bandLo}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              setBandEdits((prev) => ({
+                                ...prev,
+                                [key]: {
+                                  band_lo: val,
+                                  band_hi: prev[key]?.band_hi ?? (r.band[1] ?? ''),
+                                  note: prev[key]?.note ?? (r.note ?? ''),
+                                },
+                              }))
+                            }}
+                            style={{ width: '65px', padding: '2px 4px', fontSize: '0.8rem', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+                          />
+                          <span>…</span>
+                          <input
+                            type="number"
+                            step="any"
+                            placeholder="∞"
+                            value={bandHi}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              setBandEdits((prev) => ({
+                                ...prev,
+                                [key]: {
+                                  band_lo: prev[key]?.band_lo ?? (r.band[0] ?? ''),
+                                  band_hi: val,
+                                  note: prev[key]?.note ?? (r.note ?? ''),
+                                },
+                              }))
+                            }}
+                            style={{ width: '65px', padding: '2px 4px', fontSize: '0.8rem', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+                          />
+                        </div>
+                      ) : (
+                        `${bandLo !== '' ? bandLo : '−∞'} … ${bandHi !== '' ? bandHi : '∞'}`
+                      )}
+                    </td>
+                    <td className="num">{r.n_values.toLocaleString()}</td>
+                    <td className="num">{r.n_out_of_range.toLocaleString()}</td>
+                    <td className="num">{(r.fraction * 100).toFixed(2)}%</td>
+                    <td className="small">
+                      {editingBands ? (
+                        <div>
+                          <input
+                            type="text"
+                            placeholder={r.over_threshold ? 'Reason required (>1% fires)' : 'Optional note'}
+                            value={currentNote}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              setBandEdits((prev) => ({
+                                ...prev,
+                                [key]: {
+                                  band_lo: prev[key]?.band_lo ?? (r.band[0] ?? ''),
+                                  band_hi: prev[key]?.band_hi ?? (r.band[1] ?? ''),
+                                  note: val,
+                                },
+                              }))
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '2px 6px',
+                              fontSize: '0.78rem',
+                              border: needsNote ? '1px solid #ef4444' : '1px solid #cbd5e1',
+                              borderRadius: '4px',
+                            }}
+                          />
+                          {needsNote && (
+                            <div style={{ color: '#dc2626', fontSize: '0.7rem', marginTop: '2px' }}>
+                              ⚠️ Missing note (&gt;1% fires)
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        r.note
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
           {audit.unjustified.length > 0 && (
@@ -313,6 +583,97 @@ export default function QualityInspector() {
               this.
             </p>
           )}
+        </div>
+      )}
+
+      {section === 'normalization' && (
+        <div className="panel">
+          <h3>Normalization: Raw Telemetry to Standard Physical Units</h3>
+          <p className="muted">
+            The normalization stage converts raw, inconsistent XLSX exports into compact, queryable store
+            (<code>solardata_raw.db</code>, 22.7 MB, with <code>ts INTEGER PRIMARY KEY</code> as Unix epoch seconds
+            and integer channel telemetry). It applies physical hardware scale factors (e.g. mV to V, mA to A)
+            and dated hardware corrections confirmed against the hardware.
+          </p>
+
+          <h4>Physical Scale Factors (Hardware Multipliers)</h4>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Station</th>
+                <th>Channel</th>
+                <th>Raw Unit</th>
+                <th>Stored Unit</th>
+                <th>Scale Factor</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.stations.flatMap((s) =>
+                s.channels
+                  .filter((ch) => ch.scale !== 1.0)
+                  .map((ch) => (
+                    <tr key={`${s.station_id}.${ch.channel}`}>
+                      <td>{s.display_name} (<code>{s.station_id}</code>)</td>
+                      <td><code>{ch.channel}</code></td>
+                      <td>{ch.raw_unit}</td>
+                      <td>{ch.unit}</td>
+                      <td><strong>×{ch.scale}</strong></td>
+                      <td className="small">{ch.description}</td>
+                    </tr>
+                  )),
+              )}
+            </tbody>
+          </table>
+
+          <h4>Dated Hardware Fault Corrections</h4>
+          <p className="muted small">
+            Hardware faults dated and declared by the collector. Applied once during ingest, after scaling.
+          </p>
+          <div className="window-card">
+            <div className="window-head">
+              <strong>AISVN #1 Current Sensor Sign/Offset Fault</strong>
+              <span className="badge">aisvn.current_a</span>
+            </div>
+            <p className="window-why">
+              From 2020-08-24 18:42:00 local: Collector hardware failure caused the current sensor to read 6.6 A too low.
+              Normalized by applying <code>add 6.6</code>.
+            </p>
+          </div>
+          <div className="window-card">
+            <div className="window-head">
+              <strong>AISVN #1 Power Inversion & Gain Fault</strong>
+              <span className="badge">aisvn.power_w</span>
+            </div>
+            <p className="window-why">
+              From 2020-08-24 18:42:00 local: Power channel output was inverted and 4× too large.
+              Normalized by applying <code>factor -0.25</code>.
+            </p>
+          </div>
+
+          <h4>Raw Telemetry Layouts</h4>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Station</th>
+                <th>Channels</th>
+                <th>Source Definition</th>
+                <th>Mapped Channels</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.stations.map((s) => (
+                <tr key={s.station_id}>
+                  <td>{s.display_name} (<code>{s.station_id}</code>)</td>
+                  <td className="num">{s.channels.length}</td>
+                  <td>{s.applet ? `Applet: ${s.applet}` : 'Declared Layout'}</td>
+                  <td>
+                    {s.channels.map((c) => c.channel).join(', ')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

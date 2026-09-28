@@ -75,6 +75,20 @@ export function loadQuality() {
   return cache.get('quality')
 }
 
+export function loadCuration() {
+  if (!cache.has('curation')) {
+    cache.set('curation', fetchJson('curation.json'))
+  }
+  return cache.get('curation')
+}
+
+export function loadNormalization() {
+  if (!cache.has('normalization')) {
+    cache.set('normalization', fetchJson('normalization.json'))
+  }
+  return cache.get('normalization')
+}
+
 /**
  * The plausibility bands, keyed `"<station_id>.<channel>"`.
  *
