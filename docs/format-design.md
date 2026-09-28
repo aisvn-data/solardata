@@ -169,18 +169,22 @@ are open — is in [`roadmap.md`](roadmap.md) under "Planned". In short: the
 intention is a second store holding each cell as the sheet gave it, next to the
 decision that was made about it. `config.py` names the specific gap:
 
-That gap is real and still open. `metrics.METRICS` describes a band per *column*,
-so it can only say one unit for every station that logs that column, and the two
-exceptions have to be carried separately:
+That gap is real, and 0.9 closed most of it. The three copies of one idea this
+section described are now one:
 
-| Where | What it costs today |
+| Where it was | Where it is |
 |---|---|
-| `config.CHANNEL_UNITS` | a per-station band override, applied in two places (`coerce_cell` and the aggregate) because applying it in one is the same bug one level up |
-| `build_db._band_override` | the override resolved per row at flag time |
-| `stations.json` → `channel_units` | the same override shipped to the browser, so the site divides `test`'s hundredths by 100 and the other seven stations' tenths by 10 |
+| `metrics.METRICS` — a band per *column*, so one unit for every station logging it | `etl/catalog.py` — a band per `(station, channel)`, in that channel's unit |
+| `config.CHANNEL_UNITS` — a per-station override applied in two places | gone; it is the channel's `unit` and `scale` |
+| `build_db._band_override` — the override resolved per row at flag time | gone; the ingest has one band and applies it once |
+| `stations.json` → `channel_units` — the same override shipped so the browser could divide | gone; the browser has no divisor, because the value arrives in its display unit |
 
-Three copies of one idea, which is what the planned table would collapse into
-one `(station_id, column)` key.
+The one remaining difference between the sheet and the store is a deliberate one:
+a confirmed scale is applied at ingest, so the stored value is the reading and
+not the number the collector logged. The raw cell is in `rejects` when it was a
+sentinel, and `source_files` carries the file and its SHA-256 for every row, so
+the archive is still the authority — it is simply not duplicated into a second
+table that could disagree with this one.
 
 ### What building it would have to settle first
 
@@ -194,12 +198,12 @@ Recorded rather than decided, in the spirit of `AGENTS.md`'s open questions:
 2. **Whether it is a second file or a second schema.** Two files means two
    places for the readings to disagree, which is a new failure mode rather than a
    smaller one. A schema in the same database costs nothing to keep consistent.
-3. **What it is worth.** 730,914 rows already have a home, with provenance down
-   to the file and sheet row (`rejects` for what did not make it, `metric_defs`
-   for how each column was read, `regimes` for every proposed scale). The case
-   for a verbatim layer is auditability — the ability to re-derive the derived
-   store from something nobody has to trust. Whether anyone will do that is not
-   established.
+3. **What it is worth.** 731,885 rows already have a home, with provenance down
+   to the file and sheet row: `source_files` for every file with its SHA-256,
+   `rejects` for every cell that did not make it with its raw text, and `notes`
+   for the human prose that was in a data cell. The case for a verbatim layer is
+   auditability — the ability to re-derive the derived store from something
+   nobody has to trust. Whether anyone will do that is not established.
 4. **Who asks for it.** The name appears in no issue, no commit message and no
    design note; it was introduced in `5f4ecc6` as a phrase for a future table.
    If a fuller description exists outside this repository, it should be pasted

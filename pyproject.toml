@@ -1,23 +1,20 @@
 [project]
 name = "solardata-etl"
-version = "0.8.0"
+version = "0.9.0"
 description = "Convert the raw IFTTT/Google-Sheets solar archive into a queryable store"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 
-# Runtime dependencies are intentionally few. openpyxl is the only hard
-# requirement for the ingest; SQLite is stdlib. pyarrow is only needed for the
-# Parquet stage, which is skippable.
+# openpyxl is the only hard requirement: the ingest reads Google Sheets XLSX
+# exports and writes SQLite, which is in the standard library.
 dependencies = [
     "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
-# Full build: Parquet interchange format.
-parquet = ["pyarrow>=14"]
 # Everything needed to run the tests.
-dev = ["pytest>=8", "ruff>=0.6", "pyarrow>=14"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 solardata-etl = "etl.cli:main"
@@ -27,7 +24,11 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["etl", "etl.readers", "etl.normalize"]
+# `etl.normalize` is gone in 0.9. The per-channel bands, units and scale factors
+# that lived there are now declarations in `etl.catalog`, one per
+# (station, channel), because a band is a claim about a sensor at a site and a
+# column name cannot carry that.
+packages = ["etl", "etl.readers"]
 
 [tool.setuptools.package-data]
 etl = ["schema.sql"]
@@ -36,7 +37,9 @@ etl = ["schema.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# --strict-markers so an unregistered marker is an error rather than a typo that
+# silently does nothing.
+addopts = "-q --strict-markers"
 filterwarnings = ["error::DeprecationWarning"]
 
 [tool.ruff]

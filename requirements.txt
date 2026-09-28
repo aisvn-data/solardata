@@ -1,28 +1,30 @@
-# Runtime dependencies for the solardata ETL pipeline.
+# Runtime and development dependencies for the solardata pipeline.
 #
 #   pip install -r requirements.txt
 #
 # openpyxl is the only hard requirement: the ingest reads Google Sheets XLSX
-# exports and writes SQLite, which is in the standard library.  Everything below
-# that is optional, and each stage that needs it degrades with a clear message
-# rather than crashing.
+# exports and writes SQLite, which is in the standard library.  Everything else
+# is for running the tests and the linter, and nothing in `python -m etl all`
+# needs a third-party package beyond openpyxl.
 #
-#   pip install -r requirements.txt   # full build, including Parquet
-#   pip install openpyxl              # ingest only
+#   pip install openpyxl          # the build alone
+#   pip install -r requirements.txt   # the build, the tests and the linter
 
 openpyxl>=3.1
-
-# Parquet interchange format for the `parquet` stage.  Without it, SQLite is
-# still a complete store and `python -m etl all --only db,regimes,export,report`
-# works fine.
-pyarrow>=14
 
 # Test and lint tooling.
 pytest>=8
 ruff>=0.6
 
-# Used by tests/test_workflows.py to validate the GitHub Actions workflow files.
-# Without it the test module fails at *collection*, which aborts the whole pytest
-# run rather than skipping one file -- so it has to be declared, and the test
-# guards with importorskip so a minimal environment still works.
-pyyaml>=6
+# 0.9 dropped three dependencies:
+#
+#   pyarrow    the Parquet interchange stage. It is gone; see the release notes.
+#              `data/processed/parquet/` and `scripts/parquet_manifest.py` are
+#              removed with it.
+#   pyyaml     `tests/test_workflows.py` used to parse the GitHub Actions files and
+#              failed at *collection* without it, which aborts the whole pytest
+#              run rather than skipping one file. `tests/test_guards.py` reads
+#              the workflows as text, so a workflow's shape is checked by
+#              assertions about the file rather than by a YAML parse -- which
+#              also means a test cannot pass because a key was spelled correctly
+#              in a file nobody deploys.

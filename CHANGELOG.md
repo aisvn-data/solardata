@@ -106,6 +106,268 @@ records what each edit changed. Every previous version is in git history.
   things — the reading as written, and the value as published — but the pair reads
   as a contradiction until this is written down somewhere the reader will see it.
 
+## [0.9.0] - 2026-09-28
+
+A rewrite of the whole pipeline around one idea: **a channel is a fact about a
+station, not a fact about a column name.**
+
+0.8 kept a plausibility band per *column* in `etl/normalize/metrics.py`, a
+per-station unit override in `config.CHANNEL_UNITS`, and twenty-two confirmed
+scale factors in `build_regimes.py`, and read them in seven places. The band and
+the scale were each measured against the other, and both were wrong, so most of
+what the pipeline flagged was arithmetic rather than a fact about the hardware.
+
+**`out_of_range` flags: 631,252 → 3,682.** 99.4% of them were a unit mismatch.
+
+| | 0.8 | 0.9 |
+|---|---:|---:|
+| readings | 731,885 | **731,885** |
+| raw files | 364 | 364 |
+| stations | 8 | 8 |
+| hourly / daily buckets | 25,566 / 1,184 | 25,566 / 1,184 |
+| **out-of-range channel values** | **631,252** | **3,695** |
+| rejected cells | 224,297 | 259,463 |
+| recovered notes | 11 | 11 |
+| `public/data` | 5.6 MiB | 3.3 MiB |
+| `solardata.db` | 182 MiB | 104 MiB |
+| unit tests | 147, one taking 50 s | 132, slowest 0.07 s |
+
+### Added
+
+- **`etl/catalog.py` -- the station catalog, and the documentation.** One
+  declaration per `(station, channel)`: label, description, kind, the unit, the
+  confirmed scale, the plausibility band, which statistics the rollups carry,
+  and whether the site charts it. 51 channels across 8 stations, and 9 layouts.
+  It is the only place a band, a unit or a scale is written down, and the
+  database, the report, `public/data/stations.json`, `public/data/metrics.json`
+  and the browser are all generated from it.
+
+- **Eight tables, one per station.** `s_aisvn`, `s_aisvn2`, `s_aisvn_solar`,
+  `s_maker_webhooks`, `s_phumy2`, `s_solar_2020_05`, `s_test`, `s_voltage_phumy`.
+  Each holds only the channels that station collects, `WITHOUT ROWID` with the
+  instant as the whole primary key. 75% of the cells in 0.8's single 32-column
+  `readings` table were NULL, and no reader could tell which NULLs meant "not
+  connected" from which meant "not measured".
+
+- **`channel_stats` -- the per-station documentation, measured.** One row per
+  `(station, channel)`: start, stop, count, min, max, mean, the 1st/50th/99th
+  percentiles that make a bimodal channel visible, how many readings are exactly
+  zero, how many were sentinels, how many were null-windowed, and how many the
+  band rejected. Measured rather than asserted, so a band that starts firing on a
+  third of a record shows up as a number that moved.
+
+- **`etl/audit.py` -- build-time checks against the real archive.** Four checks
+  that only a real run can make, and each of which would have caught a specific
+  0.8 failure: every `(station, width)` in the 364 files resolves to a declared
+  layout; every band is quiet or explained; a row is flagged `out_of_range`
+  exactly when one of its banded channels is out of band, in both directions; and
+  an excluded channel is still excluded for the reason it was. `python -m etl
+  audit` is a stage, and it runs in `data.yml` and `data_fresh.yml`.
+
+- **`BAND_FIRE_FRACTION` -- a rule about bands.** A band is a claim about a
+  sensor at a site, and a flag that fires on more than 1% of a channel's own
+  record cannot mark a contaminated aggregate; it is reporting a unit mismatch.
+  Anything above the threshold must carry a `band_note` saying why the fire is
+  the finding, and the audit fails without one. 0.8 had four channels above 20%
+  and no way to know that was wrong.
+
+- **`.github/workflows/data_fresh.yml` -- a from-scratch rebuild, on demand.**
+  `workflow_dispatch` with a required reason, plus a weekly confirmation run. It
+  deletes `solardata.db` and its `-wal`/`-shm` sidecars first, so the build
+  starts from nothing, then runs `etl all` and `verify`. It does not commit; a
+  human reads the summary and the report diff and decides.
+
+- **`stations.json` carries each station's channels.** Label, unit, band, kind,
+  decimals, the observed range, and the reason for every exclusion, so the
+  picker, the axis unit and the band the chart rings a value against all come
+  from the declaration the ingest applied to the raw cell.
+
+- **A "recorded but not charted" panel on every station.** Eight channels are in
+  the database and not on the chart, each with a reason and a sentence: `wind_v`
+  at three stations, `phumy2.power_w`, two `aisvn-solar` load rails, and
+  `solar-2020-05.event`. A reader who knows `phumy2` has a power pin would
+  otherwise conclude the site dropped a column.
+
+### Changed
+
+- **One unit, everywhere.** The confirmed scale is applied once, at ingest, so
+  the database, the rollups, the Parquet, the CSV and the browser all hold the
+  same number in the same unit. There is no regime table, no `scaled_channels`
+  column, no stored-vs-display unit split, and no out-of-range count that has to
+  be recomputed after the fact. `_rescale_oor_counts` is gone, and so is the
+  disagreement it existed to paper over.
+
+- **A headerless file's column meanings come from the catalog, keyed on
+  `(station, width)`.** The archive contains exactly nine such pairs and no
+  station has two layouts of the same width, so the lookup is total and an
+  undeclared width is a loud build failure. 0.8 resolved it by finding the
+  nearest preceding sibling with a header of the same width, ordering on the
+  parsed timestamp -- 150 lines whose failure mode was to discard 90% of an
+  archive's measurements while every timestamp still ingested and nothing
+  reported a problem. 305 of the 364 files are headerless, so this is the path
+  most of the archive takes.
+
+- **A station's CSV carries only that station's channels.** The header is
+  generated per station, so there is nothing to discover and nothing to keep in
+  step. `phumy2` shipped 27 permanently-empty columns per station-year in 0.8 and
+  the browser had to work out which were real.
+
+- **`rejects` grew by 35,166 rows, all of them sentinels.** 0.8 counted a
+  placeholder in a flag and did not record the cell; 0.9 records it, so every
+  value that did not become a reading is in the rejects table with its sheet row
+  and its raw text. `sentinel` rejects are 32,916 of the 259,463.
+
+- **The report is organised per station**, not per column. The band, the unit and
+  the observed range are three separate columns because they answer three
+  different questions, and the two of them that disagree are the finding.
+
+- **A null window only corrects a cell that had a value.** 0.8's
+  `aisvn.temp_c` window covers 1,359 rows whose temp cell the collector's
+  at-source repair left *empty*. Stamping `no_signal` on them asserted that the
+  collector said the input was disconnected when the sheet says nothing at all,
+  which is a different claim. The 220,069 `phumy2.solar2_v` cells it does
+  correct were a flat 0.0 V and are still nulled.
+
+- **Prose is recovered by a structural test, not a length threshold.** 0.8's
+  20-character floor dropped four real notes -- `STROMAUSFALL!!`, `at Library
+  ...`, `leave home`, `arrive at school`. The vocabulary of column names is now
+  taken from the catalog, so a side block's repeated header is not prose either
+  and the count stays at 11.
+
+- **The rollups are derived, not recomputed.** `readings_daily` is an
+  aggregation of `readings_hourly`, so "every day and every sample count matches
+  across the pair" is structural rather than a test that has to be written.
+
+- **`energy_wh` is gone.** 0.8 computed it as `avg_power * n_samples * 2 / 3600`
+  for every station, which asserts a 2-minute cadence and multiplies it by a
+  power channel six of the eight stations do not have -- and for `phumy2` by a
+  channel that is not a measurement. A reading has a timestamp and nothing else.
+
+- **Every station is published; two are grouped as not-production.** `test` and
+  `voltage-phumy` were withheld from the rollups until 0.7.2 and then marked
+  `published: false`, which made `published` mean "is solar production" and
+  collided with "is there anything to draw". The two are now `is_production:
+  false`, listed under their own heading, and their 38,930 readings are
+  reachable.
+
+- **The CLI takes its common flags on either side of the stage**, as the
+  documentation has always claimed: `python -m etl -q ingest` and
+  `python -m etl ingest -q` are the same command.
+
+### Removed
+
+- **`etl/build_regimes.py`, `etl/normalize/` and `etl/rollup_schema.py`.** The
+  22 confirmed scales are declarations in `etl.catalog`, and every one of them
+  turned out to cover its channel's entire extent -- the seven `aisvn` windows
+  were `scale = 1.0`, kept as a record of a recompile boundary that applies no
+  conversion. A window that covers everything is a constant, and a constant is
+  one number rather than a window in a detector.
+
+- **The scale-regime detector.** It proposed 11 windows and 2 remain unconfirmed;
+  both are now open questions in `etl.catalog` and `docs/roadmap.md` rather than
+  things a heuristic re-proposes on every build. Nothing was ever applied from an
+  unconfirmed proposal, and `baseline.json` no longer carries an
+  `unconfirmed_regimes` field.
+
+- **The Parquet stage and `scripts/parquet_manifest.py`.** The committed Parquet
+  tree is 0.9.0's to regenerate or not, but a fifth build stage with its own
+  manifest comparison and its own `pyarrow` dependency is not a fifth thing this
+  dataset needs. `data/processed/parquet/` and `scripts/parquet_manifest.py` are
+  removed; the release asset is the SQLite file.
+
+- **`etl/stations.py`.** The registry moved into `etl.catalog` next to the
+  channels it describes, because a station and its channels are one declaration
+  and a folder-to-station map on its own is not.
+
+- **Four flags that were never written**: `clip`, `non_monotonic`,
+  `schema_misaligned` and `free_text` were in the vocabulary and set zero times.
+  `schema_misaligned` and `free_text` are still written and are now correct;
+  `clip` and `non_monotonic` had detectors that were never wired in and are gone
+  with them.
+
+### Fixed
+
+- **Three temperature channels were scaled by 10 or 100 and banded in the scaled
+  unit.** The sheets write degrees -- `32.5`, `24.2`, `29.47` -- and 0.8 stored
+  `325`, `291` and `2947`, each against a band (`50-900`, `50-900`, `2149-3131`)
+  that was wrong by the same factor as the value. Two errors cancelling, so the
+  record looked banded when it was only rescaled, and no flag fired anywhere.
+  All three are now plain degrees banded 0-60 degC, and 585 readings above 60
+  degC are flagged -- which is a finding about the hardware rather than about
+  arithmetic.
+
+- **`phumy2.current2_a` flagged on all 416,088 of its readings.** The channel is
+  232 mA and the 0.8 band was +/-50 A, because the band belonged to the column
+  name and the scale was only applied in the rollups. The station used that count
+  to decide whether an aggregate was contaminated, so the whole station read as
+  broken on a sensor measuring a quarter of an amp. The confirmed millivolt-
+  equivalent scale is applied at ingest, the range is 0.155-1.997 A, and nothing
+  is flagged.
+
+- **`aisvn-solar.load1_v` and `load2_v` were published as volts.** They record
+  0-1,598 and 0-3,026, which cannot be volts; at that magnitude a load rail is
+  implausible by three orders. The millivolt reading is likely and unconfirmed,
+  so neither is charted and neither is banded, and the reason ships with the
+  station.
+
+- **`maker-webhooks.lipo_v` and `aisvn.lipo_v` were banded as 1S cells.** Both
+  are bimodal -- a 0.735 V and a 6.84 V plateau respectively -- and a 1S band
+  fired on 19% and 20% of each record. Both are now bounded so the plateau is not
+  a per-reading out-of-range, and the bimodality is recorded as an open question
+  rather than as 15,000 flags.
+
+- **`aisvn2.current_a_chA`/`current_a_chB` and `maker-webhooks`'s current
+  channels had bands that could not be true.** They are still stored and still
+  published, but with no band: the unit is unresolved, and a band would assert
+  an amplitude the archive cannot support.
+
+- **`test/IFTTT_test.xlsx` no longer exists.** 0.8's raw repair deleted it, so its
+  `FILE_EXCLUSIONS` entry matched nothing. The dead entry is kept so the repair
+  is visible in the file that records the decision, and the surviving entry's
+  prose is corrected: `IFTTT_test (1).xlsx` is 4,121 rows of the same nix/temp/
+  wifi probe as its neighbours, not the 11-column solar layout 0.8 described.
+  The exclusion is kept on the collector's word and the overlap is still there.
+
+- **The openpyxl reader returned cell objects, not values.** In
+  `read_only=True` mode `iter_rows()` yields `ReadOnlyCell`, so passing the cell
+  straight to `str()` made every cell the literal text `<ReadOnlyCell
+  'Sheet1'.A1>`. Every column then looked populated, every headerless file
+  measured 13 columns wide, and the build failed on an undeclared layout.
+
+- **`%B` and `%p` in `strptime` need a locale that is not loaded on Windows.**
+  Every timestamp cell in the archive failed to parse: zero readings and 738,358
+  rejects, in a shape that reads as a data problem and is a locale one. The
+  parser now reads the fields out of the regex it already matched, with the
+  month names as a fixed tuple.
+
+- **A null window flagged blank cells.** See "Changed" above.
+
+### Open questions
+
+Carried forward, and now recorded per station in `etl.catalog` and
+`docs/roadmap.md` rather than only in `AGENTS.md`:
+
+- `aisvn.battery_v` reaches 29.8 V in 2020 and 17.9 V in 2021 against a confirmed
+  12 V lead-acid pack. 1,717 readings, 2.2% of the channel, and the band is
+  right -- so the readings are the question.
+- `aisvn.lipo_v` and `maker-webhooks.lipo_v` are bimodal. Nothing records a
+  recompile at the change.
+- `aisvn2.current_a_chA` and `current_a_chB` step by roughly 200x between 2021-04
+  and 2021-10 with no recompile recorded, and it is not a clean factor.
+- `aisvn-solar.solar_v` maxes at 3,532 mV where a panel should reach 15-20 V open
+  circuit. The collector is asked.
+- `phumy2.solar2_v` is a divider output after a bridge and load were fitted, so it
+  is not a panel voltage and should not be charted as one. The bridge ratio is
+  unknown.
+- `aisvn-solar.load1_v` and `load2_v` are in an unestablished unit.
+- `maker-webhooks`'s boot counter resets every 16 readings, 526 times in 8,535,
+  523 of them with no gap in sampling.
+- `phumy2.power_w` is not a power measurement. The hardware was never implemented.
+- `wind_v` is wired and logs, and what it logs is not a plausible generator
+  output. What it is connected to is asked of the collector.
+- `aisvn`'s load rail's 0 V state changes behaviour on 2020-07-10 with nothing
+  recorded to explain it.
+
 ## [0.8.0] — 2026-09-27
 
 ### Changed — the raw archive

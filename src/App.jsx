@@ -50,29 +50,41 @@ function App() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">About this data</p>
-                <h2>735,004 readings, eight stations, four years</h2>
+                <h2>731,885 readings, eight stations, six years</h2>
               </div>
             </div>
             <div className="prose">
               <p>
                 Collected by solar stations in Nha Be and Phu My Hung, Ho Chi
-                City, between May 2020 and February 2024. Readings were sent by
+                City, between May 2020 and September 2026. Readings were sent by
                 IFTTT to Google Sheets, exported as XLSX, and chunked into
-                2000-row files. This site reads the cleaned daily rollups; the
-                full record is in the repository.
+                2000-row files. This site reads the cleaned daily and hourly
+                rollups; the full record is in the repository.
               </p>
               <p>
-                The archive is not straightforward, and the site is careful not
-                to hide that. 305 of the 364 raw files have no header row, the
-                same column name sometimes means different things at different
-                times, and a value of <code>-992</code> means the sensor was
-                disconnected rather than that the reading was −992. A missing
-                value is shown as a gap, never as a zero.
+                Each station is one table, holding only the channels that station
+                collects, and each one of those channels declares its own unit and
+                its own plausible range &mdash; because a plausible range is a claim
+                about a sensor at a site, not about a column name. The same input
+                called <code>solar</code> is volts at AISVN&nbsp;#1 and
+                millivolts at three other stations, and a range that ignored the
+                difference would flag almost every reading.
               </p>
               <p>
-                The <strong>Data quality</strong> tab lists what the pipeline
-                inferred, flagged, or could not resolve. Read it before drawing a
-                conclusion from a chart.
+                The archive is not straightforward, and the site is careful not to
+                hide that. 305 of the 364 raw files have no header row, the same
+                column name sometimes means different things at different times,
+                and a value of <code>-992</code> means the sensor was disconnected
+                rather than that the reading was &minus;992. A missing value is
+                shown as a gap, never as a zero. A channel the station records but
+                that is not a measurement &mdash; a wired input nobody can explain, a
+                power pin the hardware never implemented &mdash; is listed with the
+                reason rather than quietly charted.
+              </p>
+              <p>
+                The <strong>Data quality</strong> tab lists, station by station,
+                what each channel recorded and what the pipeline expects of it.
+                Read it before drawing a conclusion from a chart.
               </p>
             </div>
           </section>

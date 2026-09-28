@@ -2,21 +2,25 @@ import { useEffect, useState } from 'react'
 import { loadQuality } from '../data.js'
 
 /**
- * Database inspector: what the build did, and what it is unsure about.
+ * The per-station data-quality report.
  *
  * This is the view a maintainer needs before trusting a chart. The station
- * explorer shows values; this shows the caveats that come with them -- which
- * columns were mapped by inference, which readings were flagged, which scale
- * changes are still unconfirmed, and what the collector wrote in the margin.
+ * explorer shows values; this shows what each station records, what it actually
+ * recorded, what the pipeline expects of it, and what nobody could resolve.
  *
- * It reads `quality.json`, written by `python -m etl export` from the same
+ * It reads `quality.json`, written by `python -m etl report` from the same
  * `etl.report.collect` call that produces the committed
  * `data/processed/quality_report.md`, so the two cannot disagree.
+ *
+ * The shape follows the pipeline. Bands belong to a (station, channel) pair, so
+ * the tables are per station rather than per column: a reader comparing two
+ * stations' batteries is comparing two different sensors, and 0.8's single
+ * column-name-keyed table could not show that.
  */
 export default function QualityInspector() {
   const [report, setReport] = useState(null)
   const [error, setError] = useState(null)
-  const [section, setSection] = useState('overview')
+  const [section, setSection] = useState('stations')
 
   useEffect(() => {
     let cancelled = false
@@ -38,7 +42,7 @@ export default function QualityInspector() {
         <h3>Could not load the quality report</h3>
         <p className="muted">{error}</p>
         <p>
-          Run <code>python -m etl export</code> to write{' '}
+          Run <code>python -m etl report</code> to write{' '}
           <code>public/data/quality.json</code>.
         </p>
       </div>
@@ -48,20 +52,32 @@ export default function QualityInspector() {
 
   const totals = report.totals
   const flags = report.flag_totals ?? {}
-  const unconfirmed = (report.regimes ?? []).filter((r) => r.status === 'unconfirmed')
+  const audit = report.band_audit ?? { rows: [], threshold: 0.01, unjustified: [] }
+  const windows = report.windows ?? { null: [], bad: [] }
+  const notes = report.notes ?? []
+  const rejects = report.rejects_by_reason ?? []
+  const first = report.stations.reduce(
+    (a, s) => (a === null || (s.first_ts_utc ?? '') < a ? s.first_ts_utc : a),
+    null,
+  )
+  const last = report.stations.reduce(
+    (a, s) => (a === null || (s.last_ts_utc ?? '') > a ? s.last_ts_utc : a),
+    null,
+  )
+
+  const tabs = [
+    ['stations', `Stations (${report.stations.length})`],
+    ['bands', `Bands (${audit.rows.length})`],
+    ['flags', `Flags (${Object.keys(flags).length})`],
+    ['windows', `Windows (${windows.null.length + windows.bad.length})`],
+    ['notes', `Notes (${notes.length})`],
+    ['rejects', `Rejected cells (${totals.rejects.toLocaleString()})`],
+  ]
 
   return (
     <div className="inspector">
       <div className="inspector-tabs" role="tablist">
-        {[
-          ['overview', 'Overview'],
-          ['flags', `Flags${Object.keys(flags).length ? ` (${Object.keys(flags).length})` : ''}`],
-          ['regimes', `Scale regimes (${unconfirmed.length})`],
-          ['channels', 'Channel coverage'],
-          ['windows', `Windows (${(report.null_windows ?? []).length + (report.bad_windows ?? []).length})`],
-          ['notes', `Collector notes (${report.notes?.length ?? 0})`],
-          ['rejects', `Rejected cells (${report.rejects?.total ?? 0})`],
-        ].map(([key, label]) => (
+        {tabs.map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -80,222 +96,250 @@ export default function QualityInspector() {
           <div className="stat-tiles">
             <Tile label="Readings" value={totals.readings.toLocaleString()} />
             <Tile label="Stations" value={totals.stations} />
-            <Tile label="Raw files" value={report.source_files.total} />
-            <Tile label="Days covered" value={totals.days.toLocaleString()} />
-            <Tile
-              label="Files without a header"
-              value={`${report.source_files.without_header} / ${report.source_files.total}`}
-            />
-            <Tile label="Unconfirmed regimes" value={unconfirmed.length} />
+            <Tile label="Raw files" value={totals.files} />
+            <Tile label="Hourly buckets" value={totals.hourly_buckets.toLocaleString()} />
+            <Tile label="Daily buckets" value={totals.daily_buckets.toLocaleString()} />
+            <Tile label="Out of range" value={(totals.out_of_range ?? 0).toLocaleString()} />
+          </div>
+        </div>
+      )}
+
+      {section === 'stations' && (
+        <div className="panel">
+          <div className="stat-tiles">
+            <Tile label="Readings" value={totals.readings.toLocaleString()} />
+            <Tile label="Stations" value={totals.stations} />
+            <Tile label="Raw files" value={totals.files} />
+            <Tile label="Hourly buckets" value={totals.hourly_buckets.toLocaleString()} />
+            <Tile label="Daily buckets" value={totals.daily_buckets.toLocaleString()} />
+            <Tile label="Out of range" value={flags.out_of_range?.toLocaleString() ?? '0'} />
           </div>
 
           <p className="muted">
-            Range <code>{totals.first_ts}</code> → <code>{totals.last_ts}</code>.
-            Every number on this page comes from a real run over the 364-file
-            archive, and the same counts are enforced by{' '}
-            <code>python -m etl verify</code> in CI.
+            Range <code>{first?.slice(0, 10)}</code> → <code>{last?.slice(0, 10)}</code>. Every
+            number here comes from a real run over the {totals.files}-file archive, and
+            the same counts are enforced by <code>python -m etl verify</code> in CI.
           </p>
 
-          <h3>Per folder</h3>
+          <h3>Per station</h3>
           <table className="data-table">
             <thead>
               <tr>
-                <th>Folder</th>
                 <th>Station</th>
-                <th className="num">Files</th>
-                <th className="num">With header</th>
-                <th className="num">Rows</th>
-                <th className="num">Dup ts</th>
-                <th>Range</th>
+                <th>Table</th>
+                <th className="num">Readings</th>
+                <th className="num">Channels</th>
+                <th className="num">Shown</th>
+                <th>Coverage (UTC)</th>
+                <th className="num">Median gap</th>
               </tr>
             </thead>
             <tbody>
-              {report.source_files.per_folder.map((row) => (
-                <tr key={row.source_dir}>
+              {report.stations.map((s) => {
+                const coverage = (report.coverage ?? []).find((c) => c.station_id === s.station_id)
+                return (
+                  <tr key={s.station_id}>
+                    <td>
+                      {s.display_name}
+                      {!s.is_production && <span className="muted small"> (bench)</span>}
+                    </td>
+                    <td>
+                      <code>{s.table}</code>
+                    </td>
+                    <td className="num">{(s.n_readings ?? 0).toLocaleString()}</td>
+                    <td className="num">{s.channels.length}</td>
+                    <td className="num">{s.published_channels.length}</td>
+                    <td>
+                      {s.first_ts_utc?.slice(0, 10)} → {s.last_ts_utc?.slice(0, 10)}
+                    </td>
+                    <td className="num">{coverage?.median_gap_seconds ?? '—'} s</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {report.stations.map((s) => (
+            <details key={s.station_id} className="station-detail">
+              <summary>
+                {s.display_name} — {s.channels.length} channel
+                {s.channels.length === 1 ? '' : 's'}, {s.published_channels.length} charted
+              </summary>
+              <p className="muted">{s.notes}</p>
+
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Channel</th>
+                    <th>Unit</th>
+                    <th className="num">n</th>
+                    <th className="num">min</th>
+                    <th className="num">median</th>
+                    <th className="num">mean</th>
+                    <th className="num">max</th>
+                    <th className="num">zeros</th>
+                    <th>Band</th>
+                    <th className="num">Out</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.channels.map((ch) => {
+                    const o = ch.observed ?? {}
+                    const band =
+                      ch.band_lo === null && ch.band_hi === null
+                        ? '—'
+                        : `${ch.band_lo ?? '−∞'} … ${ch.band_hi ?? '∞'}`
+                    return (
+                      <tr key={ch.channel} className={ch.published ? '' : 'muted'}>
+                        <td>
+                          <code>{ch.channel}</code>
+                          <div className="muted small">{ch.description}</div>
+                        </td>
+                        <td>
+                          {ch.unit || '—'}
+                          {ch.scale !== 1 && (
+                            <div className="muted small">×{ch.scale} from {ch.raw_unit}</div>
+                          )}
+                        </td>
+                        <td className="num">{(o.n_values ?? 0).toLocaleString()}</td>
+                        <td className="num">{fmt(o.min)}</td>
+                        <td className="num">{fmt(o.p50)}</td>
+                        <td className="num">{fmt(o.mean)}</td>
+                        <td className="num">{fmt(o.max)}</td>
+                        <td className="num">{(o.n_zero ?? 0).toLocaleString()}</td>
+                        <td>{band}</td>
+                        <td className="num">{(o.n_out_of_range ?? 0).toLocaleString()}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+
+              {s.hidden_channels.length > 0 && (
+                <>
+                  <h4>Recorded but not charted</h4>
+                  <ul>
+                    {s.hidden_channels.map((h) => (
+                      <li key={h.channel}>
+                        <code>{h.channel}</code> — <strong>{h.reason}</strong>. {h.note}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {Object.keys(s.flag_totals ?? {}).length > 0 && (
+                <>
+                  <h4>Flags on this station&apos;s readings</h4>
+                  <p className="muted small">
+                    {Object.entries(s.flag_totals)
+                      .map(([flag, n]) => `${flag}: ${n.toLocaleString()}`)
+                      .join(' · ')}
+                  </p>
+                </>
+              )}
+
+              {(s.rejects ?? []).length > 0 && (
+                <p className="muted small">
+                  Rejected cells:{' '}
+                  {s.rejects.map((r) => `${r.reason} ${r.n.toLocaleString()}`).join(' · ')}
+                </p>
+              )}
+
+              {(s.open_questions ?? []).length > 0 && (
+                <>
+                  <h4>Open questions</h4>
+                  <ul>
+                    {s.open_questions.map((q) => (
+                      <li key={q}>{q}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </details>
+          ))}
+        </div>
+      )}
+
+      {section === 'bands' && (
+        <div className="panel">
+          <p className="muted">
+            How much of each channel&apos;s own record its own band rejects. A band is
+            a claim about a sensor at a site, and a flag that fires on more than{' '}
+            {((audit.threshold ?? 0.01) * 100).toFixed(0)}% of a channel cannot mark a
+            contaminated aggregate &mdash; it is reporting a unit mismatch. Every row
+            above the threshold carries a note saying why the fire is the finding.
+          </p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Station</th>
+                <th>Channel</th>
+                <th>Unit</th>
+                <th>Band</th>
+                <th className="num">n</th>
+                <th className="num">Out of range</th>
+                <th className="num">Share</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {audit.rows.map((r) => (
+                <tr
+                  key={`${r.station_id}.${r.channel}`}
+                  className={r.over_threshold && !r.justified ? 'band-warn' : ''}
+                >
+                  <td>{r.station_id}</td>
                   <td>
-                    <code>{row.source_dir}</code>
+                    <code>{r.channel}</code>
                   </td>
-                  <td>{row.station_id}</td>
-                  <td className="num">{row.files}</td>
-                  <td className="num">{row.with_header}</td>
-                  <td className="num">{(row.rows_ingested ?? 0).toLocaleString()}</td>
-                  <td className="num">{row.duplicate_ts ?? 0}</td>
-                  <td className="small muted">
-                    {row.first_ts?.slice(0, 10)} → {row.last_ts?.slice(0, 10)}
+                  <td>{r.unit || '—'}</td>
+                  <td>
+                    {r.band[0] ?? '−∞'} … {r.band[1] ?? '∞'}
                   </td>
+                  <td className="num">{r.n_values.toLocaleString()}</td>
+                  <td className="num">{r.n_out_of_range.toLocaleString()}</td>
+                  <td className="num">{(r.fraction * 100).toFixed(2)}%</td>
+                  <td className="small">{r.note}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {audit.unjustified.length > 0 && (
+            <p className="error-box">
+              {audit.unjustified.length} band
+              {audit.unjustified.length === 1 ? '' : 's'} fire on more than the threshold
+              with no note explaining why. <code>python -m etl audit</code> fails on
+              this.
+            </p>
+          )}
         </div>
       )}
 
       {section === 'flags' && (
         <div className="panel">
           <p className="muted">
-            Flags never remove a value. <code>sentinel</code> means the raw cell
-            was an IFTTT missing-value marker (−992/−1) and is stored as NULL;
-            <code> out_of_range</code> means the value is kept but falls outside
-            the channel&apos;s plausible band, which is how calibration changes
-            get noticed.
-          </p>
-          {Object.keys(flags).length === 0 ? (
-            <p>No readings are flagged.</p>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Flag</th>
-                  <th className="num">Readings</th>
-                  <th className="num">Share</th>
-                  <th>Meaning</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(flags).map(([flag, count]) => (
-                  <tr key={flag}>
-                    <td>
-                      <code>{flag}</code>
-                    </td>
-                    <td className="num">{count.toLocaleString()}</td>
-                    <td className="num">
-                      {((count / totals.readings) * 100).toFixed(1)}%
-                    </td>
-                    <td className="muted small">{flagMeaning(flag)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          <h3>Channel plausibility</h3>
-          <p className="muted small">
-            Ranges as stored, before any scale regime is applied. A station with no
-            value in a column did not have that channel — NULL, not zero.
+            A flag describes the value that was stored. Nothing is ever dropped for
+            being implausible; a value outside its band is kept and marked, and a
+            placeholder is stored as a gap with the original cell in the rejects
+            table.
           </p>
           <table className="data-table">
             <thead>
               <tr>
-                <th>Station</th>
-                <th className="num">solar_v</th>
-                <th className="num">battery_v</th>
-                <th className="num">temp_c</th>
+                <th>Flag</th>
+                <th className="num">Readings</th>
+                <th>Meaning</th>
               </tr>
             </thead>
             <tbody>
-              {(report.channel_plausibility ?? []).map((row) => (
-                <tr key={row.station_id}>
+              {Object.entries(flags).map(([flag, n]) => (
+                <tr key={flag}>
                   <td>
-                    <code>{row.station_id}</code>
+                    <code>{flag}</code>
                   </td>
-                  <td className="num">{span(row.solar_min, row.solar_max)}</td>
-                  <td className="num">{span(row.batt_min, row.batt_max)}</td>
-                  <td className="num">{span(row.temp_min, row.temp_max)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {section === 'regimes' && (
-        <div className="panel">
-          <p className="muted">
-            The collector changed sensor scaling mid-record without changing the
-            column names. These are <strong>proposals</strong>: no value has been
-            rescaled, and a human has to accept or reject each one.
-          </p>
-          {unconfirmed.length === 0 ? (
-            <p>No scale regimes detected.</p>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Station</th>
-                  <th>Column</th>
-                  <th>Window</th>
-                  <th className="num">Scale</th>
-                  <th>Confidence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {unconfirmed.map((regime, index) => (
-                  <tr key={`${regime.station_id}-${regime.column}-${index}`}>
-                    <td>
-                      <code>{regime.station_id}</code>
-                    </td>
-                    <td>
-                      <code>{regime.column}</code>
-                    </td>
-                    <td className="small">
-                      {regime.valid_from?.slice(0, 10)} →{' '}
-                      {regime.valid_to ? regime.valid_to.slice(0, 10) : 'open'}
-                    </td>
-                    <td className="num">×{regime.scale}</td>
-                    <td>
-                      <span className={`confidence ${regime.confidence}`}>
-                        {regime.confidence}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {section === 'channels' && (
-        <div className="panel">
-          <p className="muted">
-            How each raw column of each archive folder was mapped.{' '}
-            <code>inferred</code> means the file had no header row and borrowed the
-            layout from an earlier sibling — 305 of 364 files, so most mappings
-            are inherited rather than read. <strong>Width</strong> is part of the
-            key: a folder can hold more than one layout, because an applet is
-            allowed to add a column partway through a run. <code>aisvn</code> went
-            from 10 columns to 11 on 2020-06-17 when a <code>power</code> channel
-            was added, so column 4 is <code>load</code> in one file and{' '}
-            <code>power</code> in the other 38.
-          </p>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Station</th>
-                <th>Folder</th>
-                <th className="num">Width</th>
-                <th className="num">Col</th>
-                <th>Raw header</th>
-                <th>Canonical</th>
-                <th>Unit</th>
-                <th>Confidence</th>
-                <th className="num">Files</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(report.metric_defs ?? []).map((def, index) => (
-                <tr
-                  key={`${def.station_id}-${def.source_dir}-${def.n_columns}-${def.col_index}-${index}`}
-                >
-                  <td>
-                    <code>{def.station_id}</code>
-                  </td>
-                  <td className="small">{def.source_dir}</td>
-                  <td className="num">{def.n_columns}</td>
-                  <td className="num">{def.col_index}</td>
-                  <td>
-                    <code>{def.raw_name || '—'}</code>
-                  </td>
-                  <td>
-                    <code>{def.canonical_col || 'unmapped'}</code>
-                  </td>
-                  <td>{def.unit || '—'}</td>
-                  <td>
-                    <span className={`confidence ${def.confidence}`}>
-                      {def.confidence}
-                    </span>
-                  </td>
-                  <td className="num">{def.n_files}</td>
+                  <td className="num">{n.toLocaleString()}</td>
+                  <td className="small">{report.flag_names?.[flag] ?? ''}</td>
                 </tr>
               ))}
             </tbody>
@@ -304,78 +348,136 @@ export default function QualityInspector() {
       )}
 
       {section === 'windows' && (
-        <WindowsPanel report={report} />
+        <div className="panel">
+          <h3>Windows whose values were stored as a gap</h3>
+          <p className="muted small">
+            A window over which the collector says the input was not connected, so the
+            number the sheet logged was a claim rather than a measurement. The values
+            are NULL and every affected cell is in the rejects table.
+          </p>
+          <ul>
+            {windows.null.map((w) => (
+              <li key={`${w.station_id}-${w.valid_from}`}>
+                <strong>{w.station_id}</strong> — {w.columns.join(', ')}, {w.valid_from} to{' '}
+                {w.valid_to}, {w.n_rows.toLocaleString()} cells. {w.why}
+              </li>
+            ))}
+          </ul>
+
+          <h3>Windows whose values were kept and flagged</h3>
+          <p className="muted small">
+            A human has said not to believe these levels, but the samples are real, so
+            they stay.
+          </p>
+          <ul>
+            {windows.bad.map((w) => (
+              <li key={`${w.station_id}-${w.valid_from}`}>
+                <strong>{w.station_id}</strong> — {w.columns.join(', ')}, {w.valid_from} to{' '}
+                {w.valid_to}. {w.why}
+              </li>
+            ))}
+          </ul>
+
+          <h3>Excluded files and rows</h3>
+          <ul>
+            {(report.exclusions?.files ?? []).map((f) => (
+              <li key={f.path}>
+                <code>{f.path}</code> — {f.why}
+              </li>
+            ))}
+            {(report.exclusions?.rows ?? []).map((r) => (
+              <li key={r.path}>
+                rows before {r.from_row} of <code>{r.path}</code> — {r.why}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {section === 'notes' && (
         <div className="panel">
           <p className="muted">
-            Prose the collector wrote into a spare column, recovered with its
-            timestamp. These are the only records of *why* the data looks the way
-            it does — several of them explain a calibration change.
+            Prose found in a data cell, anchored to the instant and the spreadsheet
+            column it came from. These are the collector&apos;s own words and the only
+            thing in the archive that says what was happening at the sites.
           </p>
-          {(report.notes ?? []).length === 0 ? (
-            <p>No notes recovered.</p>
-          ) : (
-            <ul className="note-list">
-              {report.notes.map((note, index) => (
-                <li key={index}>
-                  <span className="muted small">
-                    {note.rel_path?.split('/').pop()}
-                    {note.ts_utc ? ` · ${note.ts_utc.slice(0, 10)}` : ''}
-                  </span>
-                  <p>{note.note}</p>
-                </li>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Station</th>
+                <th>When (UTC)</th>
+                <th>Cell</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {notes.map((n) => (
+                <tr key={`${n.station_id}-${n.ts_utc}-${n.column_name}-${n.note}`}>
+                  <td>{n.station_id}</td>
+                  <td>{n.ts_utc?.slice(0, 19).replace('T', ' ') ?? '—'}</td>
+                  <td>{n.column_name ?? '—'}</td>
+                  <td>{n.note}</td>
+                </tr>
               ))}
-            </ul>
-          )}
+            </tbody>
+          </table>
         </div>
       )}
 
       {section === 'rejects' && (
         <div className="panel">
           <p className="muted">
-            Cells that did not become readings. Duplicate timestamps are recorded
-            here as well, so the absorbed copies stay individually inspectable
-            rather than being only a count.
+            Every cell that did not become a reading, grouped by why.{' '}
+            <code>reason</code> is a stable category and never a sentence: the prose
+            for each window is published once, above, and repeated on 220,074 rows
+            it used to cost 80.6 MiB.
           </p>
           <table className="data-table">
             <thead>
               <tr>
                 <th>Reason</th>
-                <th className="num">Count</th>
-                <th>Meaning</th>
+                <th className="num">Cells</th>
               </tr>
             </thead>
             <tbody>
-              {(report.rejects?.by_reason ?? []).map((row) => (
-                <tr key={row.reason}>
+              {rejects.map((r) => (
+                <tr key={r.reason}>
                   <td>
-                    <code>{row.reason}</code>
+                    <code>{r.reason}</code>
                   </td>
-                  <td className="num">{row.n.toLocaleString()}</td>
-                  <td className="muted small">{rejectMeaning(row.reason)}</td>
+                  <td className="num">{r.n.toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <h3>Samples</h3>
+
+          <h3>Per archive folder</h3>
           <table className="data-table">
             <thead>
               <tr>
-                <th>File</th>
-                <th className="num">Row</th>
-                <th>Value</th>
-                <th>Reason</th>
+                <th>Folder</th>
+                <th>Station</th>
+                <th className="num">Files</th>
+                <th className="num">With header</th>
+                <th className="num">Ingested</th>
+                <th className="num">Dup ts</th>
+                <th>Coverage</th>
               </tr>
             </thead>
             <tbody>
-              {(report.rejects?.samples ?? []).map((row, index) => (
-                <tr key={index}>
-                  <td className="small">{row.rel_path}</td>
-                  <td className="num">{row.sheet_row}</td>
-                  <td className="small">{row.raw_value}</td>
-                  <td className="small muted">{row.reason}</td>
+              {(report.source_files ?? []).map((row) => (
+                <tr key={row.source_dir}>
+                  <td>
+                    <code>{row.source_dir}</code>
+                  </td>
+                  <td>{row.station_id}</td>
+                  <td className="num">{row.files}</td>
+                  <td className="num">{row.with_header}</td>
+                  <td className="num">{row.n_ingested.toLocaleString()}</td>
+                  <td className="num">{row.n_duplicate_ts.toLocaleString()}</td>
+                  <td>
+                    {row.min_ts_utc?.slice(0, 10)} → {row.max_ts_utc?.slice(0, 10)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -386,141 +488,19 @@ export default function QualityInspector() {
   )
 }
 
-/**
- * What each quality flag means, and where the ones with no explanation come from.
- *
- * Two of these carry the 226,000 rows that `out_of_range` alone cannot account
- * for, and both are *parameterised by column* -- `bad_window:temp_c`,
- * `no_signal:solar2_v` -- so a flat lookup table left a quarter of all flagged
- * readings rendering as a bare dash. `flagMeaning` handles the prefix.
- *
- * The three marked "never assigned" are declared in `etl/config.py` and have a
- * detector or a constant behind them, but nothing in the pipeline calls one.
- * They are listed so their absence from the table above is visibly deliberate
- * rather than an oversight; see `AGENTS.md`'s open questions.
- */
-const FLAG_MEANINGS = {
-  sentinel: 'Raw cell was -992 or -1: the input was floating. Stored as NULL.',
-  out_of_range:
-    "Value kept, but outside the channel's plausible band. Ringed on the chart, never removed. Usually how a scale change gets noticed.",
-  bad_window:
-    'A named window in etl/config.py where the reading is kept but should not be believed.',
-  no_signal:
-    'A named window in etl/config.py where the input was disconnected, so the stored value is a false reading. Nulled, with a rejects row carrying the reason.',
-  schema_misaligned:
-    'The row did not match the donor schema. Unreachable now that donor selection matches on width.',
-  duplicate_ts: 'Same station, same instant: absorbed by the primary key, recorded in rejects.',
-  clip: 'Repeated identical value long enough to be a rail artefact. Never assigned — the detector is not wired into the ingest.',
-  non_monotonic:
-    'A counter went backwards, i.e. the logger rebooted. Never assigned — no reboot detector runs.',
-  free_text: 'Prose in a numeric cell. Never assigned — unmapped columns are skipped before this point.',
-}
-
-function flagMeaning(flag) {
-  if (FLAG_MEANINGS[flag]) return FLAG_MEANINGS[flag]
-  const [family, column] = flag.split(':')
-  if (column && FLAG_MEANINGS[family]) return `${FLAG_MEANINGS[family]} Channel: ${column}.`
-  return '—'
-}
-
-const REJECT_REASONS = {
-  null_window:
-    'A named window in etl/config.py where the input was disconnected, so the stored value was a false reading. The cell is nulled and recorded here. The reasoning is on the Windows tab — once per window, not once per cell.',
-  station_setup:
-    'A whole source file the collector identified as system setup rather than measurement. Every data row in it is recorded here, with its sheet row and timestamp.',
-  duplicate_ts: 'Same station, same instant: absorbed by the primary key.',
-  'repeated header row': 'A header row repeated inside a headerless chunk, skipped so it is not read as a measurement.',
-  pre_reinstall:
-    'Rows before a hardware reinstall the collector confirmed unusable. See etl/config.py.',
-  unparseable: 'The cell could not be parsed into the schema.',
-}
-
-function rejectMeaning(reason) {
-  return REJECT_REASONS[reason] ?? flagMeaning(reason)
-}
-
-/**
- * The windows, stated once.
- *
- * This is where the reasoning behind `null_window` and `bad_window:*` lives, and
- * it is here rather than on each row because the rows are 220,074 of them: the
- * database records the category, and `etl/config.py` holds the sentence. Before
- * that split the same ~300-character note was stored 220,074 times, which made
- * `rejects` as large as `readings` in a database nobody downloads.
- */
-function WindowsPanel({ report }) {
-  const nulls = report.null_windows ?? []
-  const bads = report.bad_windows ?? []
-  if (nulls.length === 0 && bads.length === 0) {
-    return (
-      <div className="panel">
-        <p>No windows are configured.</p>
-      </div>
-    )
-  }
-  return (
-    <div className="panel">
-      <p className="muted">
-        Periods where a value was <strong>nulled</strong> or{' '}
-        <strong>flagged but kept</strong>, and why. These are decisions, not
-        measurements: each one is a judgement recorded in{' '}
-        <code>etl/config.py</code> and republished here with the number of rows it
-        explains. The database stores only a category on each row — a window that
-        affects 220,074 cells says so once, not 220,074 times.
-      </p>
-      {nulls.map((w, i) => (
-        <WindowCard
-          key={`n${i}`}
-          window={w}
-          kind="nulled"
-          count={w.n_rejected}
-          unit="cells"
-        />
-      ))}
-      {bads.map((w, i) => (
-        <WindowCard
-          key={`b${i}`}
-          window={w}
-          kind="flagged, value kept"
-          count={w.n_flagged}
-          unit="readings"
-        />
-      ))}
-    </div>
-  )
-}
-
-function WindowCard({ window, kind, count, unit }) {
-  return (
-    <div className="window-card">
-      <div className="window-head">
-        <strong>{window.station_id}</strong>
-        {window.columns.map((c) => (
-          <code key={c} className="flag-chip">
-            {c}
-          </code>
-        ))}
-        <span className="muted small">
-          {window.valid_from.slice(0, 10)} → {window.valid_to?.slice(0, 10) ?? 'open'}
-        </span>
-        <span className="badge">{count.toLocaleString()} {unit}</span>
-      </div>
-      <p className="window-why">{window.why}</p>
-      <p className="muted small">{kind}</p>
-    </div>
-  )
-}
-
-function span(min, max) {
-  if (min === null || min === undefined) return '—'
-  return `${Number(min).toFixed(2)} … ${Number(max).toFixed(2)}`
-}
-
 function Tile({ label, value }) {
   return (
-    <div className="stat-tile">
-      <span className="stat-label">{label}</span>
-      <span className="stat-value">{value}</span>
+    <div className="tile">
+      <span className="tile-label">{label}</span>
+      <span className="tile-value">{value}</span>
     </div>
   )
+}
+
+function fmt(value) {
+  if (value === null || value === undefined) return '—'
+  const abs = Math.abs(value)
+  if (abs >= 1000) return value.toFixed(0)
+  if (abs >= 10) return value.toFixed(1)
+  return value.toFixed(2)
 }

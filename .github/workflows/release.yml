@@ -1,12 +1,16 @@
 # solardata -- release the queryable database.
 #
-# data/processed/solardata.db is 166 MiB after VACUUM (181 MiB as the ingest
+# data/processed/solardata.db is about 85 MiB after VACUUM (104 MiB as the ingest
 # leaves it), over GitHub's 100 MiB per-file limit for a git blob, so it cannot be
 # committed. It ships here as a Release asset instead.
 #
-# Parquet (7.5 MiB) IS committed, so the processed data is available to anyone
-# who clones without running anything. This workflow exists for the case where
-# you want the SQLite file rather than a columnar export.
+# It is smaller than 0.8's 166 MiB for one reason: there are eight station tables
+# with the columns each station actually has, rather than one 32-column table of
+# which 75% of every row is NULL. WITHOUT ROWID on a TEXT instant does the rest.
+#
+# `public/data/` (3.3 MiB) IS committed, so the rollups the site fetches are
+# available to anyone who clones without running anything. This workflow exists
+# for the case where you want the SQLite file.
 #
 # Trigger: push a `v*` tag. Or run manually and name a tag to publish under.
 # The build always runs against the commit that triggered it -- the tag is only
@@ -169,17 +173,19 @@ jobs:
 
       # Every stage the baseline depends on has to run before `verify`, and the
       # set is not obvious: `ingest` rebuilds the database but does NOT populate
-      # `regimes` or the rollups -- those are separate stages. Skipping them
-      # left the tables empty and the guard correctly reported
-      # `unconfirmed_regimes: 14 -> 0`. `report` is here for the same reason: the
-      # quality report is uploaded as a release asset and must be regenerated,
-      # not copied from the commit.
+      # the rollups or the per-station channel measurements -- those are a
+      # separate stage. Skipping them left the tables empty and the guard
+      # correctly reported a drift. The report is in the same list because it is
+      # uploaded as a release asset and must be regenerated, not copied from the
+      # commit.
       - name: Build the database
-        run: |
-          python -m etl ingest --quiet
-          python -m etl regimes
-          python -m etl aggregate
-          python -m etl report
+        # `etl all` rather than a hand-written stage list, because the list is
+        # where a stage gets forgotten: a release once shipped with empty regime
+        # tables because the stage that fills them was not in the list, and
+        # `verify` correctly reported `unconfirmed_regimes: 14 -> 0`.
+        # `tests/test_guards.py` asserts that any workflow calling `verify` runs
+        # every stage the baseline depends on.
+        run: python -m etl all
 
       # Never publish a database that does not match the recorded baseline. An
       # asset named solardata.db that quietly lost 90% of its measurements
@@ -246,24 +252,27 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Measured, so the release page cannot claim 7 MiB for a 7.5 MiB
-          # directory (which is what it claimed from 0.6.0 to 0.7.2). Python rather
-          # than `du`, because `du` reports allocated blocks and rounds a 7.5 MiB
-          # directory up to 8 -- the same number the docs give, disagreed with.
+          # Measured, so the release page cannot claim a size the asset does not
+          # have (which is what it claimed from 0.6.0 to 0.7.2). The reading count
+          # is a sum over the eight station tables, because there is no longer one
+          # readings table to COUNT(*).
           metrics=$(python - <<'PY'
           import sqlite3
-          from pathlib import Path
 
           conn = sqlite3.connect("file:data/processed/solardata.db?mode=ro", uri=True)
-          rows = conn.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+          readings = conn.execute(
+              "SELECT COALESCE(SUM(n_readings), 0) FROM stations"
+          ).fetchone()[0]
+          tables = conn.execute(
+              "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 's!_%' ESCAPE '!'"
+          ).fetchone()[0]
           conn.close()
-          parquet = sum(p.stat().st_size for p in Path("data/processed/parquet").rglob("*.parquet"))
-          print(f"{rows} {parquet / 1048576:.1f}")
+          print(f"{readings} {tables}")
           PY
           )
           rows=$(echo "$metrics" | cut -d' ' -f1)
-          parquet_mb=$(echo "$metrics" | cut -d' ' -f2)
-          echo "assets: ${rows} readings, ${parquet_mb} MiB of parquet"
+          tables=$(echo "$metrics" | cut -d' ' -f2)
+          echo "assets: ${rows} readings across ${tables} station tables"
           ls -lh data/processed/solardata.db.gz
 
           # The changelog section for this tag: everything under `## [<version>]`
@@ -288,13 +297,15 @@ jobs:
             echo "${rows} readings. Unpack and query it with:"
             echo
             echo '```'
-            echo "gunzip solardata.db.gz"
+            echo 'gunzip solardata.db.gz'
             echo "python -m etl --out-dir <dir containing solardata.db> query \\"
-            echo '  "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"'
+            echo '  "SELECT station_id, table_name, n_readings FROM stations"'
             echo '```'
             echo
-            echo "The Parquet interchange format (${parquet_mb} MiB) is committed in"
-            echo "\`data/processed/parquet/\` and does not need downloading."
+            echo "Each station is its own table, holding only the channels that station"
+            echo "collects, in the unit that channel is published in. \`public/data/\`"
+            echo "carries the same declaration per station, and \`etl/catalog.py\` is where"
+            echo "it is written down."
             echo
             awk -v want="$version" '
               /^## \[/ {

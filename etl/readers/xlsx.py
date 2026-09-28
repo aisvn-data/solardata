@@ -1,253 +1,265 @@
-"""Reading the Google Sheets XLSX exports.
+"""Reading a sheet, and measuring how wide its primary column block is.
 
-Three structural problems have to be solved before any value can be trusted,
-and all three are handled here rather than in the callers:
+Two jobs, and deliberately no more:
 
-1. **Header presence.**  Only 36 of the 364 files carry a header row.  The rest
-   start straight into data, so a naive ``pandas.read_excel`` produces a data
-   row masquerading as a header for 90% of the archive.
+1.  Read the rows of a sheet's primary block, with a cache, because reading a
+    sheet is 86% of the whole build.  0.8 parsed each file three times -- once
+    to scan it, once in ``detect_block`` and once in ``iter_cells`` -- which is
+    1,820 reads for 364 files.  The cache is the whole reason a build is about
+    a minute rather than three.
 
-2. **Side-by-side column blocks.**  Many sheets contain two or three parallel
-   blocks of the same observations, separated by an empty column -- typically
-   Google Sheets formula experiments.  ``Voltage_phumy.xlsx`` has three, one of
-   which is a hand-made summary table at a different time granularity.  Reading
-   ``A:Z`` blindly interleaves them.
+2.  Report the block's **width**, and nothing else.  The width is the only
+    thing the ingest needs from the reader: ``etl.catalog`` maps
+    ``(station_id, width)`` to a layout, so a headerless file's column meaning
+    comes from the catalog rather than from whichever sibling happened to have a
+    header first.
 
-3. **Mid-file header rows.**  A few files repeat a header row partway down,
-   where a new block of readings was appended.
+What this reader deliberately does not do any more
+---------------------------------------------------
+0.8 resolved a headerless file's schema by finding the nearest *preceding*
+sibling with a header and of exactly the same width, ordering on the parsed
+timestamp.  That was 150 lines, it needed ``parse_local`` at the point of
+selection rather than at the point of reading, and getting it wrong discarded
+90% of the archive's measurements while still ingesting every timestamp.  The
+archive contains exactly nine ``(station, width)`` pairs and no station has two
+layouts of the same width, so the catalog's lookup is total and the failure mode
+is a loud error instead of a silent one.  ``tests/test_ingest.py`` asserts both
+halves of that.
+
+Side blocks
+-----------
+Many sheets carry two or three parallel copies of the same readings to the right
+of the primary block, separated by an empty column.  They are Google Sheets
+formula experiments with mostly-zero duplicates, plus -- in ``Voltage_phumy`` --
+a hand-made summary table at a coarser time granularity and the lab's own
+annotations.  ``extra_blocks`` counts them so the report can show it, and
+``iter_all_cells`` exists only to recover their prose into the notes table.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import openpyxl
+from openpyxl import load_workbook
 
-from etl.readers.times import looks_like_header, looks_like_timestamp
+from .times import looks_like_header, looks_like_timestamp
 
-#: Read enough columns to see every block we know about, but not unbounded.
+__all__ = [
+    "SheetBlock",
+    "cached_read_count",
+    "clear_read_cache",
+    "detect_block",
+    "file_digest",
+    "iter_all_cells",
+    "iter_cells",
+]
+
+#: 32 is the widest row in the archive plus headroom. A sheet is never read past
+#: this, which is what keeps a stray styled-but-empty column from turning into
+#: 16,384 cells per row.
 MAX_COLUMNS = 32
 
-#: A column counts towards the primary block if it is populated in at least this
-#: fraction of body rows.
+#: A column counts towards the block width only if at least this fraction of
+#: body rows have something in it. Without it, one stray cell in column Z
+#: redefines the layout of the file.
 COLUMN_POPULARITY_THRESHOLD = 0.5
+
+_TIME_HEADERS = frozenset({"time", "date", "timestamp", "datetime"})
+
+# Keyed on (resolved path, size) so a file rewritten in place is not served from
+# the cache. The tests write a fixture, ingest it, then write it again, and a
+# path-only key would hand back the first version's rows.
+_read_cache: dict[tuple[Path, int], tuple[list[list[str]], bool, int]] = {}
+
+
+def _cell(cell: object) -> str:
+    """One cell, as text.
+
+    Two things this has to get right.
+
+    A float that is integral becomes its integer spelling, because openpyxl hands
+    back 342.0 for a cell that reads "342", and the sentinel table is keyed by
+    float.  Normalising here is what makes -992 match -992.0.
+
+    In ``read_only=True`` mode ``iter_rows()`` yields ``ReadOnlyCell`` and
+    ``EmptyCell`` *objects*, not values, so the ``.value`` has to be read
+    explicitly.  Passing the object straight to ``str()`` gives
+    ``"<ReadOnlyCell 'Sheet1'.A1>"`` for every cell, which then looks like a
+    populated column to the width detection and makes every headerless file
+    13 columns wide.  ``EmptyCell`` is a ``ReadOnlyCell`` whose value is None, so
+    one ``getattr`` covers both.
+    """
+    value = getattr(cell, "value", cell)
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else str(value)
+    return str(value).strip()
+
+
+def clear_read_cache() -> None:
+    """Drop every parsed sheet. Called between archive folders and in tests."""
+    _read_cache.clear()
+
+
+def cached_read_count() -> int:
+    """How many sheets are currently parsed and held. For tests and the report."""
+    return len(_read_cache)
+
+
+def _read_rows(path: Path) -> tuple[list[list[str]], bool, int]:
+    """Every row of the first worksheet, as text, plus the header verdict.
+
+    Cached, because reading a sheet is 86% of the whole build and 0.8 read each
+    file three times -- once to scan it, once in ``detect_block`` and once in
+    ``iter_cells``, which is 1,820 reads for 364 files.
+    """
+    key = (path.resolve(), path.stat().st_size)
+    cached = _read_cache.get(key)
+    if cached is not None:
+        return cached
+
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet = workbook.worksheets[0]
+        rows = [[_cell(c) for c in row[:MAX_COLUMNS]] for row in sheet.iter_rows()]
+    finally:
+        workbook.close()
+
+    while rows and not any(rows[-1]):
+        rows.pop()
+    width = max((len(r) for r in rows), default=0)
+    for row in rows:
+        if len(row) < width:
+            row.extend([""] * (width - len(row)))
+
+    has_header = (
+        bool(rows) and looks_like_header(rows[0][0]) and not looks_like_timestamp(rows[0][0])
+    )
+
+    result = (rows, has_header, width)
+    _read_cache[key] = result
+    return result
 
 
 @dataclass
 class SheetBlock:
-    """The first contiguous block of columns in a sheet, starting at column A."""
+    """What the ingest needs to know about a sheet before reading any of it."""
 
     path: Path
-    sheet_name: str
-    header: tuple[str, ...] | None
     n_columns: int
-    #: Total number of rows in the sheet, excluding a fully blank tail.
+    has_header: bool
     n_rows: int
-    #: How many additional ``time``-headed blocks were found to the right.
     extra_blocks: int = 0
-    #: Rows that looked like a repeated header inside the data body.
     repeated_headers: list[int] = field(default_factory=list)
-    #: Sheet has more than one worksheet.
-    multi_sheet: bool = False
-
-
-def _cell(value) -> str:
-    """Normalise an openpyxl cell to a trimmed string ('' for empty)."""
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value).strip()
-
-
-#: Parsed-sheet cache, keyed by resolved path.
-#:
-#: The ingest reads every file three times: once to scan it for its structure,
-#: once more in ``detect_block``, and once more in ``iter_cells``. Reading a
-#: sheet is ~86% of the whole build, so that redundancy dominates the runtime --
-#: profiling 364 files showed 1820 calls to ``_read_rows`` for 364 files.
-#:
-#: The cache is keyed by path *and* size so a file edited mid-run cannot be
-#: served stale, and it is cleared between archive folders by
-#: :func:`etl.build_db.ingest` to bound memory to one folder.
-_read_cache: dict[Path, tuple[str, list[list[str]], bool, int]] = {}
-
-
-def clear_read_cache() -> None:
-    """Drop every cached sheet. Called between archive folders."""
-    _read_cache.clear()
-
-
-def _read_rows(path: Path) -> tuple[str, list[list[str]], bool]:
-    """Return ``(sheet_name, rows, multi_sheet)`` for the first worksheet.
-
-    Two normalisations happen here and both are load-bearing:
-
-    * ``_cell`` renders every float that happens to be integral as an integer
-      string, so 2000.0 reads back as ``2000``.  Numerically identical, but it
-      keeps the stored value, the Parquet output and the CSV exports free of
-      spurious ``.0`` tails.
-    * The sheet is read in full, then the blank tail is trimmed.  Google Sheets
-      exports declare no dimension, so openpyxl reports the worksheet as
-      "unsized" and callers must never call ``calculate_dimension()`` on it.
-
-    Served from the cache when possible; see ``_read_cache``.
-    """
-    key = path.resolve()
-    size = key.stat().st_size
-    cached = _read_cache.get(key)
-    if cached is not None and cached[3] == size:
-        return cached[0], cached[1], cached[2]
-
-    workbook = openpyxl.load_workbook(key, read_only=True, data_only=True)
-    try:
-        name = workbook.sheetnames[0]
-        sheet = workbook[name]
-        raw = [
-            [_cell(v) for v in row]
-            for row in sheet.iter_rows(max_col=MAX_COLUMNS, values_only=True)
-        ]
-        multi = len(workbook.sheetnames) > 1
-    finally:
-        workbook.close()
-    # Trim fully blank rows from the tail (Sheets pads exports).
-    while raw and not any(raw[-1]):
-        raw.pop()
-    # Trim fully blank columns from the tail of every row.
-    width = 0
-    for row in raw:
-        for i, value in enumerate(row):
-            if value:
-                width = max(width, i + 1)
-    rows = [row[:width] for row in raw]
-    _read_cache[key] = (name, rows, multi, size)
-    return name, rows, multi
 
 
 def detect_block(path: Path) -> SheetBlock:
-    """Inspect a file and describe its primary column block.
+    """Measure the primary column block.
 
-    The primary block is the run of columns starting at A that ends at the first
-    fully empty column (when a header is available) or at the first sparsely
-    populated column (when it is not).  Anything beyond that is a separate block
-    and is deliberately excluded -- in the archive those are Google Sheets
-    formula experiments duplicating the same readings with different (mostly
-    zero) values, plus, in ``Voltage_phumy``, a hand-made summary table at a
-    coarser time granularity and the discharge-test annotations.
+    With a header row the block ends at the first empty header cell, because
+    that is where the sheet author stopped naming columns.
+
+    Without one, the block is the longest prefix of columns that at least half
+    the body rows populate. That is the only inference left in the reader, and
+    it is a measurement rather than a guess about meaning: the width it returns
+    is looked up in the catalog, and an undeclared width fails the build.
     """
-    sheet_name, rows, multi_sheet = _read_rows(path)
+    rows, has_header, _width = _read_rows(path)
     if not rows:
-        return SheetBlock(path, sheet_name, None, 0, 0, multi_sheet=multi_sheet)
+        return SheetBlock(path=path, n_columns=1, has_header=False, n_rows=0)
 
-    first = rows[0]
-    has_header = bool(first) and first[0].lower() in ("time", "date", "timestamp")
     body = rows[1:] if has_header else rows
+    header_cells = rows[0] if has_header else []
+    n_cols = len(rows[0]) or 1
 
     if has_header:
-        # The header names the columns, so the block ends at the first empty
-        # header cell -- which is also the separator from any side block.
-        end = next((i for i, v in enumerate(first) if not v), len(first))
-    else:
-        # No header to read, so infer the boundary from how consistently each
-        # column is filled.  The block is the longest prefix of columns populated
-        # on at least half the body rows.  Side-block columns are sparse -- a
-        # hand-written annotation appears on one row out of two thousand -- so
-        # this separates them without a header to guide us.
-        width = max((len(row) for row in body), default=1)
-        total = max(len(body), 1)
-        end = 1
-        for index in range(1, width):
-            hits = sum(1 for row in body if index < len(row) and row[index])
-            if hits / total < COLUMN_POPULARITY_THRESHOLD:
+        end = n_cols
+        for i in range(1, len(header_cells)):
+            if not header_cells[i]:
+                end = i
                 break
-            end = index + 1
+        n_cols = max(end, 1)
 
-    end = max(end, 1)
-    extra = sum(1 for v in first[end:] if v.lower() in ("time", "date", "timestamp", "datetime"))
+    if body:
+        needed = max(1, int(len(body) * COLUMN_POPULARITY_THRESHOLD))
+        populated = 0
+        for i in range(1, n_cols):
+            if sum(1 for r in body if i < len(r) and r[i]) >= needed:
+                populated = i + 1
+            else:
+                break
+        if not has_header:
+            n_cols = max(populated, 1)
 
-    repeated = [
-        i + 1
-        for i, row in enumerate(body)
-        if row and row[0] and row[0].lower() in ("time", "date", "timestamp", "datetime")
-    ]
+    extra = 0
+    for row in rows:
+        for i in range(n_cols, len(row)):
+            if i < len(row) and looks_like_header(row[i]) and not looks_like_timestamp(row[i]):
+                extra += 1
+                break
+
+    repeated: list[int] = []
+    for offset, row in enumerate(body):
+        if row and looks_like_header(row[0]) and not looks_like_timestamp(row[0]):
+            repeated.append(offset + (2 if has_header else 1))
 
     return SheetBlock(
         path=path,
-        sheet_name=sheet_name,
-        header=tuple(first[:end]) if has_header else None,
-        n_columns=end,
+        n_columns=n_cols,
+        has_header=has_header,
         n_rows=len(body),
         extra_blocks=extra,
         repeated_headers=repeated,
-        multi_sheet=multi_sheet,
     )
 
 
 def iter_cells(path: Path, block: SheetBlock | None = None) -> Iterator[tuple[int, list[str]]]:
-    """Yield ``(excel_row_number, cells)`` for the primary block only.
+    """Yield ``(sheet_row_number, cells)`` for the primary block only.
 
-    Row numbers are 1-based and refer to the original sheet, so they can be
-    cited in the ``rejects`` table and traced back to the raw file.
+    ``sheet_row_number`` is 1-based as openpyxl reports it, so it is the number a
+    person looking at the file would count, and it is what ``ROW_EXCLUSIONS`` and
+    every rejects row refers to.
     """
+    rows, has_header, _ = _read_rows(path)
     if block is None:
         block = detect_block(path)
-    sheet_name, rows, _ = _read_rows(path)
-    del sheet_name
-    skip = 1 if block.header is not None else 0
-    for index in range(skip, len(rows)):
-        yield index + 1, rows[index][: block.n_columns]
-
-
-def header_of(path: Path) -> tuple[str, ...] | None:
-    return detect_block(path).header
-
-
-def file_digest(path: Path) -> str:
-    """SHA-256 of the raw file, so a rebuild can prove it used the same input.
-
-    The raw archive is the only copy of this data, so the build records what it
-    read.  If `data/raw` is ever re-exported from Google Sheets, these digests
-    are what make the difference detectable.
-    """
-    import hashlib
-
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def looks_like_data_row(cells: list[str]) -> bool:
-    return (
-        bool(cells)
-        and bool(cells[0])
-        and (looks_like_timestamp(cells[0]) or not looks_like_header(cells[0]))
-    )
+    width = block.n_columns
+    for offset, row in enumerate(rows):
+        if has_header and offset == 0:
+            continue
+        yield offset + 1, row[:width]
 
 
 def iter_all_cells(path: Path, block: SheetBlock | None = None) -> Iterator[tuple[int, int, str]]:
-    """Yield ``(sheet_row, col_index, value)`` for the **whole** sheet.
+    """Yield ``(sheet_row, col_index, value)`` for the whole sheet.
 
-    Used to recover human notes, which are written in whatever spare column was
-    free and therefore usually sit outside the primary block -- for example the
-    discharge-test annotations in ``data/raw/Voltage_phumy``.
-
-    Column 0 is skipped because it holds the observation timestamps, and the
-    header row is skipped so that side-block header words such as ``time`` are
-    not mistaken for annotations.
+    Exists for one purpose: the side blocks carry human prose -- the discharge
+    summary and the annotations in ``Voltage_phumy`` -- and the notes table is
+    where prose belongs. Column 0 is skipped because it is a timestamp or
+    nothing.
     """
+    rows, has_header, _ = _read_rows(path)
     if block is None:
         block = detect_block(path)
-    _, rows, _ = _read_rows(path)
-    start = 2 if block.header else 1
-    for row_index in range(start - 1, len(rows)):
-        row = rows[row_index]
-        for col_index, value in enumerate(row):
-            if col_index == 0 or not value:
+    for offset, row in enumerate(rows):
+        if has_header and offset == 0:
+            continue
+        for index, value in enumerate(row):
+            if index == 0 or not value:
                 continue
-            yield row_index + 1, col_index, value
+            yield offset + 1, index, value
+
+
+def file_digest(path: Path) -> str:
+    """SHA-256 of the file, so a rebuild can prove it read the same bytes."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

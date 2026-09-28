@@ -1,21 +1,21 @@
 # solardata pipeline
 #
 #   make setup    install dependencies
-#   make build    full rebuild: ingest -> regimes -> parquet -> export -> report
+#   make build    full rebuild: ingest -> aggregate -> export -> report -> audit
 #   make test     run the test suite
 #   make check    lint + test
 #
-# `make build` takes roughly three minutes; the ingest is the slow part because
-# it opens 364 XLSX files.
+# `make build` takes about two minutes; the ingest is the slow part because it
+# opens 364 XLSX files, and the audit then reads them a second time to check that
+# every (station, width) resolves to a layout the catalog declares.
 
 PYTHON ?= python
 PYTEST ?= $(PYTHON) -m pytest
 RUFF   ?= $(PYTHON) -m ruff
 ETL    := $(PYTHON) -m etl
-PQ     := $(PYTHON) scripts/parquet_manifest.py
 
 .DEFAULT_GOAL := help
-.PHONY: help setup build ingest regimes parquet export report verify test lint fmt check clean distclean query baseline
+.PHONY: help setup build ingest aggregate export report audit verify test lint fmt check clean distclean query baseline
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -27,20 +27,20 @@ setup: ## Install Python dependencies
 build: ## Full rebuild of every artefact
 	$(ETL) all
 
-ingest: ## XLSX -> SQLite
+ingest: ## XLSX -> eight station tables, rebuilt from scratch
 	$(ETL) ingest
 
-regimes: ## Detect unit-scale changes
-	$(ETL) regimes
+aggregate: ## Hourly and daily rollups, and the per-station channel measurements
+	$(ETL) aggregate
 
-parquet: ## SQLite -> partitioned Parquet
-	$(ETL) parquet
-
-export: ## SQLite -> CSV rollups for the website
+export: ## public/data: one CSV set per station, plus stations.json and metrics.json
 	$(ETL) export
 
-report: ## Write the data-quality report
+report: ## Write the per-station data-quality report
 	$(ETL) report
+
+audit: ## Check the build against the real archive: layouts, bands, flags, exclusions
+	$(ETL) audit
 
 verify: ## Fail if the build does not match data/baseline.json
 	$(ETL) verify
@@ -65,9 +65,10 @@ fmt: ## Auto-format
 check: lint test ## Lint and test
 
 clean: ## Remove generated artefacts (raw data is never touched)
-	rm -rf data/processed data/exports
+	rm -rf data/processed
+	rm -rf dist
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 	rm -rf .pytest_cache .ruff_cache
 
-distclean: clean ## Also remove the node frontend build
-	rm -rf dist
+distclean: clean ## Also remove the node frontend build and the exported site data
+	rm -rf node_modules/.vite node_modules/.render-check

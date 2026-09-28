@@ -1,9 +1,11 @@
 name: CI
 
 # The pipeline's contract is not "the tests pass" but "the tests pass AND the
-# build still produces 735,004 readings".  Those are different guarantees: the
+# build still produces 731,885 readings".  Those are different guarantees: the
 # test suite exercises fixtures, and only a real run over the 364-file archive
-# can notice that a change quietly stopped ingesting a channel.
+# can notice that a change quietly stopped ingesting a channel -- or that a band
+# has started firing on a third of a record, which is what 0.8 did to
+# phumy2.current2_a and what no unit test could see.
 on:
   push:
     branches: [main, opencode]
@@ -88,5 +90,10 @@ jobs:
       # Actions: yaml.safe_load only checks syntax, not the Actions schema, so a
       # misplaced key like a workflow-level `environment` parses cleanly and is
       # then rejected at runtime.
+      # The suite is 159 tests over real XLSX fixtures and finishes in a couple of
+      # seconds. 0.8 had 147 and one of them read all 364 raw files, which took
+      # about fifty seconds and stalled the run: the checks that need the archive
+      # live in etl/audit.py and run in data.yml, where a minute of reading is
+      # a minute of CI rather than a test suite you stop waiting for.
       - name: Pytest
         run: pytest tests
