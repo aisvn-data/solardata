@@ -43,10 +43,13 @@ export default function TimeControls({
   onResolutionChange,
   hideFlagged,
   onHideFlaggedChange,
+  rawDbReady = false,
 }) {
   const firstDay = rows[0]?.dateDay ?? ''
   const lastDay = rows[rows.length - 1]?.dateDay ?? ''
-  const available = GRANULARITIES.filter((g) => granularities.includes(g.folder))
+  const available = GRANULARITIES.filter(
+    (g) => g.folder === 'raw' || granularities.includes(g.folder),
+  )
 
   return (
     <div className="controls">
@@ -65,17 +68,29 @@ export default function TimeControls({
         <div className="control">
           <span>Resolution</span>
           <div className="preset-buttons">
-            {available.map((g) => (
-              <button
-                key={g.folder}
-                type="button"
-                className={resolution === g.folder ? 'active' : ''}
-                aria-pressed={resolution === g.folder}
-                onClick={() => onResolutionChange(g.folder)}
-              >
-                {g.label}
-              </button>
-            ))}
+            {available.map((g) => {
+              const isRaw = g.folder === 'raw'
+              const disabled = isRaw && !rawDbReady
+              return (
+                <button
+                  key={g.folder}
+                  type="button"
+                  className={`${resolution === g.folder ? 'active' : ''} ${disabled ? 'muted' : ''}`}
+                  aria-pressed={resolution === g.folder}
+                  disabled={disabled}
+                  title={
+                    disabled
+                      ? 'Loading solardata_raw.db in background…'
+                      : isRaw
+                        ? 'Native 1–2 min samples (60s on Maker Webhooks)'
+                        : undefined
+                  }
+                  onClick={() => onResolutionChange(g.folder)}
+                >
+                  {disabled ? `${g.label} (loading…)` : g.label}
+                </button>
+              )
+            })}
           </div>
         </div>
 

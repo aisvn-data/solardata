@@ -333,6 +333,14 @@ def build(conn: sqlite3.Connection, settings: Settings, *, verbose: bool = True)
             normalization_src.read_text(encoding="utf-8"), encoding="utf-8"
         )
 
+    raw_db_src = (
+        Path(__file__).resolve().parent.parent / "data" / "processed" / "solardata_raw.db"
+    )
+    if raw_db_src.exists():
+        import shutil
+
+        shutil.copy2(raw_db_src, export_dir / "solardata_raw.db")
+
     summary = {
         "stations": len(stations),
         "csv_files": csv_files,

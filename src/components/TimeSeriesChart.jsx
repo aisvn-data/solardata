@@ -102,9 +102,10 @@ export default function TimeSeriesChart({
       <div className="chart-empty">
         <p>No data for this station and period.</p>
         <p className="muted">
-          The {resolution} rollups for this selection contain no values for the
-          chosen metrics. That usually means the station did not have the
-          channel, not that readings are missing &mdash; see the Data quality tab.
+          The {resolution === 'raw' ? 'raw telemetry' : `${resolution} rollups`} for
+          this selection contain no values for the chosen metrics. That usually means
+          the station did not have the channel, not that readings are missing
+          &mdash; see the Data quality tab.
         </p>
       </div>
     )
@@ -113,7 +114,7 @@ export default function TimeSeriesChart({
   const { lo, hi, plotW, plotH, x, y } = geometry
   const yTicks = niceTicks(lo, hi, 5)
   const xTicks = buildDateTicks(rows, resolution)
-  const noun = resolution === 'hourly' ? 'hours' : 'days'
+  const noun = resolution === 'hourly' ? 'hours' : resolution === 'raw' ? 'samples' : 'days'
 
   function handleMove(event) {
     const svg = svgRef.current
@@ -465,6 +466,10 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 function shortDate(day, resolution) {
   const [date, time] = day.split(' ')
   const [year, month, dom] = date.split('-')
-  const base = resolution === 'hourly' && time ? `${time} ${dom} ${MONTHS[Number(month) - 1]}` : `${dom} ${MONTHS[Number(month) - 1]}`
-  return base === '1 Jan' || month === '01' ? year : base
+  const isSubDaily = (resolution === 'hourly' || resolution === 'raw') && time
+  const base = isSubDaily
+    ? `${time.slice(0, 5)} ${dom} ${MONTHS[Number(month) - 1]}`
+    : `${dom} ${MONTHS[Number(month) - 1]}`
+  if (isSubDaily) return base
+  return base === '1 Jan' || (month === '01' && dom === '01') ? year : base
 }
