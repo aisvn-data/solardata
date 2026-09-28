@@ -9,7 +9,7 @@
      900px of the ~980px the explorer gets once the station rail and gutters are
      taken out. Prose is capped separately (see .hero-copy, .prose) so widening
      the page does not stretch a paragraph to an unreadable line length. */
-  --page-width: 1320px;
+  --page-width: 1470px;
 }
 
 * { box-sizing: border-box; }

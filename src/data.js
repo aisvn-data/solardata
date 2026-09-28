@@ -113,7 +113,7 @@ export function loadBands() {
 export const GRANULARITIES = [
   { folder: 'daily', label: 'Day', noun: 'day' },
   { folder: 'hourly', label: 'Hour', noun: 'hour' },
-  { folder: 'raw', label: 'Raw (1–2 min)', noun: 'sample' },
+  { folder: 'raw', label: 'Raw', noun: 'sample' },
 ]
 
 /**
