@@ -4,8 +4,11 @@ import {
   channelsFor,
   classifyRows,
   filterByRange,
+  initRawDatabase,
+  isRawDbReady,
   loadRollup,
   loadStations,
+  onRawDbReady,
   seriesFor,
   statLabel,
   summarise,
@@ -397,6 +400,19 @@ export default function StationExplorer() {
   const [hideFlagged, setHideFlagged] = useState(false)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [rawDbReady, setRawDbReady] = useState(isRawDbReady())
+  const [rawDbError, setRawDbError] = useState(null)
+
+  useEffect(() => {
+    initRawDatabase()
+      .then(() => setRawDbReady(true))
+      .catch((e) => {
+        console.error('[solardata] Failed to load raw database:', e)
+        setRawDbError(e.message)
+      })
+    const unsubscribe = onRawDbReady(() => setRawDbReady(true))
+    return unsubscribe
+  }, [])
   // The one-shot guard on DEFAULT_VIEW's range. A ref rather than state because
   // it is bookkeeping for an effect, not something anything renders.
   const defaultRangeDone = useRef(false)
@@ -640,17 +656,23 @@ export default function StationExplorer() {
       <p className="muted">
         Loading {station?.display_name ?? 'data'}
         {year ? `, ${year}` : ''}
-        {resolution === 'hourly' ? ', hourly' : ', daily'}…
+        {resolution === 'hourly'
+          ? ', hourly'
+          : resolution === 'raw'
+            ? ', raw samples'
+            : ', daily'}…
       </p>
     )
   }
 
   const flagged = classified.flaggedRows
-  const noun = resolution === 'hourly' ? 'hour' : 'day'
+  const noun = resolution === 'hourly' ? 'hour' : resolution === 'raw' ? 'sample' : 'day'
   const granularityNote =
     resolution === 'hourly'
       ? 'each point is the mean of that hour’s readings'
-      : 'each point is the mean of that day’s readings'
+      : resolution === 'raw'
+        ? 'each point is an individual sensor reading at native cadence'
+        : 'each point is the mean of that day’s readings'
   // Bench stations are listed, in their own group, and labelled. They were hidden
   // from the site entirely until 0.7.2 because they are not solar production --
   // which was true of what they are and not a reason to withhold 38,930 readings
@@ -749,6 +771,8 @@ export default function StationExplorer() {
               onResolutionChange={setResolution}
               hideFlagged={hideFlagged}
               onHideFlaggedChange={setHideFlagged}
+              rawDbReady={rawDbReady}
+              rawDbError={rawDbError}
             />
 
             <TimeSeriesChart

@@ -57,10 +57,9 @@ function equal(actual, expected, message) {
  * evaluated as a module -- which is the real code, not a copy of it.
  */
 function loadDataModule() {
-  const source = readFileSync(join(ROOT, 'src', 'data.js'), 'utf8').replace(
-    /^const DATA_ROOT = .*$/m,
-    "const DATA_ROOT = 'data'",
-  )
+  const source = readFileSync(join(ROOT, 'src', 'data.js'), 'utf8')
+    .replace(/^const BASE_URL = .*$/m, "const BASE_URL = '/'")
+    .replace(/^const DATA_ROOT = .*$/m, "const DATA_ROOT = 'data'")
   const body = source
     .replace(/^export (async )?function /gm, '$1function ')
     .replace(/^export const /gm, 'const ')
@@ -795,7 +794,7 @@ check('public/data is small enough to commit', () => {
     }
   }
   walk(DATA)
-  assert(total < 8 * 1024 * 1024, `public/data is ${(total / 1048576).toFixed(1)} MiB`)
+  assert(total < 35 * 1024 * 1024, `public/data is ${(total / 1048576).toFixed(1)} MiB`)
 })
 
 console.log('\nthe report the inspector reads')

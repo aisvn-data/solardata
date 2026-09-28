@@ -40,7 +40,8 @@
  * flagged it.
  */
 
-const DATA_ROOT = `${import.meta.env.BASE_URL}data`
+const BASE_URL = import.meta.env.BASE_URL
+const DATA_ROOT = `${BASE_URL}data`
 
 /** Cache so switching back to a previously viewed year is instant. */
 const cache = new Map()
@@ -108,10 +109,11 @@ export function loadBands() {
   return cache.get('bands')
 }
 
-/** The two resolutions the exporter publishes, in the order the UI offers them. */
+/** The resolutions offered in the UI. */
 export const GRANULARITIES = [
   { folder: 'daily', label: 'Day', noun: 'day' },
   { folder: 'hourly', label: 'Hour', noun: 'hour' },
+  { folder: 'raw', label: 'Raw', noun: 'sample' },
 ]
 
 /**
@@ -125,7 +127,7 @@ export const GRANULARITIES = [
  */
 const STAT_SUFFIXES = ['avg', 'min', 'max']
 const OOR_SUFFIX = '_n_oor'
-const STAT_LABELS = { avg: 'mean', min: 'minimum', max: 'peak' }
+const STAT_LABELS = { avg: 'mean', min: 'minimum', max: 'peak', raw: 'sample' }
 
 export function statLabel(stat) {
   return STAT_LABELS[stat] ?? stat ?? ''
@@ -134,6 +136,7 @@ export function statLabel(stat) {
 /** Which statistic a channel's plotted value uses, given the columns available. */
 function primaryStat(stats) {
   if (stats.includes('avg')) return 'avg'
+  if (stats.includes('raw')) return 'raw'
   return stats[0] ?? null
 }
 
@@ -146,15 +149,197 @@ function splitColumn(column) {
   return [column, null]
 }
 
+let rawDbInstance = null
+let rawDbPromise = null
+const rawDbListeners = new Set()
+
+export function isRawDbReady() {
+  return rawDbInstance !== null
+}
+
+export function onRawDbReady(cb) {
+  if (rawDbInstance) {
+    cb(rawDbInstance)
+    return () => {}
+  }
+  rawDbListeners.add(cb)
+  return () => rawDbListeners.delete(cb)
+}
+
+export async function initRawDatabase() {
+  if (rawDbInstance) return rawDbInstance
+  if (!rawDbPromise) {
+    rawDbPromise = (async () => {
+      try {
+        console.info('[solardata] Initializing SQLite Wasm and loading solardata_raw.db...')
+        const sqlModule = await import('sql.js')
+        const initSqlJs = sqlModule.default || sqlModule
+        const base = BASE_URL ? (BASE_URL.endsWith('/') ? BASE_URL : `${BASE_URL}/`) : '/'
+        const SQL = await initSqlJs({
+          locateFile: (file) => `${base}${file}`,
+        })
+
+        let buf
+        if (typeof window === 'undefined') {
+          try {
+            const fs = await import(/* @vite-ignore */ 'node:fs')
+            const path = await import(/* @vite-ignore */ 'node:path')
+            const dbPath = path.resolve('public', 'data', 'solardata_raw.db')
+            buf = fs.readFileSync(dbPath)
+          } catch {
+            const resp = await fetch(`${DATA_ROOT}/solardata_raw.db`)
+            buf = await resp.arrayBuffer()
+          }
+        } else {
+          const resp = await fetch(`${DATA_ROOT}/solardata_raw.db`)
+          if (!resp.ok) {
+            throw new Error(`Failed to load solardata_raw.db: ${resp.status} ${resp.statusText}`)
+          }
+          buf = await resp.arrayBuffer()
+        }
+
+        rawDbInstance = new SQL.Database(new Uint8Array(buf))
+        console.info('[solardata] solardata_raw.db loaded successfully. Native raw resolution is ready!')
+        for (const cb of rawDbListeners) {
+          try {
+            cb(rawDbInstance)
+          } catch (e) {
+            console.error(e)
+          }
+        }
+        rawDbListeners.clear()
+        return rawDbInstance
+      } catch (err) {
+        console.error('[solardata] Error in initRawDatabase:', err)
+        rawDbPromise = null
+        throw err
+      }
+    })()
+  }
+  return rawDbPromise
+}
+
+function applyChannelCorrection(val, tsUtc, channelConfig) {
+  if (val === null || val === undefined) return null
+  let res = channelConfig.scale && channelConfig.scale !== 1.0 ? val * channelConfig.scale : val
+  const corrections = channelConfig.corrections ?? []
+  for (const corr of corrections) {
+    if (corr.from_ts && tsUtc < corr.from_ts) continue
+    if (corr.to_ts && tsUtc >= corr.to_ts) continue
+    if (corr.op === 'add') {
+      res += corr.value
+    } else if (corr.op === 'factor') {
+      res *= corr.value
+    }
+  }
+  return typeof res === 'number' ? Math.round(res * 1e9) / 1e9 : res
+}
+
+export async function loadRawYear(stationId, year) {
+  const [db, stations, normalization, bands] = await Promise.all([
+    initRawDatabase(),
+    loadStations(),
+    loadNormalization(),
+    loadBands(),
+  ])
+  const station = stations.find((s) => s.station_id === stationId)
+  if (!station) throw new Error(`Station not found: ${stationId}`)
+  const stationNorm = normalization?.stations?.[stationId] ?? {}
+  const tableName = `r_${stationId.replace(/-/g, '_')}`
+
+  const minTs = Math.floor(Date.parse(`${year}-01-01T00:00:00Z`) / 1000)
+  const maxTs = Math.floor(Date.parse(`${year}-12-31T23:59:59.999Z`) / 1000)
+
+  const stmt = `SELECT * FROM ${tableName} WHERE ts >= ${minTs} AND ts <= ${maxTs} ORDER BY ts ASC`
+  const result = db.exec(stmt)
+  if (!result || result.length === 0) {
+    return {
+      header: ['ts'],
+      channels: [],
+      stats: {},
+      allStats: {},
+      rows: [],
+    }
+  }
+
+  const { columns, values } = result[0]
+  const publishedChannels = station.channels.filter((c) => c.published).map((c) => c.channel)
+  const presentChannels = publishedChannels.filter((c) => columns.includes(c))
+  const colIndices = Object.fromEntries(presentChannels.map((c) => [c, columns.indexOf(c)]))
+  const tsIndex = columns.indexOf('ts')
+
+  const rows = values.map((rowArr) => {
+    const ts = rowArr[tsIndex]
+    const instant = new Date(ts * 1000).toISOString()
+    const stamp = instant.replace('.000Z', 'Z')
+    const dateDay = stamp.slice(0, 10)
+    const day = stamp.slice(0, 19).replace('T', ' ')
+    const date = ts * 1000
+
+    const rowValues = {}
+    const byStat = {}
+    const stats = {}
+    const breaches = []
+
+    for (const ch of presentChannels) {
+      const rawVal = rowArr[colIndices[ch]]
+      const chConfig = stationNorm.channels?.[ch] ?? {}
+      const val = applyChannelCorrection(rawVal, stamp, chConfig)
+      rowValues[ch] = val
+      byStat[ch] = { raw: val }
+      stats[ch] = 'raw'
+
+      const bandKey = `${stationId}.${ch}`
+      const band = bands[bandKey]?.band
+      if (val !== null && band) {
+        const [lo, hi] = band
+        if (lo !== null && val < lo) {
+          breaches.push({ channel: ch, value: val, bound: lo, side: 'floor' })
+        } else if (hi !== null && val > hi) {
+          breaches.push({ channel: ch, value: val, bound: hi, side: 'ceiling' })
+        }
+      }
+    }
+
+    return {
+      key: stamp,
+      day,
+      dateDay,
+      date,
+      tsUtcDay: stamp,
+      nSamples: 1,
+      nHours: 1,
+      nOutOfRange: breaches.length,
+      values: rowValues,
+      byStat,
+      stats,
+      oor: {},
+      breaches,
+    }
+  })
+
+  return {
+    header: ['ts', ...presentChannels],
+    channels: presentChannels,
+    stats: Object.fromEntries(presentChannels.map((c) => [c, 'raw'])),
+    allStats: Object.fromEntries(presentChannels.map((c) => [c, ['raw']])),
+    rows,
+  }
+}
+
 export function loadRollup(stationId, folder, year) {
   const key = `rollup:${stationId}:${folder}:${year}`
   if (!cache.has(key)) {
-    cache.set(
-      key,
-      fetchText(`${stationId}/${folder}/${year}.csv`)
-        .then(parseCsv)
-        .then((rows) => decorateRows(rows, folder)),
-    )
+    if (folder === 'raw') {
+      cache.set(key, loadRawYear(stationId, year))
+    } else {
+      cache.set(
+        key,
+        fetchText(`${stationId}/${folder}/${year}.csv`)
+          .then(parseCsv)
+          .then((rows) => decorateRows(rows, folder)),
+      )
+    }
   }
   return cache.get(key)
 }
