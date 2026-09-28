@@ -77,7 +77,17 @@ __all__ = [
 # widened until it is not firing on a mode rather than on an excursion.
 BAND_FIRE_FRACTION = 0.01
 
-Kind = Literal["voltage", "current", "power", "temperature", "count", "raw", "digital", "text"]
+Kind = Literal[
+    "voltage",
+    "current",
+    "power",
+    "temperature",
+    "duration",
+    "count",
+    "raw",
+    "digital",
+    "text",
+]
 
 # Why a channel is kept out of the site's channel picker and out of the CSVs.
 # The value is always still in the database: an exclusion is about what to
@@ -1644,12 +1654,30 @@ TEST = Station(
         ),
         Channel(
             name="wifi_raw",
-            label="WiFi",
-            kind="raw",
-            description="WiFi probe counter, 1,605-56,708.",
-            unit="count",
+            label="WiFi TX",
+            kind="duration",
+            description=(
+                "How long the probe's WiFi transmit took, in milliseconds. The "
+                "collector named the column `wifi_tx_ms` in the repair of "
+                "`test/IFTTT_test (1)` and `(2)`, where the header row went from "
+                "`nix, temp, wifi` to `nix, temp_c, wifi_tx_ms`. This channel's "
+                "own name is the internal one; the header is the collector's, and "
+                "it is the authority on what the column measures. It was published "
+                "as `count` and described as a counter until 0.10.1, so the site "
+                "labelled a duration in milliseconds as a tally."
+            ),
+            unit="ms",
             band=None,
-            band_note="No band, for the same reason as nix_raw.",
+            band_note=(
+                "No band, and the reason is that none is available rather than "
+                "that none is wanted. The collector named the unit and gave no "
+                "ceiling, and unlike a voltage, a current or a power reading there "
+                "is no hardware limit a transmission time can be tested against: it "
+                "depends on the protocol, the distance and the noise, and a band "
+                "wide enough to hold 1,605-56,708 ms would be a band that flags "
+                "nothing. A plausible-looking range here would be invented rather "
+                "than measured, so the channel is published with none."
+            ),
         ),
     ),
     open_questions=(

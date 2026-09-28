@@ -36,6 +36,7 @@ Four checks, each of which would have caught a specific 0.8 failure:
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 
@@ -156,6 +157,61 @@ def _band_test(ch: catalog.Channel) -> tuple[str, list[float]]:
     return (" OR ".join(test) or "0"), params
 
 
+#: A unit suffix in the collector's own column name, and the unit it implies.
+#:
+#: The collector names columns after what they are -- `wifi_tx_ms`, `temp_c`,
+#: `battery2` -- and a layout records that name next to the channel it maps to,
+#: so the two sit in the same declaration. A channel whose published unit
+#: contradicts its own header's suffix is not a documentation quibble: the site
+#: prints `channel.unit` beside every value, so a duration in milliseconds
+#: declared as `count` is shown to a reader as a tally, with nothing to notice
+#: it. That is what `test.wifi_raw` was for a release.
+#:
+#: Deliberately a small vocabulary and a failure rather than a note. Every token
+#: here is one the archive actually uses, so a false positive is a bug in the
+#: catalog, not noise to be tolerated -- and this check reads only the catalog,
+#: so it needs no archive and can run in the unit suite.
+UNIT_SUFFIXES: dict[str, str] = {
+    "ms": "ms",
+    "s": "s",
+    "hz": "Hz",
+    "v": "V",
+    "a": "A",
+    "w": "W",
+    "c": "degC",
+}
+
+
+def check_declared_units() -> Check:
+    """A channel's published unit agrees with the unit in the collector's column name.
+
+    `test.wifi_raw` was published as `count` and described as a "counter" while
+    the header the collector wrote beside it said `wifi_tx_ms`. Nothing in the
+    build could see that, because the mapping was correct and only the prose and
+    the unit had drifted. This is the check that would have seen it.
+    """
+    check = Check("declared units")
+    for station in catalog.STATIONS:
+        for layout in station.layouts:
+            for header_name, channel_name in zip(layout.header, layout.channels, strict=True):
+                found = re.search(r"_([A-Za-z]+)$", header_name)
+                if found is None:
+                    continue
+                implied = UNIT_SUFFIXES.get(found.group(1).lower())
+                if implied is None:
+                    continue
+                channel = station.channel(channel_name)
+                if channel.exclude == "unresolved_unit":
+                    continue
+                if channel.unit != implied:
+                    check.fail(
+                        f"{station.station_id}.{channel_name}: the collector's header "
+                        f"says {header_name!r}, which is {implied}, and the channel "
+                        f"publishes {channel.unit!r}"
+                    )
+    return check
+
+
 def check_exclusions(conn: sqlite3.Connection) -> Check:
     """An excluded channel is still excluded for the reason it was excluded."""
     check = Check("exclusions")
@@ -237,6 +293,7 @@ def run(conn: sqlite3.Connection, raw_dir) -> list[Check]:
         check_catalog(raw_dir),
         check_bands(conn),
         check_flag_agreement(conn),
+        check_declared_units(),
         check_exclusions(conn),
     ]
 

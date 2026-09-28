@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import unittest
+from pathlib import Path
 from typing import ClassVar
 
 from etl import catalog
@@ -416,6 +417,83 @@ class TestBandsAreQuietOrExplained(unittest.TestCase):
                 ch.band_note.strip(),
                 f"{station_id}.{channel} fires on {fraction:.1%} of its record and "
                 "has no note explaining why the fire is the finding",
+            )
+
+    def test_a_channel_unit_agrees_with_the_collectors_column_name(self) -> None:
+        # The collector names columns after what they are -- `wifi_tx_ms`,
+        # `temp_c` -- and a layout records that name next to the channel it maps
+        # to, so the two sit in the same declaration.
+        #
+        # `test.wifi_raw` was published as `count` and described as a "counter"
+        # while the header the collector wrote beside it said `wifi_tx_ms`. The
+        # mapping was correct, so nothing complained; only the unit and the prose
+        # had drifted from the archive. And because the site prints
+        # `channel.unit` beside every value, a duration in milliseconds was shown
+        # to a reader as a tally.
+        #
+        # This is the check `etl.audit` makes over the real build; it is repeated
+        # here because the unit suite should not need the archive to catch a
+        # declaration that contradicts itself.
+        from etl.audit import UNIT_SUFFIXES, check_declared_units
+
+        check = check_declared_units()
+        self.assertTrue(
+            check.ok,
+            "; ".join(check.failures) if hasattr(check, "failures") else str(check),
+        )
+
+        mismatches: list[str] = []
+        for station in STATIONS:
+            for layout in station.layouts:
+                for header_name, channel_name in zip(layout.header, layout.channels, strict=True):
+                    found = re.search(r"_([A-Za-z]+)$", header_name)
+                    if found is None:
+                        continue
+                    implied = UNIT_SUFFIXES.get(found.group(1).lower())
+                    if implied is None:
+                        continue
+                    channel = station.channel(channel_name)
+                    if channel.exclude == "unresolved_unit":
+                        continue
+                    if channel.unit != implied:
+                        mismatches.append(
+                            f"{station.station_id}.{channel_name}: header "
+                            f"{header_name!r} is {implied}, channel says {channel.unit!r}"
+                        )
+        self.assertEqual(mismatches, [], "a channel contradicts the collector's own name for it")
+
+    def test_a_channel_with_no_unit_says_why_and_which_name_the_collector_used(self) -> None:
+        # A channel published with no band and no unit has to carry the evidence,
+        # because neither is derivable from the data. `wifi_tx_ms` is the case:
+        # the archive's header is the only record of what the column measures, and
+        # losing it is how it came to be described as a counter.
+        channel = BY_ID["test"].channel("wifi_raw")
+        self.assertEqual(channel.unit, "ms", "published in the unit the collector named")
+        self.assertEqual(channel.kind, "duration", "a time in ms is not a tally")
+        self.assertIn("wifi_tx_ms", channel.description, "the collector's name is quoted")
+        self.assertTrue(
+            len(channel.band_note) > 80,
+            "and a channel with no band says why none is available, not just that there is none",
+        )
+
+    def test_every_kind_the_catalog_uses_is_one_the_frontend_orders(self) -> None:
+        # `KIND_ORDER` in src/data.js is a second list of the same thing. A kind
+        # the frontend does not know falls through to 9 and sorts last, silently,
+        # which is how a channel ends up in an odd place in the picker with no
+        # error anywhere.
+        #
+        # Only *published* channels: `solar-2020-05.event` is `text` and is
+        # excluded, so it never reaches `channelsFor` and never needs an entry.
+        data_js = (Path(__file__).resolve().parent.parent / "src" / "data.js").read_text(
+            encoding="utf-8"
+        )
+        used = {ch.kind for st in STATIONS for ch in st.published}
+        self.assertIn("text", {ch.kind for st in STATIONS for ch in st.channels})
+        for kind in sorted(used):
+            self.assertRegex(
+                data_js,
+                rf"\b{kind}:\s*\d",
+                f"the frontend has no KIND_ORDER entry for {kind!r}",
             )
 
     def test_a_stated_count_in_a_band_note_is_the_current_one(self) -> None:

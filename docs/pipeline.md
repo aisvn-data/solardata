@@ -42,8 +42,8 @@ changed:
 | command | what it does |
 |---|---|
 | `python -m etl all` | every stage below, in order, then `verify` |
-| `python -m etl fresh` | delete the database and its `-wal`/`-shm` sidecars first, then `all` — `data_fresh.yml` from a terminal |
-| `python -m etl ingest` | XLSX → the eight station tables, from scratch |
+| `python -m etl fresh` | delete the database and its `-wal`/`-shm` sidecars first, then `all` |
+| `python -m etl ingest` | XLSX to the eight station tables, from scratch |
 | `python -m etl aggregate` | the two rollups and `channel_stats` |
 | `python -m etl export` | `public/data`, one CSV set per station |
 | `python -m etl report` | the quality report, Markdown and JSON |
@@ -65,16 +65,13 @@ For each of the 364 XLSX files:
    are resolved by `(station, sheet width)` against a declared `Layout` in the
    catalog. The archive has exactly 9 `(station, width)` pairs and all 9 are
    declared. **An undeclared width is a hard build failure**, never a fallback
-   to a neighbouring file: 0.8 fell back and discarded 90% of the archive's
-   measurements while ingesting every timestamp and reporting no problem.
+   to a neighbouring file.
 3. **Parse the timestamp.** Column A is US free text (`July 14, 2020 at
    10:12AM`). `etl/readers/times.py` reads the fields with its own regex rather
    than `strptime`, because `%B` and `%p` resolve out of the C library's
-   `LC_TIME` tables, which are not loaded on Windows. With `strptime` every cell
-   in the archive fails to parse: zero readings and 738,358 rejects, in a shape
-   that reads as a data problem and is a locale one.
+   `LC_TIME` tables, which are not loaded on Windows.
 4. **Reject the primary-key collision.** A duplicate timestamp is discarded by
-   the key but still gets a `rejects` row with `reason = 'duplicate_ts'`.
+   the key but still gets a `rejects` row with `reason = duplicate_ts`.
 5. **Coerce each cell** (below).
 6. **Write the row** into that station's table, with `flags`.
 
@@ -274,7 +271,7 @@ Layout: 4 columns, 18 files.
 |---|---|---|---|---|---|---|
 | `nix_raw` | raw | - -> count | 1 | none | 70 .. 102 (33,377) |  |
 | `temp_c` | temperature | - -> degC | 1 | 0 .. 60 | 21.49 .. 31.31 (33,377) |  |
-| `wifi_raw` | raw | - -> count | 1 | none | 1605 .. 56708 (33,377) |  |
+| `wifi_raw` | duration | - -> ms | 1 | none | 1605 .. 56708 (33,377) |  |
 
 Open questions:
 

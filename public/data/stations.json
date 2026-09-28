@@ -458,7 +458,7 @@
           0.0,
           5.1
         ],
-        "band_note": "0-5.1 V, the documented 0-5,100 mV ceiling. Fires on 8 of 13,788 readings, all of them between 5.1 and 5.148 V -- over the divider's documented rail by up to 48 mV. A real boundary finding, which is what a band is for.",
+        "band_note": "0-5.1 V, the documented 0-5,100 mV ceiling. Fires on 7 of 13,788 readings, all of them between 5.1 and 5.148 V -- over the divider's documented rail by up to 48 mV. A real boundary finding, which is what a band is for. 0.9.0 reported 0 here: the shared rollup tested this station's volts against aisvn's 9-16 V band, and this station's readings were all below 9, so the counter was counting the wrong thing entirely.",
         "stats": [
           "avg",
           "min",
@@ -1370,7 +1370,7 @@
           0.0,
           4.35
         ],
-        "band_note": "Upper bound at the 1S cell ceiling of 4.35 V, lower bound at 0 rather than 2.5 V. Banded 2.5-4.35 V it fires on 1,656 of 8,535 readings (19%) because of the 0.735 V plateau, and a flag that fires on one sample in five cannot mark a contaminated aggregate. The plateau is a finding, and it stays in the database and in the report; it is simply not a per-reading out-of-range.",
+        "band_note": "Upper bound at the 1S cell ceiling of 4.35 V, lower bound at 0 rather than 2.5 V. Banded 2.5-4.35 V, 1,656 readings -- 19% of the channel -- would have fired on the 0.735 V plateau, and a flag that fires on one sample in five cannot mark a contaminated aggregate. The plateau is a finding and stays in the database and in the report; it is simply not a per-reading out-of-range, and at 0-4.35 V the channel fires on 4 of 8,535.",
         "stats": [
           "avg",
           "min",
@@ -1987,17 +1987,17 @@
       },
       {
         "channel": "wifi_raw",
-        "label": "WiFi",
-        "kind": "raw",
-        "description": "WiFi probe counter, 1,605-56,708.",
-        "unit": "count",
+        "label": "WiFi TX",
+        "kind": "duration",
+        "description": "How long the probe's WiFi transmit took, in milliseconds. The collector named the column `wifi_tx_ms` in the repair of `test/IFTTT_test (1)` and `(2)`, where the header row went from `nix, temp, wifi` to `nix, temp_c, wifi_tx_ms`. This channel's own name is the internal one; the header is the collector's, and it is the authority on what the column measures. It was published as `count` and described as a counter until 0.10.1, so the site labelled a duration in milliseconds as a tally.",
+        "unit": "ms",
         "raw_unit": null,
         "scale": 1.0,
         "band": [
           null,
           null
         ],
-        "band_note": "No band, for the same reason as nix_raw.",
+        "band_note": "No band, and the reason is that none is available rather than that none is wanted. The collector named the unit and gave no ceiling, and unlike a voltage, a current or a power reading there is no hardware limit a transmission time can be tested against: it depends on the protocol, the distance and the noise, and a band wide enough to hold 1,605-56,708 ms would be a band that flags nothing. A plausible-looking range here would be invented rather than measured, so the channel is published with none.",
         "stats": [
           "avg",
           "min",
@@ -2007,7 +2007,7 @@
         "exclude_reason": null,
         "exclude_note": "",
         "is_counter": false,
-        "decimals": 0,
+        "decimals": 1,
         "observed": {
           "channel": "wifi_raw",
           "n_values": 33377,
