@@ -260,20 +260,28 @@ export default function TimeSeriesChart({
   )
 }
 
-/** How a flagged value should be described in one line. */
+/**
+ * How a flagged value should be described in one line.
+ *
+ * The band, the value and the station's own range are all in the same unit --
+ * the pipeline applies the confirmed scale once, at ingest -- so there is nothing
+ * to convert here. That is why there is no `divisor`: 0.8 divided by a factor
+ * carried alongside the breach, and when the factor was missing from one call
+ * site the tooltip printed a band in the wrong unit next to a value in the right
+ * one.
+ */
 function levelText(breach) {
-  const d = breach.divisor ?? 1
   if (breach.level === 'contaminated') {
-    if (breach.oor > 0 && breach.band?.lo !== null && breach.band?.lo !== undefined) {
+    if (breach.oor > 0 && breach.band && breach.band.lo !== null && breach.band.lo !== undefined) {
       return `built entirely from ${breach.oor} out-of-band ${breach.oor === 1 ? 'sample' : 'samples'}`
     }
-    return `outside the recorded ${breach.band.lo / d}–${breach.band.hi / d} band`
+    return `outside the recorded ${breach.band.lo}–${breach.band.hi} band`
   }
   if (breach.level === 'partial') {
     return `built from ${breach.n - breach.oor} good and ${breach.oor} out-of-band ${breach.oor === 1 ? 'sample' : 'samples'}`
   }
   const r = breach.range
-  return `outside this station's recorded range (${r ? fmt(r.min / d) : ''}…${r ? fmt(r.max / d) : ''})`
+  return `outside this station's recorded range (${r ? fmt(r.min) : ''}…${r ? fmt(r.max) : ''})`
 }
 
 function fmt(value) {
@@ -364,15 +372,9 @@ function FlaggedTable({ rows, series }) {
                 <code>{breach.channel}</code>
               </td>
               <td>
-                {fmt(breach.display)} {breach.band?.unit ?? ''}
+                {fmt(breach.display)} {breach.unit ?? ''}
               </td>
-              <td className={`breach-cell ${breach.level}`}>
-                {breach.level === 'contaminated'
-                  ? `outside the ${breach.band?.lo / (breach.divisor ?? 1)}–${breach.band?.hi / (breach.divisor ?? 1)} band, or built entirely from flagged samples`
-                  : breach.level === 'partial'
-                    ? `${breach.oor} of ${breach.n} samples outside the ${breach.band?.lo / (breach.divisor ?? 1)}–${breach.band?.hi / (breach.divisor ?? 1)} band`
-                    : `outside this station's range ${fmt(breach.range?.min / (breach.divisor ?? 1))}–${fmt(breach.range?.max / (breach.divisor ?? 1))}`}
-              </td>
+              <td className={`breach-cell ${breach.level}`}>{levelText(breach)} of it</td>
               <td>
                 {breach.n}
                 {breach.oor > 0 && <span className="muted"> ({breach.oor} flagged)</span>}

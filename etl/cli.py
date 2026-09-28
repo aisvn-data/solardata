@@ -1,421 +1,341 @@
-"""Command line interface: ``python -m etl <command>``."""
+"""Command line.
+
+    python -m etl ingest        # XLSX -> eight station tables, from scratch
+    python -m etl aggregate     # rollups + the per-station channel measurements
+    python -m etl export        # public/data, per station
+    python -m etl report        # the per-station quality report
+    python -m etl audit         # the build-time checks on the real archive
+    python -m etl verify        # fail if the build != data/baseline.json
+    python -m etl all           # all of the above, in order
+
+Five stages rather than 0.8's seven, because two of them are gone: there is no
+``regimes`` stage, since the confirmed scales are declarations in ``etl.catalog``
+rather than things a detector finds, and no separate ``parquet`` stage, since
+the interchange export is part of ``export`` and is optional.
+
+``ingest`` rebuilds the database from nothing every time.  There is no append and
+no update, by design -- see the module docstring in ``etl.build_db``.
+"""
 
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
-import time
+from dataclasses import replace
 from pathlib import Path
 
-from etl import __version__
-from etl.config import Settings, settings_from_env
+from . import __version__, audit, build_aggregate, build_db, build_exports, report, verify
+from .config import Settings
 
-STAGES = ("db", "regimes", "aggregate", "parquet", "export", "report", "verify")
+__all__ = ["main"]
 
-
-#: Optional flags and their defaults.  The shared parent parser is built with
-#: ``argument_default=SUPPRESS`` so that an unspecified flag sets *no*
-#: attribute at all.  Without that, argparse's subparser re-applies its own
-#: defaults to the namespace and silently clobbers anything given before the
-#: subcommand -- which is exactly the bug this table exists to prevent.
-_FLAG_DEFAULTS: dict[str, object] = {
-    "raw_dir": None,
-    "out_dir": None,
-    "export_dir": None,
-    "baseline": None,
-    "only": None,
-    "quiet": False,
-    "granularity": None,
-    "all_stations": False,
-    "update_baseline": False,
-    "reason": "",
-}
+STAGES = ("ingest", "aggregate", "export", "report", "audit", "verify")
+#: What `all` runs, and the order that matters. `aggregate` needs the ingest
+#: (it reads the station tables) and `verify` needs everything, because the
+#: baseline records the rollup bucket counts.
+ALL_STAGES = ("ingest", "aggregate", "export", "report", "audit")
 
 
-def _apply_flag_defaults(args) -> None:
-    for name, default in _FLAG_DEFAULTS.items():
-        if not hasattr(args, name):
-            setattr(args, name, default)
+def _settings(args: argparse.Namespace) -> Settings:
+    """Resolve the run's paths from the defaults plus whatever was passed.
+
+    A dataclasses.replace chain rather than three branches that each rebuild the
+    whole Settings: 0.8 had a version where ``--out-dir`` moved db_path but not
+    report_json, which is the kind of thing that only shows up when a build has
+    already run.
+    """
+    settings = Settings()
+    for field in ("raw_dir", "out_dir", "export_dir"):
+        value = getattr(args, field, None)
+        if value:
+            settings = replace(settings, **{field: Path(value)})
+    return settings
 
 
-def _settings(args) -> Settings:
-    base = settings_from_env()
-    overrides: dict = {}
-    raw_dir = getattr(args, "raw_dir", None)
-    out_dir = getattr(args, "out_dir", None)
-    export_dir = getattr(args, "export_dir", None)
-    only = getattr(args, "only", None)
-    baseline = getattr(args, "baseline", None)
-
-    if raw_dir:
-        overrides["raw_dir"] = Path(raw_dir)
-    if out_dir:
-        # Redirecting the output directory has to move every artefact that
-        # lives under it, otherwise the database lands in one place and the
-        # report in another.
-        out = Path(out_dir)
-        overrides.update(
-            out_dir=out,
-            db_path=out / "solardata.db",
-            parquet_dir=out / "parquet",
-            report_json=out / "quality_report.json",
-            report_md=out / "quality_report.md",
-        )
-    if export_dir:
-        overrides["export_dir"] = Path(export_dir)
-    if only:
-        overrides["only"] = tuple(s.strip() for s in only.split(",") if s.strip())
-    # Both rollups are published by default; the setting narrows the run.
-    granularity = getattr(args, "granularity", None)
-    if granularity:
-        overrides["export_granularity"] = granularity
-    if baseline:
-        overrides["baseline_path"] = Path(baseline)
-    return Settings(**{**base.__dict__, **overrides})
+def _baseline_path(args: argparse.Namespace, settings: Settings) -> Path:
+    return Path(args.baseline) if getattr(args, "baseline", None) else settings.baseline_path
 
 
-def _selected(args, *wanted: str) -> bool:
-    only = getattr(args, "only", None)
-    if not only:
-        return True
-    return any(stage in only for stage in wanted)
+def _say(args: argparse.Namespace, message: str) -> None:
+    if not getattr(args, "quiet", False):
+        print(message)
 
 
-def cmd_ingest(args) -> int:
-    from etl.build_db import ingest
+def _open(settings: Settings, *, read_only: bool = False) -> sqlite3.Connection:
+    from .db import connect
 
-    settings = _settings(args)
-    print(f"solardata etl {__version__}")
-    print(f"raw  : {settings.raw_dir}")
-    print(f"out  : {settings.out_dir}")
-    started = time.time()
-    summary = ingest(settings, verbose=not getattr(args, "quiet", False))
-    elapsed = time.time() - started
-
-    print()
-    print(f"files read      {summary.files}")
-    print(f"rows ingested   {summary.rows_ingested:,}")
-    print(f"duplicates      {summary.rows_duplicate:,} (absorbed by the primary key)")
-    print(f"rejected cells  {summary.rows_rejected:,}")
-    print(f"notes recovered {summary.notes}")
-    for station_id, n in sorted(summary.per_station.items()):
-        rng = summary.per_station_range.get(station_id)
-        span = f"  {rng[0]} -> {rng[1]}" if rng else ""
-        print(f"  {station_id:<14} {n:>8,} rows{span}")
-    if summary.unknown_dirs:
-        print(f"unknown folders skipped: {summary.unknown_dirs}")
-    print(f"\ndone in {elapsed:.1f}s -> {settings.db_path}")
-    return 0
-
-
-def cmd_regimes(args) -> int:
-    from etl.build_regimes import detect
-    from etl.db import connect
-
-    settings = _settings(args)
     if not settings.db_path.exists():
-        print(f"no database at {settings.db_path}; run `ingest` first", file=sys.stderr)
-        return 1
-    conn = connect(settings.db_path)
+        raise SystemExit(f"no database at {settings.db_path}. Run `python -m etl ingest` first.")
+    return connect(settings.db_path, read_only=read_only)
+
+
+# ---------------------------------------------------------------------------
+# Stages
+# ---------------------------------------------------------------------------
+
+
+def cmd_ingest(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    _say(args, f"solardata {__version__}: reading {settings.raw_dir}")
+    summary = build_db.ingest(settings, verbose=not args.quiet)
+    _say(args, f"  {summary.line()}")
+    for station_id, (first, last) in sorted(summary.per_station_range.items()):
+        _say(args, f"    {station_id:<16} {first[:10]} .. {last[:10]}")
+    if summary.failed:
+        _say(args, f"  WARNING: {summary.failed} file(s) failed")
+    return 1 if summary.failed else 0
+
+
+def cmd_aggregate(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    conn = _open(settings)
     try:
-        print("detecting unit-scale regimes ...")
-        detect(conn, verbose=True)
+        _say(args, "aggregating")
+        build_aggregate.build(conn, verbose=not args.quiet)
+        return 0
     finally:
         conn.close()
-    return 0
 
 
-def cmd_parquet(args) -> int:
-    from etl.build_parquet import build
-    from etl.db import connect, log_build
-
+def cmd_export(args: argparse.Namespace) -> int:
     settings = _settings(args)
-    if not settings.db_path.exists():
-        print(f"no database at {settings.db_path}; run `ingest` first", file=sys.stderr)
-        return 1
-    conn = connect(settings.db_path)
+    conn = _open(settings)
     try:
-        print("writing Parquet ...")
-        rows = build(conn, settings.parquet_dir, verbose=not getattr(args, "quiet", False))
-        log_build(conn, None, "parquet", str(settings.parquet_dir), rows, 0)
+        _say(args, "exporting public/data")
+        build_exports.build(conn, settings, verbose=not args.quiet)
+        return 0
     finally:
         conn.close()
-    return 0
 
 
-def cmd_export(args) -> int:
-    from etl.build_exports import build
-    from etl.db import connect, log_build
-
+def cmd_report(args: argparse.Namespace) -> int:
     settings = _settings(args)
-    if not settings.db_path.exists():
-        print(f"no database at {settings.db_path}; run `ingest` first", file=sys.stderr)
-        return 1
-    conn = connect(settings.db_path)
+    conn = _open(settings)
     try:
-        print("writing frontend exports ...")
-        written = build(
-            conn,
-            settings.export_dir,
-            granularity=settings.export_granularity,
-            include_non_production=args.all_stations,
-            verbose=not getattr(args, "quiet", False),
-        )
-        log_build(
-            conn,
-            None,
-            "export",
-            str(settings.export_dir),
-            written["daily"] + written["hourly"],
-            0,
-        )
+        _say(args, "writing the quality report")
+        report.write(conn, settings, verbose=not args.quiet)
+        return 0
     finally:
         conn.close()
-    return 0
 
 
-def cmd_report(args) -> int:
-    from etl.db import connect
-    from etl.report import write
-
+def cmd_audit(args: argparse.Namespace) -> int:
     settings = _settings(args)
-    if not settings.db_path.exists():
-        print(f"no database at {settings.db_path}; run `ingest` first", file=sys.stderr)
-        return 1
-    conn = connect(settings.db_path)
+    conn = _open(settings, read_only=True)
     try:
-        report = write(conn, settings.report_json, settings.report_md)
-    finally:
-        conn.close()
-    totals = report["totals"]
-    print(
-        f"report: {totals['readings']:,} readings, "
-        f"{report['source_files']['total']} files "
-        f"({report['source_files']['without_header']} without headers)"
-    )
-    print(f"  {settings.report_md}")
-    print(f"  {settings.report_json}")
-    return 0
-
-
-def cmd_aggregate(args) -> int:
-    from etl.build_aggregate import build
-    from etl.db import connect, log_build
-
-    settings = _settings(args)
-    if not settings.db_path.exists():
-        print(f"no database at {settings.db_path}; run `ingest` first", file=sys.stderr)
-        return 1
-    conn = connect(settings.db_path)
-    try:
-        if not args.quiet:
-            print("building hourly/daily rollups ...")
-        hourly, daily, scaled = build(conn, verbose=not args.quiet)
-        log_build(conn, None, "aggregate", "readings_hourly,readings_daily", hourly + daily, 0)
-        if not args.quiet:
-            print(f"  {hourly} hourly / {daily} daily buckets, {scaled} scaled")
-    finally:
-        conn.close()
-    return 0
-
-
-STAGE_ORDER = ("regimes", "aggregate", "parquet", "export", "report")
-STAGE_FUNCS = {
-    "regimes": cmd_regimes,
-    "aggregate": cmd_aggregate,
-    "parquet": cmd_parquet,
-    "export": cmd_export,
-    "report": cmd_report,
-}
-
-
-def cmd_all(args) -> int:
-    """Full rebuild: ingest, then every downstream stage."""
-    code = cmd_ingest(args)
-    if code != 0:
-        return code
-    for stage in STAGE_ORDER:
-        if not _selected(args, stage):
-            continue
-        print()
-        code = STAGE_FUNCS[stage](args)
-        if code != 0:
-            return code
-    # Verify last: it is the check on everything the other stages produced.
-    # Skipped by default in `all` so a local rebuild is not gated on a stale
-    # baseline file; CI runs `verify` explicitly.
-    if _selected(args, "verify") and not getattr(args, "update_baseline", False):
-        print()
-        code = cmd_verify(args)
-        if code != 0:
-            return code
-    return 0
-
-
-def cmd_query(args) -> int:
-    """Ad-hoc read-only SQL against the built database."""
-    from etl.db import connect
-
-    settings = _settings(args)
-    if not settings.db_path.exists():
-        print(f"no database at {settings.db_path}; run `ingest` first", file=sys.stderr)
-        return 1
-    conn = connect(settings.db_path, read_only=True)
-    try:
-        cursor = conn.execute(args.sql)
-        names = [d[0] for d in cursor.description] if cursor.description else []
-        rows = cursor.fetchall()
-        if names:
-            print(" | ".join(names))
-            print("-" * 80)
-        for row in rows:
-            print(" | ".join("" if v is None else str(v) for v in row))
-        print(f"\n({len(rows)} rows)")
-    finally:
-        conn.close()
-    return 0
-
-
-def cmd_verify(args) -> int:
-    """Fail if the built database does not match data/baseline.json."""
-    from etl.db import connect
-    from etl.verify import check, render, write
-
-    settings = _settings(args)
-    if not settings.db_path.exists():
-        print(f"no database at {settings.db_path}; run `ingest` first", file=sys.stderr)
-        return 1
-    conn = connect(settings.db_path, read_only=not args.update_baseline)
-    try:
-        if args.update_baseline:
-            payload = write(conn, settings.baseline_path, reason=args.reason or "")
-            print(f"baseline updated -> {settings.baseline_path}")
-            for name, value in payload["counts"].items():
-                print(f"  {name:<28} {value:>9}")
-            print("\nReview this diff in the pull request: it is the record of what")
-            print("changed in the data, not just in the code.")
-            return 0
-
-        if not settings.baseline_path.exists():
+        _say(args, "auditing the build against the archive")
+        checks = audit.run(conn, settings.raw_dir)
+        failed = 0
+        for check in checks:
+            mark = "ok  " if check.ok else "FAIL"
+            _say(args, f"  [{mark}] {check.name}: {len(check.notes)} note(s)")
+            for note in check.notes:
+                _say(args, f"         {note}")
+            for failure in check.failures:
+                print(f"         {failure}", file=sys.stderr)
+                failed += 1
+        if failed:
             print(
-                f"no baseline at {settings.baseline_path};"
-                " create one with `python -m etl verify --update-baseline`",
+                f"\n{failed} audit failure(s). See above; the build is not trustworthy "
+                "until they are resolved.",
                 file=sys.stderr,
             )
-            return 1
-
-        result = check(conn, settings.baseline_path)
+        return 1 if failed else 0
     finally:
         conn.close()
 
-    print(render(result))
-    if result.ok:
-        print("\nbaseline matches: the reading count did not move.")
-        return 0
 
-    print("\nBASELINE DRIFT -- the build no longer produces the recorded data.")
-    print("If this change is intended, re-record it with:")
-    print('  python -m etl verify --update-baseline --reason "<why>"')
-    for name, (expected, actual) in result.drift.items():
-        print(f"  {name}: {expected} -> {actual} ({actual - expected:+d})")
-    return 1
+def cmd_verify(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    conn = _open(settings)
+    try:
+        if args.update_baseline:
+            if not args.reason:
+                print(
+                    "--update-baseline requires --reason. The reason travels with the "
+                    "file so the diff explains itself.",
+                    file=sys.stderr,
+                )
+                return 2
+            path = _baseline_path(args, settings)
+            payload = verify.write(conn, path, reason=args.reason)
+            print(f"baseline re-recorded at {path}: {args.reason}")
+            for name, value in payload["counts"].items():
+                print(f"  {name:<20} {value:,}")
+            return 0
+
+        path = _baseline_path(args, settings)
+        if not path.exists():
+            print(
+                f"no baseline at {path}. Record one with:\n"
+                '  python -m etl verify --update-baseline --reason "first build"',
+                file=sys.stderr,
+            )
+            return 2
+
+        result = verify.check(conn, path)
+        if result.ok:
+            print(verify.render(result))
+            return 0
+        print(verify.render(result), file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+
+
+def cmd_all(args: argparse.Namespace) -> int:
+    for name in ALL_STAGES:
+        code = STAGE_FUNCS[name](args)
+        if code:
+            return code
+    if not getattr(args, "update_baseline", False) and "verify" in (args.only or ALL_STAGES):
+        return cmd_verify(args)
+    return 0
+
+
+def cmd_query(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    conn = _open(settings, read_only=True)
+    try:
+        cursor = conn.execute(args.sql)
+        columns = [d[0] for d in cursor.description]
+        rows = cursor.fetchall()
+        if not rows:
+            print("(no rows)")
+            return 0
+        widths = [max(len(c), *(len(str(r[i])) for r in rows)) for i, c in enumerate(columns)]
+        print("  ".join(c.ljust(w) for c, w in zip(columns, widths, strict=True)))
+        print("  ".join("-" * w for w in widths))
+        for row in rows:
+            print("  ".join(str(v).ljust(w) for v, w in zip(row, widths, strict=True)))
+        print(f"\n{len(rows)} row(s)")
+        return 0
+    finally:
+        conn.close()
+
+
+STAGE_FUNCS = {
+    "ingest": cmd_ingest,
+    "aggregate": cmd_aggregate,
+    "export": cmd_export,
+    "report": cmd_report,
+    "audit": cmd_audit,
+    "verify": cmd_verify,
+    "all": cmd_all,
+    "query": cmd_query,
+}
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
+
+
+def _add_common(parser: argparse.ArgumentParser, *, defaults: bool = True) -> None:
+    """The flags that work on either side of the subcommand.
+
+    ``python -m etl -q ingest`` and ``python -m etl ingest -q`` are the same
+    command, and both spellings appear in the documentation, so both have to
+    work.  The trick is ``argument_default=SUPPRESS`` on the subparser copy: a
+    flag given before the subcommand is parsed into the namespace, and a
+    subparser that then supplies its own default would overwrite it.  With
+    SUPPRESS the subparser only sets a value when the flag is actually present,
+    and the top-level parser supplies the defaults for the flags nobody gave.
+    """
+    group = parser.add_argument_group("common")
+    default = None if defaults else argparse.SUPPRESS
+    group.add_argument("--raw-dir", default=default, help="input archive (default data/raw)")
+    group.add_argument(
+        "--out-dir", default=default, help="artefact directory (default data/processed)"
+    )
+    group.add_argument(
+        "--export-dir", default=default, help="site data directory (default public/data)"
+    )
+    group.add_argument(
+        "-q",
+        "--quiet",
+        action="store_const",
+        const=True,
+        default=default if not defaults else False,
+        help="print less (the tests use this)",
+    )
+
+
+def _add_verify_flags(parser: argparse.ArgumentParser, *, defaults: bool = True) -> None:
+    default = None if defaults else argparse.SUPPRESS
+    parser.add_argument(
+        "--update-baseline",
+        action="store_true",
+        default=default if not defaults else False,
+        help="re-record data/baseline.json",
+    )
+    parser.add_argument(
+        "--reason", default="" if defaults else default, help="why the numbers moved"
+    )
+    parser.add_argument("--baseline", default=default, help="baseline path")
+
+
+HELP = {
+    "ingest": "XLSX -> eight station tables, rebuilt from scratch",
+    "aggregate": "hourly and daily rollups, and the per-station channel measurements",
+    "export": "public/data: stations.json, metrics.json and one CSV set per station",
+    "report": "the per-station data-quality report",
+    "audit": "build-time checks against the real archive",
+    "verify": "fail if the build does not match data/baseline.json",
+    "all": "every stage, in order",
+    "query": "read-only SQL against the built database",
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
-    # Shared flags live on a parent parser so they work on either side of the
-    # subcommand: `python -m etl -q ingest` and `python -m etl ingest -q`.
-    # SUPPRESS is essential here -- see _FLAG_DEFAULTS.
-    common = argparse.ArgumentParser(add_help=False, argument_default=argparse.SUPPRESS)
-    common.add_argument("--raw-dir", help="override data/raw")
-    common.add_argument("--out-dir", help="override data/processed")
-    common.add_argument("--export-dir", help="override data/exports")
-    common.add_argument("--only", help=f"comma separated subset of {','.join(STAGES)}")
-    common.add_argument("-q", "--quiet", action="store_true", help="less per-file output")
-    common.add_argument(
-        "--granularity",
-        choices=("both", "hour", "day"),
-        help=(
-            "which rollup to export: both (default), hour only, or day only. "
-            "Both are cheap and the site switches between them at runtime"
-        ),
-    )
-    common.add_argument(
-        "--all-stations",
-        action="store_true",
-        help=(
-            "group the bench stations (test, voltage-phumy) with the solar "
-            "production ones. Their rollups are written either way"
-        ),
-    )
-    common.add_argument("--baseline", help="override data/baseline.json")
-
     parser = argparse.ArgumentParser(
         prog="python -m etl",
-        parents=[common],
-        description="Convert the raw IFTTT/Google-Sheets archive into a queryable store.",
+        description="Convert the raw IFTTT/Google-Sheets solar archive into a queryable store.",
+        epilog=(
+            "Common flags may go before or after the stage. Stages: "
+            + ", ".join(sorted(HELP))
+            + "."
+        ),
     )
-    parser.add_argument("--version", action="version", version=f"solardata-etl {__version__}")
+    parser.add_argument("--version", action="version", version=f"solardata {__version__}")
+    _add_common(parser)
+    _add_verify_flags(parser)
+    sub = parser.add_subparsers(dest="stage", required=True, metavar="stage")
 
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    ingest = sub.add_parser(
-        "ingest", parents=[common], help="XLSX -> SQLite (always the first stage)"
-    )
-    ingest.set_defaults(func=cmd_ingest)
-
-    regimes = sub.add_parser("regimes", parents=[common], help="detect unit-scale changes")
-    regimes.set_defaults(func=cmd_regimes)
-
-    aggregate = sub.add_parser(
-        "aggregate",
-        parents=[common],
-        help="build the hourly/daily rollups, applying confirmed scales",
-    )
-    aggregate.set_defaults(func=cmd_aggregate)
-
-    parquet = sub.add_parser("parquet", parents=[common], help="SQLite -> partitioned Parquet")
-    parquet.set_defaults(func=cmd_parquet)
-
-    export = sub.add_parser(
-        "export", parents=[common], help="SQLite -> CSV rollups for the website"
-    )
-    export.set_defaults(func=cmd_export)
-
-    report = sub.add_parser("report", parents=[common], help="write the data-quality report")
-    report.set_defaults(func=cmd_report)
-
-    every = sub.add_parser(
-        "all", parents=[common], help="ingest + regimes + parquet + export + report"
-    )
-    every.set_defaults(func=cmd_all)
-
-    query = sub.add_parser(
-        "query", parents=[common], help="run read-only SQL against the built database"
-    )
-    query.add_argument("sql", help='e.g. "SELECT station_id, COUNT(*) FROM readings GROUP BY 1"')
-    query.set_defaults(func=cmd_query)
-
-    verify = sub.add_parser(
-        "verify",
-        parents=[common],
-        help="fail if the build does not match data/baseline.json",
-    )
-    verify.add_argument(
-        "--update-baseline",
-        action="store_true",
-        help="record the current build as the new baseline",
-    )
-    verify.add_argument("--reason", default="", help="why the baseline is moving")
-    verify.set_defaults(func=cmd_verify)
-
+    for name in sorted(HELP):
+        p = sub.add_parser(name, help=HELP[name])
+        _add_common(p, defaults=False)
+        if name in ("all", "verify"):
+            _add_verify_flags(p, defaults=False)
+        if name == "query":
+            p.add_argument(
+                "sql",
+                help='read-only SQL, e.g. "SELECT station_id, COUNT(*) FROM stations GROUP BY 1"',
+            )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    _apply_flag_defaults(args)
-    if not hasattr(args, "func"):
-        parser.print_help()
-        return 2
-    return args.func(args)
+    # The subparsers use `argument_default=SUPPRESS` so that a flag given before
+    # the stage is not overwritten by the stage's own default, which means every
+    # value has to be defaulted here rather than by argparse.
+    for name, fallback in (
+        ("baseline", None),
+        ("update_baseline", False),
+        ("reason", ""),
+        ("only", list(ALL_STAGES)),
+    ):
+        if not hasattr(args, name):
+            setattr(args, name, fallback)
+    try:
+        return STAGE_FUNCS[args.stage](args)
+    except KeyboardInterrupt:
+        print("\ninterrupted", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())

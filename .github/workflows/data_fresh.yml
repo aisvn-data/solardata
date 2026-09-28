@@ -1,0 +1,235 @@
+# Rebuild the database from nothing, on demand.
+#
+# The distinction from `data.yml` is deliberate and it is the whole point of this
+# file.
+#
+#   data.yml      path-gated. Runs when something the build reads has changed,
+#                 plus a weekly sweep. Rebuilds in place.
+#   data_fresh    on demand only. **Deletes the database first**, then rebuilds,
+#                 audits and verifies. Never appends, never patches.
+#
+# Why a separate file for "build me a new one"
+# -------------------------------------------
+# `python -m etl ingest` has always rebuilt from scratch -- there is no
+# incremental path, by design (see the module docstring in `etl.build_db`). So
+# what this workflow adds is not a *different* build; it is a build whose
+# starting state is guaranteed empty, plus a report on how it went.
+#
+# That matters because "the database is a gitignored artefact that some earlier
+# run left behind" is a real failure mode. A run here removes
+# `data/processed/solardata.db` and its WAL sidecars first, so a stale table, a
+# leftover `-wal` or a half-written file from an interrupted run cannot survive
+# into the result. If the archive produces the same 731,885 readings every time
+# -- and it does, which is what `verify` checks -- then the rebuild is proof that
+# the committed data is reproducible rather than a report that it once was.
+#
+# When to run it
+# --------------
+#   * after changing `etl/catalog.py`, because that is a claim about the archive
+#     and a rebuild is the only way to see whether the claim holds;
+#   * when `data.yml` has been red for a while and you want to know whether the
+#     drift is in the build or in the archive;
+#   * to produce a clean database for a release, with no chance of inheriting
+#     anything;
+#   * on a schedule, as a slow confirmation that the archive still produces what
+#     the baseline says.
+#
+# What it does with the result
+# ----------------------------
+# It does **not** commit. A human reads the summary, the diff on
+# `data/processed/quality_report.md` and `public/data/`, and the audit output,
+# and decides. The one thing it will do unattended is fail, loudly, on any
+# baseline drift or any audit failure -- because a build that quietly moved is
+# the failure this project is built to avoid.
+name: data_fresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Why the database is being rebuilt from scratch
+        required: true
+        type: string
+      publish:
+        description: >-
+          Re-record the baseline if it has drifted. Off by default: a drifted
+          count should be a human decision with a reason attached, not something
+          a scheduled run does on its own.
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # Mondays at 04:23 UTC. Off-peak, and not on the hour, because GitHub's
+    # scheduler is busiest at :00 and a run that waits ten minutes to start is a
+    # run that gets cancelled by a newer commit.
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: data-fresh
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  fresh:
+    name: Rebuild from scratch and verify
+    runs-on: ubuntu-latest
+    # ~2 min for the ingest of 364 files, plus the aggregate, the export, the
+    # report and the audit's own pass over the archive. The audit reads every
+    # sheet a second time, which is most of the extra time over `data.yml`.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # The step that makes this workflow different from `data.yml`. Removing the
+      # database, and the `-wal` and `-shm` sidecars SQLite leaves behind, is what
+      # guarantees the build starts from nothing. A leftover WAL in particular is
+      # the sort of thing that makes a "fresh" build quietly not fresh: SQLite
+      # replays it on the next open, so a deleted `.db` with a surviving `-wal`
+      # can hand back rows from the previous run.
+      - name: Remove any existing database
+        run: |
+          echo "reason: ${{ inputs.reason || 'scheduled confirmation' }}"
+          mkdir -p data/processed
+          rm -f data/processed/solardata.db
+          rm -f data/processed/solardata.db-wal
+          rm -f data/processed/solardata.db-shm
+          ls -la data/processed
+
+      # Record what the report said before, so the step summary can show whether
+      # the rebuild moved anything even when `verify` passes.
+      - name: Snapshot the committed report
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ -f data/processed/quality_report.md ]; then
+            cp data/processed/quality_report.md "${RUNNER_TEMP}/report_before.md"
+            echo "saved the previous report for comparison"
+          else
+            echo "no previous report; this is the first build of this branch"
+          fi
+
+      # `etl all` is ingest, aggregate, export, report and audit, in that order.
+      # The audit is not optional: it is the only stage that can see the raw
+      # archive rather than the database the other stages produced, and it is
+      # what checks that every (station, width) in those 364 files resolves to a
+      # declared layout.
+      - name: Rebuild everything from scratch
+        run: python -m etl all
+
+      - name: Verify against the baseline
+        run: python -m etl verify
+
+      # Optional, and off by default. Re-recording is a human decision: the reason
+      # travels with the file so the diff explains itself, and a scheduled run
+      # that re-recorded automatically would put a number change in a pull request
+      # with nobody's name on it.
+      - name: Re-record the baseline, if asked
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        run: |
+          python -m etl verify --update-baseline \
+            --reason "${{ inputs.reason }} (re-recorded by data_fresh)"
+
+      - name: Did the report move?
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ ! -f "${RUNNER_TEMP}/report_before.md" ]; then
+            echo "::notice::first build of this branch; nothing to compare against"
+            exit 0
+          fi
+          if diff -q "${RUNNER_TEMP}/report_before.md" data/processed/quality_report.md >/dev/null; then
+            echo "the quality report is unchanged; the rebuild is reproducible"
+          else
+            echo "::warning::the quality report changed after a from-scratch rebuild"
+            echo "::warning::If the change is intended, commit the regenerated report."
+            diff -u "${RUNNER_TEMP}/report_before.md" data/processed/quality_report.md \
+              | head -80 || true
+          fi
+
+      - name: Summarise
+        if: always()
+        run: |
+          cat > "$RUNNER_TEMP/summary.md" <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          db = Path("data/processed/solardata.db")
+          if not db.exists():
+              print("_the build did not produce a database_")
+              raise SystemExit(0)
+
+          conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+          conn.row_factory = sqlite3.Row
+          totals = conn.execute(
+              "SELECT COALESCE(SUM(n_readings), 0) AS readings, COUNT(*) AS stations"
+              " FROM stations"
+          ).fetchone()
+          out_of_range = conn.execute(
+              "SELECT COALESCE(SUM(n_out_of_range), 0) AS n FROM channel_stats"
+          ).fetchone()["n"]
+
+          print("| metric | value |")
+          print("|---|---:|")
+          print(f"| readings | {totals['readings']:,} |")
+          print(f"| stations | {totals['stations']} |")
+          print(f"| raw files | {conn.execute('SELECT COUNT(*) FROM source_files').fetchone()[0]:,} |")
+          print(f"| hourly buckets | {conn.execute('SELECT COUNT(*) FROM readings_hourly').fetchone()[0]:,} |")
+          print(f"| daily buckets | {conn.execute('SELECT COUNT(*) FROM readings_daily').fetchone()[0]:,} |")
+          print(f"| **out-of-range channel values** | **{out_of_range:,}** |")
+          print(f"| rejected cells | {conn.execute('SELECT COUNT(*) FROM rejects').fetchone()[0]:,} |")
+          print(f"| recovered notes | {conn.execute('SELECT COUNT(*) FROM notes').fetchone()[0]} |")
+          print()
+          print("| station | table | readings | coverage (UTC) |")
+          print("|---|---|---:|---|")
+          for row in conn.execute(
+              "SELECT station_id, table_name, n_readings, first_ts_utc, last_ts_utc"
+              " FROM stations ORDER BY is_production DESC, station_id"
+          ):
+              span = f"{(row['first_ts_utc'] or '')[:10]} to {(row['last_ts_utc'] or '')[:10]}"
+              print(f"| {row['station_id']} | `{row['table_name']}` | {row['n_readings'] or 0:,} | {span} |")
+          conn.close()
+
+          audit = Path("data/processed/quality_report.json")
+          if audit.exists():
+              report = json.loads(audit.read_text(encoding="utf-8"))
+              band_audit = report.get("band_audit", {})
+              unjustified = band_audit.get("unjustified", [])
+              print()
+              if unjustified:
+                  print(f"**{len(unjustified)} band(s) fire above the threshold with no note.**")
+              else:
+                  print(
+                      f"Band audit: {len(band_audit.get('rows', []))} banded channels, "
+                      f"none above the {band_audit.get('threshold', 0.01):.0%} threshold "
+                      "without a note."
+                  )
+          PY
+          {
+            echo "## Fresh rebuild"
+            echo
+            echo "Reason: ${{ inputs.reason || 'scheduled confirmation' }}"
+            echo
+            cat "$RUNNER_TEMP/summary.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the quality report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: quality-report-fresh
+          path: |
+            data/processed/quality_report.md
+            data/processed/quality_report.json
+          if-no-files-found: warn

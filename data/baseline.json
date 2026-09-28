@@ -1,21 +1,35 @@
 {
-  "description": "Expected output of `python -m etl ingest`. CI fails on any drift; see etl/verify.py and AGENTS.md.",
+  "description": "The expected output of a full build over data/raw. Enforced by `python -m etl verify` and by the data workflow. Re-record with `--update-baseline --reason ...`, never by hand.",
   "counts": {
     "readings": 731885,
     "files": 364,
     "stations": 8,
     "duplicate_ts": 2250,
-    "malformed_rejects": 224297,
+    "rejects": 259463,
+    "sentinels": 32916,
+    "null_windows": 220074,
     "notes": 11,
-    "unconfirmed_regimes": 2,
-    "headerless_without_donor": 0,
+    "excluded_files": 1,
+    "out_of_range": 3695,
+    "channel_stats": 51,
     "hourly_buckets": 25566,
-    "daily_buckets": 1184
+    "daily_buckets": 1184,
+    "undeclared_layouts": 0
   },
   "recorded": {
-    "tool_version": "0.8.0",
-    "run_started_at": "2026-09-27T09:07:59Z",
-    "ingest_notes": "364 files; 731885 rows; 2250 duplicate timestamps absorbed; 226547 rejected",
-    "reason": "aisvn column order normalised by the collector: load/power swap resolved, 1 reject fewer"
+    "tool_version": "0.9.0",
+    "run_started_at": "2026-09-28T08:03:08Z",
+    "ingest_notes": "731885 readings from 364 files across 8 stations in 10 folders",
+    "reason": "0.9.0 rewrite: eight per-station tables, per-(station,channel) units and bands applied once at ingest, band audit, 3,695 out-of-range channel values instead of 631,252",
+    "stations": [
+      "aisvn",
+      "aisvn2",
+      "aisvn-solar",
+      "maker-webhooks",
+      "phumy2",
+      "solar-2020-05",
+      "test",
+      "voltage-phumy"
+    ]
   }
 }

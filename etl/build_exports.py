@@ -1,58 +1,31 @@
-"""Export rollups for the website.
+"""``public/data``: what the website fetches.
 
-The frontend cannot read SQLite or Parquet, and shipping 740k rows to a browser
-is not an option.  This writes small CSV files under ``public/data/``, which Vite
-serves as static assets, so the site works from a plain clone with no server.
+Four JSON files and one CSV per station, year and resolution.  The rule that
+governs all of it:
 
-Layout::
+**A station's CSV carries only the channels that station collects, in that
+station's unit, and nothing else.**
 
-    public/data/stations.json                  station metadata + coverage
-    public/data/metrics.json                   the plausibility bands, for the UI
-    public/data/{station}/hourly/{year}.csv    ~30 rows/day
-    public/data/{station}/daily/{year}.csv     ~4 rows/month, tiny
-    public/data/quality.json                   the quality report, for the inspector
+That is why the header is generated per station rather than from a global
+column list.  0.8 wrote 32 statistic columns into every CSV for all 16
+station-years, so ``phumy2`` -- which has five real channels -- shipped 27
+columns of NULL, and the browser had to run ``discoverChannels`` to work out
+which of them were real, with a fallback path for a station whose units
+overridden the pipeline's.  Here there is nothing to discover: if a column is in
+the header, that station logs it, and if it is not in the header the browser
+cannot ask for it.  A channel cannot be listed, unreachable, or present-but-
+fictionally zero, because a NULL never leaves this stage.
 
-Granularity
------------
-Both ``hourly`` and ``daily`` are published by default.  The daily rollup is
-derived from the hourly one, so the two cannot disagree, and 1.7 MB of CSV
-across 13 station-years buys the site a real intraday curve instead of only
-24-hour means.  ``--granularity`` narrows the run if a slim export is wanted.
+The consequence for the reader is the same as for the pipeline: ``phumy2``
+has no ``power_w`` column at all, because the pin is not a measurement, and
+``aisvn-solar`` has no ``wind_v`` column, because that input never varies.
+Their values are in the database and in the quality report; they are simply not
+presented as measurements on a chart.
 
-There is deliberately no raw option.  The archive's native cadence is 119 s,
-which is 734,908 rows; a browser cannot be handed that as static files, and the
-Parquet export under ``data/processed/parquet`` already is the full-fidelity copy
-for anyone who can run a query.
-
-Why ``metrics.json`` exists
----------------------------
-The chart has to decide which values to distrust, and the honest source for that
-decision is the same plausibility band the pipeline already applies to every raw
-cell in ``etl.normalize.metrics``.  Shipping the bands rather than retyping them
-in JavaScript keeps one source of truth: if a band is corrected in Python, the
-site follows on the next export.  The browser applies the band to the aggregate
-it is drawing, which is the same criterion applied one level up -- it never
-guesses a threshold of its own, and it never removes a value (``AGENTS.md``
-rule 2).
-
-Non-production stations (``test``, ``voltage-phumy``)
----------------------------------------------------
-Both are written like any other station, and both are marked ``published: false``
-in ``stations.json`` so the site can group them separately.  They were excluded
-from the rollups entirely until 0.7.2, on the grounds that a WiFi probe and an
-ADC calibration sheet are not solar production.  That was the right judgement
-about *what they are* and the wrong implementation of it: 33,377 readings of
-``test`` and 5,553 of ``voltage-phumy`` were in the database, in the Parquet
-export and in the quality report, and absent from the site -- so the one place a
-reader goes to look had six of the eight stations the project documents.  "Not
-solar production" is a property the reader should be shown, not a reason to
-withhold the data.  The site prints each station's own note next to it.
-
-``--all-stations`` now only moves the two out of the separate group; it no longer
-decides whether their CSVs are written.
-
-``quality.json`` is written from the same ``etl.report.collect`` call the
-Markdown report uses, so the browser and the committed report cannot drift.
+``stations.json`` carries each station's channel list verbatim from the
+``station_channels`` table, so the picker, the unit suffix on the axis and the
+band the chart rings a value against all come from the same declaration the
+ingest applied to the raw cell.
 """
 
 from __future__ import annotations
@@ -62,243 +35,299 @@ import json
 import sqlite3
 from pathlib import Path
 
-from etl import config, stations
-from etl.normalize import metrics
-from etl.rollup_schema import oor_columns, value_columns
+from . import catalog
+from .config import Settings
 
-#: The rollup columns, derived from `etl.rollup_schema` rather than restated.
-#:
-#: This is the third place that needs to know which channels exist and which
-#: statistic each one holds -- the schema, the aggregate, and this. Declaring it
-#: once and importing it twice is the only version of that which does not drift,
-#: and it already had: the daily export listed `battery_v_min` while the table
-#: also carried `battery_v_avg`, and the site had a special case for it.
-#:
-#: `oor_columns()` ships because the site cannot otherwise tell a contaminated
-#: aggregate from a clean one. `phumy2` 2020-11-27 16:00 UTC averages one sample of
-#: 19,877 W into 29 zeros and lands on 662.57 W, which is inside the +/-2000 W
-#: band, so nothing about the value itself says anything is wrong. The count
-#: beside it says 1 of 30 samples was out of band, which does.
-DAILY_COLUMNS: tuple[str, ...] = (
-    "day",
-    "ts_utc_day",
-    "n_samples",
-    "n_out_of_range",
-    "n_hours",
-    *value_columns(),
-    "energy_wh",
-    "boot_count_min",
-    "boot_count_max",
-    *oor_columns(),
-    "scaled_channels",
-)
+__all__ = ["build", "csv_header", "station_payload"]
 
-HOURLY_COLUMNS: tuple[str, ...] = (
-    "ts_utc",
-    "n_samples",
-    "n_out_of_range",
-    *value_columns(),
-    "energy_wh",
-    "boot_count_min",
-    "boot_count_max",
-    *oor_columns(),
-    "scaled_channels",
-)
-
-#: ``setting value -> (directory, table, columns, key column)``.
-#:
-#: The key column differs because the two rollups are bucketed differently:
-#: ``readings_daily.day`` is a local calendar day, ``readings_hourly.ts_utc`` a
-#: UTC hour.  Taking the year from the wrong one splits a year across two files
-#: at the UTC offset, which is a bug that is invisible until someone notices a
-#: January reading in the previous year's file.
-#: Setting value -> the directories to publish.  ``both`` is the default: the
-#: site picks a resolution at runtime, and the daily rollup is derived from the
-#: hourly one, so publishing both costs ~1.7 MB and cannot produce a
-#: disagreement between the two views.  Narrow it only to keep a slim export.
-GRANULARITIES: dict[str, tuple[str, ...]] = {
-    "both": ("daily", "hourly"),
-    "hour": ("hourly",),
-    "day": ("daily",),
-}
-
-#: Directory name -> (table, columns, key column).
-#:
-#: The key column differs because the two rollups are bucketed differently:
-#: ``readings_daily.day`` is a local calendar day, ``readings_hourly.ts_utc`` a
-#: UTC hour.  Taking the year from the wrong one splits a year across two files
-#: at the UTC offset, which is a bug that is invisible until someone notices a
-#: January reading in the previous year's file.
-ROLLUPS: dict[str, tuple[str, tuple[str, ...], str]] = {
-    "hourly": ("readings_hourly", HOURLY_COLUMNS, "ts_utc"),
-    "daily": ("readings_daily", DAILY_COLUMNS, "day"),
-}
+#: ``AVG`` -> ``mean`` in prose, and the empty string for a gap. Never 0: a gap
+#: in the readings has to stay a gap or the chart draws a line across an outage.
+_GAP = ""
 
 
-def _write_metrics_manifest(target: Path) -> int:
-    """Publish the plausibility bands the chart uses to distrust a value.
+def _fmt(value: float | int | None) -> str:
+    if value is None:
+        return _GAP
+    if isinstance(value, int):
+        return str(value)
+    if value == int(value) and abs(value) < 1e15:
+        return str(int(value))
+    return repr(round(value, 6))
 
-    Sourced from ``etl.normalize.metrics`` rather than restated, so the browser
-    applies the identical criterion the ingest applied to each raw cell.  A
-    channel with no band (``None``/``None``) is still listed, with null bounds,
-    because "this one is never flagged" is an answer the UI needs to be able to
-    give rather than infer from a missing key.
+
+def csv_header(station_id: str, hourly: bool) -> tuple[str, ...]:
+    """The header for one station's CSV.
+
+    ``ts``, then how many readings the bucket holds, then every published
+    channel's statistics, then one ``<channel>_n_oor`` for every banded channel.
+    No global column list is consulted, so the header cannot contain a channel
+    this station does not have and cannot omit one it does.
+
+    ``n_samples`` is the count of raw readings in the bucket and ``n_hours`` the
+    number of hourly buckets the day's rollup was derived from. Both are metadata
+    about the bucket rather than measurements, and both are load-bearing: without
+    ``n_samples`` the browser cannot tell a day with one reading from a day with
+    five hundred, and a bucket with none must not be drawn at all.
+
+    The row-level ``n_out_of_range`` is deliberately *not* a column. It is the sum
+    of the per-channel ``_n_oor`` columns, and shipping it as well is a second
+    number to keep in step with the first -- which is how 0.8 ended up with a
+    per-channel count that had been recomputed after a rescale and a row-level
+    count that had not.
     """
-    payload = {
-        "note": (
-            "Plausibility bands, verbatim from etl/normalize/metrics.py. A reading "
-            "outside its channel's band is flagged out_of_range by the pipeline and "
-            "kept; the site marks such a point on the chart and never removes it. "
-            "A value is NOT evidence that the sensor is wrong -- the bands are set "
-            "from what the hardware produced, so a band that is wrong for the site "
-            "it is installed in will flag real readings."
-        ),
-        "bands": {
-            m.column: {
-                "unit": m.unit,
-                "lo": m.lo,
-                "hi": m.hi,
-                "kind": m.kind,
-                "description": m.description,
+    station = catalog.BY_ID[station_id]
+    columns = ["ts", "n_samples"] if hourly else ["ts", "n_samples", "n_hours"]
+    for ch in station.published:
+        for stat in ch.stats:
+            columns.append(ch.stat_column(stat))
+    for ch in station.published:
+        if ch.band and ch.kind != "text":
+            columns.append(f"{ch.name}_n_oor")
+    return tuple(columns)
+
+
+def _stat_column_order(station_id: str) -> list[str]:
+    """The rollup columns, in the same order as ``csv_header`` after ``ts``."""
+    station = catalog.BY_ID[station_id]
+    order: list[str] = []
+    for ch in station.published:
+        order.extend(ch.stat_column(stat) for stat in ch.stats)
+    for ch in station.published:
+        if ch.band and ch.kind != "text":
+            order.append(f"{ch.name}_n_oor")
+    return order
+
+
+def _write_csv(
+    path: Path,
+    header: tuple[str, ...],
+    columns: list[str],
+    rows: list[sqlite3.Row],
+    time_column: str,
+    hourly: bool,
+) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    counts = ["n_samples"] if hourly else ["n_samples", "n_hours"]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(header)
+        for row in rows:
+            writer.writerow(
+                [row[time_column]]
+                + [_fmt(row[c]) for c in counts]
+                + [_fmt(row[c]) for c in columns]
+            )
+    return len(rows)
+
+
+def station_payload(
+    row: sqlite3.Row, channels: list[dict], years: list[str], published: bool
+) -> dict:
+    """One entry of ``stations.json``.
+
+    ``channels`` is the station's full channel list, each with its unit, band,
+    kind and the reason it is there.  A browser that renders a unit suffix, a
+    plausible-band ring and a channel picker from this one object cannot disagree
+    with the criterion the ingest applied, because it is the same declaration read
+    back out of the database.
+
+    ``published`` means "there is something here to draw", not "this is solar
+    production".  The two bench stations are published -- a reader told a station
+    is a WiFi probe can decide what to do with it -- and the group they are listed
+    under says what they are.
+    """
+    return {
+        "station_id": row["station_id"],
+        "display_name": row["display_name"],
+        "location": row["location"],
+        "tz": row["tz"],
+        "applet": row["applet"],
+        "source_dirs": json.loads(row["source_dirs"]),
+        "notes": row["notes"],
+        "is_production": bool(row["is_production"]),
+        "group": row["published_group"],
+        "first_ts_utc": row["first_ts_utc"],
+        "last_ts_utc": row["last_ts_utc"],
+        "n_readings": row["n_readings"],
+        "table": row["table_name"],
+        "published": published,
+        "granularities": ["hourly", "daily"] if years else [],
+        "channels": channels,
+        "hidden": [
+            {
+                "channel": c["channel"],
+                "label": c["label"],
+                "kind": c["kind"],
+                "unit": c["unit"],
+                "reason": c["exclude_reason"],
+                "note": c["exclude_note"],
+                "observed": c["observed"],
             }
-            for m in metrics.METRICS
-            if m.kind != "text"
+            for c in channels
+            if not c["published"]
+        ],
+        "years": years,
+    }
+
+
+def _channel_rows(conn: sqlite3.Connection, station_id: str) -> list[dict]:
+    rows = conn.execute(
+        "SELECT channel, label, kind, description, unit, raw_unit, scale, band_lo, band_hi,"
+        " band_note, stats, published, exclude_reason, exclude_note, is_counter, decimals"
+        " FROM station_channels WHERE station_id = ? ORDER BY rowid",
+        (station_id,),
+    ).fetchall()
+    out = []
+    for row in rows:
+        stats = [s for s in row["stats"].split(",") if s]
+        out.append(
+            {
+                "channel": row["channel"],
+                "label": row["label"],
+                "kind": row["kind"],
+                "description": row["description"],
+                "unit": row["unit"],
+                "raw_unit": row["raw_unit"],
+                "scale": row["scale"],
+                "band": [row["band_lo"], row["band_hi"]],
+                "band_note": row["band_note"],
+                "stats": stats,
+                "published": bool(row["published"]),
+                "exclude_reason": row["exclude_reason"],
+                "exclude_note": row["exclude_note"],
+                "is_counter": bool(row["is_counter"]),
+                "decimals": row["decimals"],
+            }
+        )
+    return out
+
+
+def _observed(conn: sqlite3.Connection, station_id: str) -> dict[str, dict]:
+    rows = conn.execute(
+        "SELECT channel, n_values, min, max, mean, p01, p50, p99, n_out_of_range, n_zero"
+        " FROM channel_stats WHERE station_id = ?",
+        (station_id,),
+    ).fetchall()
+    return {r["channel"]: dict(r) for r in rows}
+
+
+def build(conn: sqlite3.Connection, settings: Settings, *, verbose: bool = True) -> dict:
+    """Write ``public/data`` and return a small summary for the report."""
+    export_dir = Path(settings.export_dir)
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    stations: list[dict] = []
+    csv_files = 0
+    csv_rows = 0
+
+    for row in conn.execute("SELECT * FROM stations ORDER BY is_production DESC, station_id"):
+        station_id = row["station_id"]
+        channels = _channel_rows(conn, station_id)
+        observed = _observed(conn, station_id)
+        for ch in channels:
+            ch["observed"] = observed.get(ch["channel"])
+
+        # Every station in the registry is written, including the two that are
+        # not solar production.  A grouping is not a filter: `test` and
+        # `voltage-phumy` hold 38,930 readings that are in the database, in the
+        # Parquet export and in the report, and withholding them from the rollups
+        # meant a station the documentation describes was unreachable on the
+        # site.  They carry `published: false` and their own note, and the site
+        # lists them under "Not solar production".
+        published = [c for c in channels if c["published"]]
+        columns = _stat_column_order(station_id)
+        for hourly, folder, time_column in (
+            (True, "hourly", "ts_utc"),
+            (False, "daily", "day"),
+        ):
+            header = csv_header(station_id, hourly)
+            table = "readings_hourly" if hourly else "readings_daily"
+            for entry in conn.execute(
+                f"SELECT DISTINCT substr({time_column}, 1, 4) AS y FROM {table}"
+                f" WHERE station_id = ? ORDER BY y",
+                (station_id,),
+            ).fetchall():
+                year = entry["y"]
+                rows = conn.execute(
+                    f"SELECT * FROM {table} WHERE station_id = ?"
+                    f" AND substr({time_column}, 1, 4) = ? ORDER BY {time_column}",
+                    (station_id, year),
+                ).fetchall()
+                csv_rows += _write_csv(
+                    export_dir / station_id / folder / f"{year}.csv",
+                    header,
+                    columns,
+                    rows,
+                    time_column,
+                    hourly,
+                )
+                csv_files += 1
+
+        # One entry per year, taken from both resolutions, so the manifest
+        # cannot list a year the Hour view then 404s on.
+        station_years = sorted(
+            {
+                r["y"]
+                for r in conn.execute(
+                    "SELECT DISTINCT substr(ts_utc, 1, 4) AS y FROM readings_hourly"
+                    " WHERE station_id = ?",
+                    (station_id,),
+                )
+            }
+            | {
+                r["y"]
+                for r in conn.execute(
+                    "SELECT DISTINCT substr(day, 1, 4) AS y FROM readings_daily"
+                    " WHERE station_id = ?",
+                    (station_id,),
+                )
+            }
+        )
+        # `years` is a plain list of strings because that is what the year picker
+        # is: a list of options. Which resolutions exist is a property of the
+        # station, not of the year -- every station with data has both -- so it is
+        # a sibling key rather than repeated per year.
+        stations.append(station_payload(row, channels, station_years, bool(published)))
+
+    metrics = {
+        "note": (
+            "Plausibility bands are per (station, channel), not per column name. "
+            "Each entry is the declaration the ingest applied to the raw cell, in "
+            "the unit that cell is stored in, so the chart rings a value against "
+            "the same criterion that flagged it. A channel with band [null, null] "
+            "has no band and is never flagged."
+        ),
+        "channels": {
+            f"{s['station_id']}.{c['channel']}": {
+                "station_id": s["station_id"],
+                "channel": c["channel"],
+                "label": c["label"],
+                "kind": c["kind"],
+                "description": c["description"],
+                "unit": c["unit"],
+                "band": c["band"],
+                "band_note": c["band_note"],
+                "published": c["published"],
+            }
+            for s in stations
+            for c in s["channels"]
         },
     }
-    path = target / "metrics.json"
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return len(payload["bands"])
 
+    (export_dir / "stations.json").write_text(
+        json.dumps(stations, indent=2) + "\n", encoding="utf-8"
+    )
+    (export_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
 
-def _round(value, places: int = 3):
-    """Round floats for a tidy CSV; pass through text, dates and NULLs."""
-    if value is None:
-        return ""
-    if isinstance(value, (int, float)):
-        return round(float(value), places)
-    return value
-
-
-def _write_csv(path: Path, columns, rows) -> int:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(columns)
-        count = 0
-        for row in rows:
-            writer.writerow([_round(row[c]) for c in columns])
-            count += 1
-    return count
-
-
-def build(
-    conn: sqlite3.Connection,
-    target: Path,
-    *,
-    granularity: str = "both",
-    include_non_production: bool = False,
-    verbose: bool = True,
-) -> dict[str, int]:
-    if granularity not in GRANULARITIES:
-        raise ValueError(
-            f"unknown granularity {granularity!r}; expected one of {sorted(GRANULARITIES)}"
-        )
-    selected = GRANULARITIES[granularity]
-    target.mkdir(parents=True, exist_ok=True)
-
-    written = {"hourly": 0, "daily": 0, "manifest": 0, "quality": 0, "metrics": 0}
-
-    # Every station, not the production subset. See the module docstring: the two
-    # bench stations are written like any other and marked in the manifest, so the
-    # site shows eight stations and says which six are solar production.
-    for station in stations.STATIONS:
-        for folder in selected:
-            table, columns, key = ROLLUPS[folder]
-            years = conn.execute(
-                f"SELECT DISTINCT substr({key}, 1, 4) AS y FROM {table}"
-                " WHERE station_id = ? ORDER BY y",
-                (station.station_id,),
-            ).fetchall()
-            for row in years:
-                rows = conn.execute(
-                    f"SELECT {', '.join(columns)} FROM {table}"
-                    f" WHERE station_id = ? AND substr({key}, 1, 4) = ?"
-                    f" ORDER BY {key}",
-                    (station.station_id, row["y"]),
-                ).fetchall()
-                if not rows:
-                    continue
-                path = target / station.station_id / folder / f"{row['y']}.csv"
-                written[folder] += _write_csv(path, columns, rows)
-                if verbose:
-                    print(f"  {station.station_id:<14} {folder:<7} {row['y']}  {len(rows):>6} rows")
-
-    # The station manifest the UI renders its picker from.  `source_dirs` is a
-    # JSON array in the database because three folders make up one station;
-    # unpack it here so the browser gets a real array.
-    manifest = []
-    for row in conn.execute("SELECT * FROM stations ORDER BY is_production DESC, station_id"):
-        record = dict(row)
-        record["source_dirs"] = json.loads(record["source_dirs"])
-        # True when the station is solar production. False does not mean the data
-        # is withheld -- the rollups above were written either way -- only that the
-        # site groups it separately and says what it actually is.
-        record["published"] = (
-            record["station_id"] not in stations.NON_PRODUCTION or include_non_production
-        )
-        # Which rollups actually exist for this station, so the resolution switch
-        # offers only what is on disk instead of 404-ing on a missing file.
-        record["granularities"] = [
-            folder
-            for folder in selected
-            if conn.execute(
-                f"SELECT 1 FROM {ROLLUPS[folder][0]} WHERE station_id = ? LIMIT 1",
-                (record["station_id"],),
-            ).fetchone()
-        ]
-        # Years with a published rollup, so the UI can build its year selector
-        # without probing for 404s.  Every station now has one, including the two
-        # that are not production.
-        record["years"] = [
-            r["y"]
-            for r in conn.execute(
-                "SELECT DISTINCT substr(day, 1, 4) AS y FROM readings_daily"
-                " WHERE station_id = ? ORDER BY y",
-                (record["station_id"],),
-            )
-        ]
-        # Where a station stores a channel in a different unit from the column's
-        # default, that unit and the band it implies travel with the station.
-        # `test` records `temp_c` in hundredths of a degree where every other
-        # station uses tenths, and the pipeline already stores it that way; without
-        # shipping the unit the site would divide 2,807 hundredths by ten and
-        # print 280 degC for a warm afternoon.  Empty for every station with no
-        # override, which is seven of the eight.
-        record["channel_units"] = {
-            column: {"unit": unit, "lo": lo, "hi": hi}
-            for station_id, column, unit, lo, hi, _why in config.CHANNEL_UNITS
-            if station_id == record["station_id"]
-        }
-        manifest.append(record)
-    path = target / "stations.json"
-    path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    written["manifest"] = len(manifest)
-
-    written["metrics"] = _write_metrics_manifest(target)
-
-    # The quality report, for the inspector view.  Reusing report.collect() is
-    # the point: the JSON the browser reads and the Markdown committed to the
-    # repository come from one code path and cannot disagree.
-    from etl.report import collect
-
-    quality = target / "quality.json"
-    quality.write_text(json.dumps(collect(conn), indent=2, default=str), encoding="utf-8")
-    written["quality"] = 1
-
+    summary = {
+        "stations": len(stations),
+        "csv_files": csv_files,
+        "csv_rows": csv_rows,
+        "published_stations": sum(1 for s in stations if s["published"]),
+    }
     if verbose:
         print(
-            f"  wrote {written['hourly']} hourly rows, {written['daily']} daily rows, "
-            f"{written['manifest']} station records, "
-            f"{written['metrics']} metric bands, quality.json"
+            f"  public/data: {summary['csv_files']} CSVs, {csv_rows:,} rollup rows, "
+            f"{summary['published_stations']}/{summary['stations']} stations with channels"
         )
-    return written
+    return summary

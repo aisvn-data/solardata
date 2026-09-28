@@ -4,7 +4,7 @@ Guidance for AI agents and humans working in this repository.
 
 ## What this repository is
 
-`solardata` holds six years of solar telemetry collected by several stations in
+`solardata` holds six years of solar telemetry collected by eight stations in
 Nha Be and Phu My Hung, Ho Chi City, Vietnam, between May 2020 and September
 2026. The readings were forwarded to Google Sheets by IFTTT webhooks and the
 Sheets were later exported as XLSX and chunked into files of 2000 rows.
@@ -15,35 +15,74 @@ Two independent halves live here:
 |---|---|---|
 | `etl/` | Python | Convert the raw archive into a queryable store |
 | `src/` | React + Vite | The website that displays it |
-| `public/data/` | CSV + JSON | What the website fetches, written by `etl/build_exports.py` |
+| `public/data/` | CSV + JSON | What the website fetches, written by `python -m etl export` |
 
 They meet only at `public/data/`, a committed build artefact. `etl/` never
 imports from `src/`, and `src/` never imports from `etl/`.
+
+## The one idea of 0.9
+
+**A channel is a fact about a station, not a fact about a column name.**
+
+`solar_v` is 0-29.8 V at `aisvn` and 0-23,860 at `aisvn2`, because the second
+station's sheet logged millivolts. 0.8 carried one plausibility band per *column
+name* in `etl/normalize/metrics.py`, a per-station unit override in
+`config.CHANNEL_UNITS`, and 22 confirmed scale factors in `build_regimes.py`, and
+read them in seven places. The band and the scale were each measured against the
+other, both were wrong, and the result was **631,252 `out_of_range` flags, 99.4%
+of them arithmetic rather than a fact about the hardware** — including all
+416,088 of `phumy2`'s readings, on a sensor measuring a quarter of an amp, which
+is a station the site then reported as broken.
+
+Everything below follows from fixing that:
+
+- **Eight tables, one per station.** `s_aisvn`, `s_aisvn2`, `s_aisvn_solar`,
+  `s_maker_webhooks`, `s_phumy2`, `s_solar_2020_05`, `s_test`,
+  `s_voltage_phumy`. Each holds only what that station collects. 75% of the cells
+  in 0.8's single 32-column `readings` table were NULL, and no reader could tell
+  which NULLs meant "not connected" from which meant "not measured".
+- **One unit, everywhere.** The confirmed scale is applied once, at ingest. The
+  database, the rollups, the CSVs, the browser and the axis label all hold the
+  same number in the same unit. No regime table, no stored-vs-display split, no
+  out-of-range count recomputed after the fact.
+- **`etl/catalog.py` is the documentation.** One declaration per
+  `(station, channel)`: label, description, kind, unit, confirmed scale,
+  plausibility band, which statistics the rollups carry, and whether the site
+  charts it. The database, the report and the browser are all generated from it.
+  If you are about to add a second place to put a number, don't.
+- **A station's CSV carries only that station's channels.** So a channel cannot
+  be listed-but-unreachable, or present as a column of NULLs, because it is only
+  ever a column where the station has it.
 
 ## Commands
 
 ```bash
 pip install -r requirements.txt   # or: make setup
 
-python -m etl all                 # full rebuild (~3 min; the ingest is the slow part)
-python -m etl ingest              # XLSX -> SQLite
-python -m etl regimes             # detect unit-scale changes
-python -m etl aggregate           # hourly/daily rollups, applying confirmed scales
-python -m etl parquet             # SQLite -> partitioned Parquet
-python -m etl export              # SQLite -> CSV rollups for the website
-python -m etl export --granularity day   # daily rollups only (both is the default)
-python -m etl report              # write the data-quality report
+python -m etl all                 # full rebuild (~2 min; the ingest is the slow part)
+python -m etl ingest              # XLSX -> eight station tables, from scratch
+python -m etl aggregate           # rollups + the per-station channel measurements
+python -m etl export              # public/data, one CSV set per station
+python -m etl report              # the per-station quality report
+python -m etl audit               # checks against the real archive
 python -m etl verify              # fail if the build != data/baseline.json
 python -m etl query "SELECT ..."  # ad-hoc read-only SQL
 make test                         # pytest
 make check                        # ruff + pytest
 ```
 
-`make help` lists everything. The Makefile is a thin convenience wrapper and
-needs GNU Make; the `python -m etl` commands above work anywhere. Common flags
-work on either side of the subcommand (`python -m etl -q ingest` and
-`python -m etl ingest -q` are the same), and `--raw-dir` / `--out-dir` redirect
-the input and output.
+Five stages rather than 0.8's seven: there is no `regimes` stage, because the
+confirmed scales are declarations in `etl/catalog.py` rather than things a
+detector finds, and no `parquet` stage, because the interchange export is not
+worth a fifth stage and its own `pyarrow` dependency.
+
+`ingest` **deletes and rebuilds** the database every time. There is no
+incremental-update logic to get wrong, and `data_fresh.yml` exists to make a
+from-scratch run reproducible and dispatchable.
+
+Common flags work on either side of the stage: `python -m etl -q ingest` and
+`python -m etl ingest -q` are the same command. `--raw-dir` and `--out-dir`
+redirect the input and the output.
 
 ## The rules that matter
 
@@ -54,23 +93,23 @@ scientific dataset.
 ### 1. Never edit anything under `data/raw/`
 
 It is the primary source of truth and the only copy. The pipeline is
-reproducible; the archive is not. If a raw file looks wrong, that is a finding
-to document, not a file to fix.
+reproducible; the archive is not. If a raw file looks wrong, that is a finding to
+document, not a file to fix.
 
 ### 2. Never drop a value silently
 
 Every raw cell must end up in exactly one place:
 
-- a typed column in `readings`, or
-- `NULL` in `readings` plus a reason in `quality_flags`, or
+- a typed column in that station's table, in that channel's published unit, or
+- `NULL` plus a reason in `flags`, with a `rejects` row, or
 - the `rejects` table, or
 - the `notes` table, if it is human prose.
 
-This is why `-992` becomes `NULL` with `quality_flags = 'sentinel'` rather than
-0, and why an implausible reading is *flagged and kept* rather than filtered.
-It is also why a duplicate timestamp, which the primary key discards, still gets
-a `rejects` row with `reason = 'duplicate_ts'`. A future reader must be able to
-disagree with a decision and see exactly which rows it affected.
+This is why `-992` becomes `NULL` with `flags = 'sentinel'` rather than 0, and
+why an implausible reading is *flagged and kept* rather than filtered. It is also
+why a duplicate timestamp, which the primary key discards, still gets a `rejects`
+row with `reason = 'duplicate_ts'`. A future reader must be able to disagree with
+a decision and see exactly which rows it affected.
 
 Keep `rejects.reason` a stable category, not a sentence. The report groups by
 it, and interpolating a timestamp into the text turns 4,403 duplicates into
@@ -78,128 +117,134 @@ it, and interpolating a timestamp into the text turns 4,403 duplicates into
 
 ### 3. Never rescale a value on the strength of a heuristic
 
-`regimes` records scale *proposals* with `status = 'unconfirmed'`. Only
-`status = 'confirmed'` is ever applied, and only in the rollups, never in
-`readings`. If you find yourself writing `value * 0.001` in a query, stop: either
-the regime has been confirmed, or you are inventing data.
+Every non-1.0 `scale` in `etl/catalog.py` was confirmed against the hardware.
+There are five, and they are all divisors of 1000: a collector that logged
+millivolts or milliamps as integers. There is no detector any more — 0.8's
+proposed 11 windows, 2 of which stayed unconfirmed forever, are now open
+questions in `etl/catalog.py` and `docs/roadmap.md`. If you find yourself
+writing `value * 0.001` in a query, stop: either the channel declares it, or you
+are inventing data.
 
-### 3a. The rollups are a separate stage, and the order matters
+### 4. A band belongs to a (station, channel), in the unit the value is stored in
 
-`aggregate` runs *after* `regimes`, not inside `ingest`. Applying a scale needs
-the `regimes` table, and rolling up during the ingest meant the daily table was
-built before the detector ran — so on a clean build it came out silently
-unscaled. If you add a stage, check every workflow that calls `verify` still
-runs it; `tests/test_workflows.py` does that automatically.
+Not to a column name, and not in the unit the sheet happened to write. Testing a
+millivolt cell against a volt band is what produced 631,252 flags.
 
-### 4. Parse timestamps; never compare them as strings
+**A band that fires on more than `BAND_FIRE_FRACTION` (1%) of a channel's own
+record is not a band.** It is reporting a unit mismatch, or the channel is
+bimodal, and either way a count that fires on one sample in five cannot tell a
+contaminated aggregate from a normal day. Anything above the threshold must carry
+a `band_note` saying why the fire *is* the finding, and `python -m etl audit`
+fails without one. `aisvn.lipo_v` sits at 6.84 V for 18% of its record, so it is
+bounded 0-8.7 V with a note, not banded as a 1S cell.
+
+A channel with **no** band is a decision, not an omission: an uncalibrated ADC
+count, an uptime counter, and any channel whose unit is unresolved. It needs a
+`band_note` saying so, and it is never flagged.
+
+### 5. Parse timestamps; never compare them as strings
 
 Column A is US-locale free text (`July 14, 2020 at 10:12AM`). Lexicographic
-ordering is wrong — `April` sorts before `August` — so every comparison,
-`GROUP BY`, and donor-selection must go through
-`etl.readers.times.parse_local`. Use `ts_utc` (RFC 3339, `Z`) for anything
-analytical and `ts_local` only for display.
+ordering is wrong — the sheets write `July 4` and `July 14` unpadded, so string
+order puts the fourteenth before the fourth — so every comparison, `GROUP BY`
+and donor-equivalent must go through `etl.readers.times.parse_local`. Use
+`ts_utc` for anything analytical and `ts_local` only for display.
 
-### 5. Read only the primary column block
+`parse_local` reads the fields out of its own regex rather than calling
+`strptime`, because `%B` and `%p` resolve out of the C library's `LC_TIME`
+tables, which are not loaded on Windows. With `strptime` every cell in the
+archive fails to parse: zero readings and 738,358 rejects, in a shape that reads
+as a data problem and is a locale one.
 
-Many sheets carry two or three parallel blocks of the same readings separated by
-an empty column. `etl.readers.xlsx.detect_block` finds the primary block; use
-`iter_cells` rather than reading `A:Z`. The side blocks are Google Sheets
-formula experiments with mostly-zero duplicates, plus — in `Voltage_phumy` — a
-hand-made summary table at a coarser time granularity and the lab annotations.
+### 6. A file's column meanings come from the catalog, keyed on (station, width)
 
-Side-block *prose* is still worth reading: `iter_all_cells` exists solely to
-recover it into the `notes` table.
+305 of the 364 raw files have no header row. Their schema is a declared layout in
+`etl/catalog.py`, looked up by the sheet's width. The archive contains exactly
+nine `(station, width)` pairs and no station has two layouts of the same width,
+so the lookup is total.
 
-### 6. 305 of the 364 raw files have no header row
+**An undeclared width is a hard build failure.** 0.8 resolved it by finding the
+nearest preceding sibling with a header of the same width, ordering on the parsed
+timestamp, and getting that wrong discarded 90% of the archive's measurements
+while still ingesting every timestamp and reporting no problem.
+`tests/test_ingest.py` asserts both halves: that a headerless file resolves, and
+that an undeclared width stops the build.
 
-A headerless file borrows its column meaning from the nearest *preceding*
-sibling that has one, recorded in `source_files.schema_donor` with
-`inferred = 1`. Donor selection must order on the **parsed** timestamp. If you
-change that logic, `tests/test_ingest.py::TestHeaderlessSchemaInheritance` will
-catch it, because getting it wrong silently discards 90% of the archive's
-measurements while still ingesting every timestamp.
-
-### 7. `NULL` and `0` are different facts
+### 7. NULL and 0 are different facts
 
 `0 W` at midnight is a real measurement. `NULL` means "not measured, or the
 sensor was disconnected". Aggregations must decide explicitly which they want;
-`COUNT(col)` versus `COUNT(*)` is usually the distinction that matters.
+`COUNT(col)` versus `COUNT(*)` is usually the distinction that matters. An empty
+CSV cell stays empty and breaks the chart's line.
 
 ### 8. A flag describes the value you stored, not the value you publish
 
-`readings.quality_flags` is written at ingest, against the value in the column's
-documented unit, and it is never revisited. A rollup's `<channel>_n_oor` describes
-the value that rollup publishes. When a confirmed regime multiplies a channel —
-`phumy2.current2_a` from 232 mA to 0.232 A — the two deliberately disagree, and both
-numbers are correct: the first says what the sheet wrote, the second says what the
-site draws. `_rescale_oor_counts` exists to keep the second from going stale, and
-it runs against the hourly table *before* the daily rows are derived, because the
-daily count is a sum of the hourly ones.
-
-Getting this wrong is not cosmetic. For four years the stale count marked all
-416,088 of `phumy2`'s `current2_a` samples as out of range, and the site uses that
-count to decide whether an aggregate is contaminated — so the whole station read
-as broken on a channel measuring 0.2 A. `current2_a` is also the clearest case of
-a channel whose *stored* unit is deliberately not its published one: the sheet
-wrote 232 mA, `readings` holds 232, and the rollup divides it by 1000. `load_v`
-is the opposite, and that is a decision, not an oversight — see the note on
-`solardata_raw.db` below.
+They are the same value in 0.9, and that is the point. The confirmed scale is
+applied on the way in, so `flags`, the rollup's `<channel>_n_oor` counter and the
+band the chart rings a value against are all the same criterion, tested in the
+same unit, on the same number. 0.8 stored the raw value, applied the scale only
+in the rollups, and needed `_rescale_oor_counts` to stop the two disagreeing
+about which values were out of range.
 
 ## Where things live
 
 ```
 etl/
-  cli.py            argparse entry point, one function per stage
-  config.py         paths, sentinel list, quality-flag names
-  stations.py       folder -> station registry, and the timezone assumption
-  schema.sql        the full SQLite DDL; read this before changing a query
-  db.py             connection handling, ingest_runs bookkeeping
-  verify.py         the baseline guard CI enforces
+  catalog.py      THE DOCUMENTATION: stations, layouts, channels, units, scales,
+                  bands, exclusions, and each station's open questions
+  config.py       sentinels, flag and reason vocabularies, and the human
+                  decisions about specific files and windows
+  cli.py          argparse entry point, one function per stage
+  schema.sql      the shared DDL; the eight station tables and the two rollups
+                  are generated from catalog.py (see db.py)
+  db.py           connections, the generated DDL, run bookkeeping
+  audit.py        build-time checks against the real archive
+  verify.py       the baseline guard
+  report.py       the per-station quality report, in Markdown and JSON
   readers/
-    times.py        the one timestamp format, and its UTC conversion
-    xlsx.py         block detection, row iteration, SHA-256
-  normalize/
-    metrics.py      canonical columns, units, header -> column mapping
-    quality.py      sentinels, plausibility flags, note detection
-    units.py        scale-regime detection
-  build_db.py       the ingest
-  build_regimes.py  scale-regime detection over the built database
-  build_parquet.py  Parquet interchange output
-  build_exports.py  CSV rollups the website fetches
-  report.py         the data-quality report
+    times.py      the one timestamp format, and its UTC conversion
+    xlsx.py       block detection, row iteration, a parse cache, SHA-256
+  build_db.py         the ingest
+  build_aggregate.py  rollups and channel_stats
+  build_exports.py    public/data
 scripts/
-  parquet_manifest.py   snapshot/compare the committed Parquet layout
-  check_frontend.mjs    chart + CSV semantics, over the real exports
+  check_frontend.mjs   chart + CSV semantics, over the real exports
+  check_render.mjs     the component tree, rendered
 ```
+
+Three tables are **generated** rather than written in `schema.sql`: the eight
+station tables, and `readings_hourly`/`readings_daily`. Their columns are the
+channels the catalog declares, so a hand-written table for each would drift from
+the catalog the moment a channel was added — which is what happened in 0.8, where
+columns were named in four files and the four had already drifted once.
 
 ## Regenerating after a change
 
-`ingest` deletes and rebuilds `data/processed/solardata.db` from scratch, so
-there is no incremental-update logic to get wrong. After changing anything in
-`etl/`, run:
+`ingest` deletes and rebuilds `data/processed/solardata.db`, so there is no
+incremental path to get wrong. After changing anything in `etl/`, run:
 
 ```bash
 make check && python -m etl all && python -m etl verify
 ```
 
-Then read `data/processed/quality_report.md` and check the numbers did not move.
-A change that silently alters the reading count is a bug even if every test
-passes, so treat the report as the acceptance test for data changes — and let
-`verify` enforce it, because it is the only check that sees the real archive.
+Then read `data/processed/quality_report.md`. A change that silently alters the
+reading count is a bug even if every test passes, so treat the report as the
+acceptance test for a data change — and let `verify` enforce it, because it is
+the only check that sees the real archive.
 
-Current baseline, for comparison: **731,885 readings** across 8 stations from
-364 files, 2,250 duplicate timestamps absorbed, 224,297 rejected cells, 11
-recovered notes, 2 unconfirmed scale regimes.
+Current baseline, for comparison: **731,885 readings** across 8 stations from 364
+files, 2,250 duplicate timestamps absorbed, 259,463 rejected cells, 11 recovered
+notes, **3,695 out-of-range channel values** (0.8: 631,252).
 
 ### When the numbers *should* move
 
 Some changes legitimately alter the output — a corrected timezone, a new
-station, a fixed header mapping. Re-record the baseline deliberately, with a
-reason, so the diff appears in the pull request as an explicit number rather
-than a silent rewrite:
+station, a fixed band. Re-record the baseline deliberately, with a reason, so the
+diff appears in the pull request as an explicit number rather than a silent
+rewrite:
 
 ```bash
-python -m etl verify --update-baseline --reason "corrected tz for phumy2a"
+python -m etl verify --update-baseline --reason "widened aisvn.lipo_v to its 2S ceiling"
 ```
 
 Never "fix" a red build by loosening `data/baseline.json` by hand. The baseline
@@ -207,99 +252,78 @@ is the record of what the data is, and CI failing is the point.
 
 ## Continuous integration
 
-Four workflows, split by cost and by what they actually read.
+Five workflows. `ci.yml` is the required gate; `data.yml` and `data_fresh.yml`
+see the archive; `pages.yml` deploys; `release.yml` publishes the database.
 
-| Workflow | When | Cost |
+| Workflow | When | What it does |
 |---|---|---|
-| `ci.yml` | every push and pull request | ~1 min |
-| `data.yml` | only when `data/raw/**`, `etl/**`, `data/baseline.json` or `requirements.txt` change; plus Mondays 03:17 UTC and on demand | ~1 min |
-| `pages.yml` | push to `main`, or manually | ~30 s |
-| `release.yml` | `v*` tag, or manually from `main` | ~2 min |
+| `ci.yml` | every push and pull request | `ruff`, `pytest`, both frontend checks, `npm run build` |
+| `data.yml` | when `data/raw/**`, `etl/**`, `tests/**`, `data/baseline.json` or `requirements.txt` change; plus Mondays 03:17 UTC and on demand | `etl all` then `verify` |
+| `data_fresh.yml` | `workflow_dispatch` with a required reason, plus Mondays 04:23 UTC | **Deletes the database first**, then `etl all` and `verify`. Reports whether the rebuild moved anything. |
+| `pages.yml` | push to `main`, or manually | `vite build` and deploy; asserts `dist/data` has the three JSON files and all 32 CSVs |
+| `release.yml` | `v*` tag, or manually from `main` | `etl all`, `verify`, VACUUM, gzip, attach to a Release |
 
-**`ci.yml`** is the required gate: `ruff check`, `ruff format --check`,
-`pytest`, the frontend checks and `npm run build`. It is deliberately *not*
-path-gated — a docs-only change must still show a CI run.
+**`ci.yml`** is deliberately *not* path-gated: a docs-only change must still show
+a CI run. A path-gated required check produces no run at all when the paths do not
+match, and a pull request then waits forever for a status that never arrives.
 
-**`data.yml`** runs the full pipeline over all 364 raw files and then
-`python -m etl verify`. Any baseline drift fails the job. It is gated because a
-pull request that touches only `src/` cannot change a reading: the data comes
-from `data/raw` through `etl/`, and both are committed. Rebuilding proves
-nothing and costs minutes.
+**`data.yml`** is path-gated for the opposite reason: a pull request that touches
+only `src/` cannot change the data, and rebuilding proves nothing. The weekly
+schedule is the backstop — a path filter only sees the paths GitHub reports, so
+anything it misses is caught on Monday.
 
-Two things to know before changing the gate:
+**`data_fresh.yml`** exists because "the database is an artefact some earlier run
+left behind" is a real failure mode. It removes `solardata.db` *and its `-wal`
+and `-shm` sidecars* — a surviving WAL makes SQLite replay the previous run's
+rows — so the build starts from nothing. Reach for it after changing
+`etl/catalog.py`, when `data.yml` has been red and you need to know whether the
+drift is in the build or in the archive, or for a clean release database. It does
+not commit; a human reads the summary and decides.
 
-- **It is deliberately not a required status check.** A path-gated workflow
-  produces *no run at all* when the paths do not match, and a required check
-  that never appears leaves a pull request waiting forever.
-- **The weekly schedule is the backstop.** A path filter only sees the paths
-  GitHub reports, so anything it misses is caught on Monday. Keep it.
+`tests/test_guards.py` asserts the shape of all of this: that `data_fresh.yml`
+deletes the database, that `ci.yml` does not build the data, that `data.yml` is
+gated on the right paths and has a schedule, and that any workflow calling
+`verify` runs every stage the baseline depends on.
 
-`tests/test_workflows.py` asserts the split: that `data.yml` is gated on the
-right paths and includes a schedule, that `ci.yml` is not gated and does not
-depend on the build, and that any workflow calling `verify` runs every stage
-the baseline depends on.
+### Why the test suite is fast, and why the archive is not in it
 
-The build is roughly a minute rather than three because the reader caches
-parsed sheets: profiling showed `_read_rows` called 1,820 times for 364 files,
-since each file was parsed once to scan it, again in `detect_block`, and again
-in `iter_cells`. Reading a sheet is 86% of the build, so removing the
-redundancy is the whole win. `tests/test_ingest.py::TestReadCache` covers it.
+159 tests over real XLSX fixtures, slowest 0.07 s. 0.8 had 147 and one of them
+read all 364 raw files, which took about fifty seconds and stalled the run at
+test 40 — a suite you stop waiting for is a suite you stop running.
+
+The checks that need the archive are in `etl/audit.py` and run in the build, where
+a minute of reading is a minute of CI. The unit tests use fixtures written with
+openpyxl, because that is the only way to catch a reader that has stopped
+understanding the file format — and each fixture is removed in `tearDown`, which
+0.8's 39 ingest tests never did.
 
 ### Why `solardata.db` is not committed
 
-It is 166 MiB after `VACUUM` (181 MiB as the ingest leaves it), over GitHub's
+It is 104 MiB as the ingest leaves it (~85 MiB after `VACUUM`), over GitHub's
 100 MiB per-file limit for a git blob, so a commit of it would be rejected
-outright. `release.yml` gzips it to a **19 MiB** Release asset, which is the form
-most people actually want.
+outright. `release.yml` gzips it to a Release asset.
 
-A manual release is refused on any branch but `main`, and only into a repository
-on its allowlist — which is **both** `aisvn-data/solardata` and `kreier/solardata`,
-so the same file works in either while the migration is in flight. Both checks are
-a `guard` job that the build `needs`, so a refusal costs a second rather than
-three minutes of ingest. The default lives in the guard's *script* rather than in
-the input, because `inputs.*` is empty on a tag push and "empty means no check"
-would make the guard a no-op on the trigger people use most.
+0.8's was 182 MiB. The difference is the eight station tables holding the columns
+each station actually has, plus `WITHOUT ROWID` on a TEXT instant, which stores
+the rows in key order and removes the need for a separate index.
 
 What *is* committed:
 
 | Path | Size | Why |
 |---|---|---|
-| `data/processed/parquet/` | 7.5 MiB | The interchange format; gives anyone the processed data from a clone. All 731,885 readings at the native cadence |
-| `public/data/` | 5.6 MiB | The CSV/JSON rollups the site fetches, so GitHub Pages works from a clone: daily *and* hourly, for all 8 stations, plus the plausibility bands |
-
-| `data/processed/quality_report.md` | ~10 KB | The review artefact, readable in a pull request |
-| `data/processed/quality_report.json` | ~80 KB | Machine-readable form of the same |
+| `public/data/` | 3.3 MiB | The rollups the site fetches, so GitHub Pages works from a clone |
+| `data/processed/quality_report.md` / `.json` | ~85 KB | The review artefact, readable in a pull request |
 | `data/baseline.json` | ~1 KB | The expected counts CI enforces |
 | `data/raw/**` | 30.4 MiB | The primary source of truth |
 
-The Parquet export is **2.5× smaller than the gzipped database** for exactly the
-same 731,885 rows, which is why the database is a convenience rather than the
-distribution channel. Measured breakdown of the 166 MiB, if you are ever
-optimising it:
-
-| Part | Size | Note |
-|---|---:|---|
-| `readings` | 98.9 MiB | The data itself |
-| indexes | ~49 MiB | Four of them, on `readings` and the provenance columns |
-| `rejects` | 15.8 MiB | Was 96.1 MiB until `rejects.reason` stopped being a sentence — see below |
-| the two rollups | 2.5 MiB | 26,843 buckets |
-
-`rejects` was the second-largest table in the database and is now the fourth,
-for one reason. Rule 2 says "keep `rejects.reason` a stable category, not a
-sentence", and the `NULL_WINDOWS` path was storing the collector's ~300-character
-note as the reason on every one of the 220,074 cells it nulled: **80.6 MiB of one
-sentence, repeated.** The category is now `null_window`; the prose lives once,
-in `config.NULL_WINDOWS`, and `report.collect` republishes it to `quality.json`
-so the site can still explain every flagged cell from a sentence it reads once.
-That change halved the database and moved no data.
-
-If you go looking for the next win: it is not the storage layout. Restructuring
-`readings` — timestamps as an integer, dropping the per-row `tz` — is worth
-2.1× on that table and nothing at all to the file as a whole, because 75% of
-the `readings` cells are already NULL and cost one header byte each.
-
 `solardata.db` and the retired `data/exports/` are gitignored. Rebuild locally
 with `make build`, or download the database from a Release.
+
+0.9 removed the committed `data/processed/parquet/` tree, the Parquet stage and
+`scripts/parquet_manifest.py`. If you go looking for the next win: the export is
+now per station, so the rollup tables carry a lot of NULL for stations with few
+channels, and the database could be smaller still. It is 104 MiB and nobody has
+complained.
 
 ## The website
 
@@ -307,42 +331,41 @@ Plain JSX, no TypeScript, no state library, no chart library. Data flows one
 way: `python -m etl export` writes `public/data/`, `src/data.js` fetches it, and
 the components render it. There is no build step between the CSV and the DOM.
 
-Three rules the frontend inherits from the pipeline, and the reason for each:
+Five rules the frontend inherits from the pipeline, and the reason for each:
 
-- **A gap is a gap.** An empty cell in `readings` reaches the chart as `null`
-  and breaks the line. If you ever coerce it to 0 — even "just for the chart" —
+- **A gap is a gap.** An empty cell in a CSV reaches the chart as `null` and
+  breaks the line. If you ever coerce it to 0 — even "just for the chart" —
   every sensor outage becomes a measurement, and the chart will look correct.
-- **Available metrics are discovered, not declared.** `phumy2` has no `solar_v`
-  or `battery_v` at all, so `availableMetrics()` derives the list from the rows
-  and the UI disables what a station does not have.
+  `check_frontend.mjs` has a check by name.
+- **A station's channels come from the station, not from discovery.** There is no
+  global column list and no `VALUE_COLUMNS` map, so there is nothing to keep in
+  step with the exporter. `channelsFor(station)` reads `stations.json`; the CSV
+  header is intersected with it. 0.8's `discoverChannels` scanned a hardcoded
+  30-column map for non-NULL values, which meant `aisvn2` logging `solar3_v` had
+  nowhere to appear and selecting AISVN #2 offered nothing that worked.
+- **A value is already in the unit it is displayed in.** The pipeline applies the
+  confirmed scale at ingest, so there is no `divisor`, no stored unit and no
+  display unit. 0.8 had all three, and a missing divisor in one call site printed
+  a 28 °C afternoon at 280 °C with no error anywhere.
 - **A flagged value is marked, never dropped.** A value outside its channel's
-  recorded band is drawn, ringed, counted and listed under the chart. The bands
-  are shipped in `public/data/metrics.json` straight from
-  `etl/normalize/metrics.py`, so the site cannot drift from the criterion the
-  ingest applied. Do not reintroduce a heuristic here: a median/MAD "spike" test
-  used to drop 16 real days of `aisvn` 2020 out of 101, because a panel's
-  24-hour mean is dominated by night and a single afternoon sample looks like an
-  outlier against it. `check_frontend.mjs` has a regression check by name.
-- **A prop name is a contract.** It is the one thing in the frontend that no
-  check could see, and it has shipped three times as a white page rather than a
-  failed assertion. `npm run check:render` exists for it.
+  band is drawn, ringed, counted and listed under the chart, and the bands come
+  from `stations.json` — the same declaration the ingest applied to the raw cell.
+  Do not reintroduce a heuristic here: a median/MAD "spike" test used to drop 16
+  real days of `aisvn` 2020 out of 101, because a panel's 24-hour mean is
+  dominated by night and one afternoon sample looks like an outlier against it.
+  `check_frontend.mjs` has a regression check by name.
+- **A prop name is a contract.** It is the one thing in the frontend that no check
+  could see, and it has shipped three times as a white page rather than a failed
+  assertion. `npm run check:render` exists for it.
 
-`node scripts/check_frontend.mjs` guards the first three, and runs in CI. Add to it
-when you change the chart or the CSV parsing.
-
-`npm run check:render` guards the fourth, which the other three cannot see:
-**a component whose props disagree with its call site**. `check_frontend`
-exercises the pure helpers in `src/data.js` and the CSV files, and `vite build`
-cannot check a prop name because this is plain JSX with no types. So a renamed
-prop builds perfectly, deploys perfectly, and throws only at render — which is a
-white page rather than a failed assertion. It has shipped three times: a picker
-where every control was `disabled` because the parent passed objects and the
-child tested strings, then `metrics` → `channels` renamed on the child's
-destructuring only, and then a merge that reintroduced the second. The check
-builds the tree with `vite build --ssr` and renders it, asserting the app mounts,
-that `TimeControls` accepts the props `StationExplorer` passes it, and that every
-discovered channel is offered. It runs in `ci.yml` and `pages.yml`, and
-`npm run build` depends on it, so a prop drift fails the build instead of the site.
+`node scripts/check_frontend.mjs` guards the first four, over the real committed
+exports, and runs in CI. `npm run check:render` renders the component tree —
+`check_frontend` exercises the pure helpers in `src/data.js` and the CSV files,
+and `vite build` cannot check a prop name because this is plain JSX with no types.
+It asserts the app mounts, that `TimeControls` accepts the props
+`StationExplorer` passes it, that every station's offered channels are exactly
+its CSV's channels, and that every excluded channel carries a reason. It runs in
+`ci.yml` and `pages.yml`, and `npm run build` depends on it.
 
 ### Deploying to GitHub Pages
 
@@ -353,148 +376,82 @@ discovered channel is offered. It runs in `ci.yml` and `pages.yml`, and
   file can do for you: *Settings → Pages → Build and deployment → Source →
   "GitHub Actions"*. Until that is set, every request returns
   `404 There isn't a GitHub Pages site here` no matter what the workflow does.
-- **`base` in `vite.config.js` is `/solardata/`**, which is the project-pages
-  path for a repository named `solardata` under the `kreier` account. Renaming
-  either requires changing `base` too, or every asset and data fetch 404s.
+- **`base` in `vite.config.js` is `/solardata/`**, the project-pages path for a
+  repository named `solardata`. Renaming either requires changing `base` too, or
+  every asset and data fetch 404s.
 
 The data files are committed under `public/data/`, so a frontend-only change
 deploys without re-running the Python pipeline. The deploy asserts that
-`dist/data/` contains `stations.json`, `metrics.json`, `quality.json` and all 30
-CSVs (15 station-years at two resolutions, one folder per station), so a build
-that loses them fails instead of publishing a site full of errors.
+`dist/data/` contains `stations.json`, `metrics.json`, `quality.json` and all 32
+CSVs, so a build that loses them fails instead of publishing a site full of
+errors.
 
 The site opens on one specific view — `DEFAULT_VIEW` in
 `src/components/StationExplorer.jsx`: AISVN #1, November 2021, hourly, with
-`battery_v`, `solar_v` and `wind_v`. It is applied **once**, on the first rollup
+`battery_v`, `solar_v` and `temp_c`. It is applied **once**, on the first rollup
 that loads, and the range it sets is the month's own data bounds rather than
 hardcoded dates. Three things about it are easy to break:
 
-- The default is a *claim about the archive*. `scripts/check_render.mjs` resolves
-  `openingView()` and `defaultSelection()` against the real `stations.json` and
-  the real rollup, and fails if the station, year, month, resolution or any
-  channel is not there. Mutation-test it before trusting it.
+- The default is a *claim about the archive*. `scripts/check_render.mjs`
+  resolves `openingView()` and `defaultSelection()` against the real
+  `stations.json` and the real rollup, and fails if the station, year, month,
+  resolution or any channel is not there. Mutation-test it before trusting it.
 - The range reset is keyed on station and year, **not** on the effect running and
   **not** on the resolution. `ranges` arrives after the CSV and re-runs the
   effect; clearing on every run wipes the default. Keying on the resolution made
   the Hour button throw away the reader's From/To.
-- `test` is the only station whose `temp_c` is in hundredths, and the site only
-  draws it correctly because `stations.json` carries `channel_units`. If that
-  key goes missing the probe's 28 °C becomes 280 °C with no error anywhere.
-
+- `wind_v` is **not** one of the default channels and must not become one. It is
+  wired and logging and is not a measurement; the site lists it under "recorded
+  but not charted" with the reason.
 
 ## Open questions a human still has to answer
 
-These are recorded, not solved. Do not quietly decide them in code. The same
-list, with what is known about each, is in
-[`docs/roadmap.md`](docs/roadmap.md), which also carries the planned
-`solardata_raw.db` and the known debt.
+These are recorded, not solved. Do not quietly decide them in code. Each station
+carries its own list in `etl/catalog.py` — asserted non-empty by
+`tests/test_catalog.py` — and the full list with context is in
+[`docs/roadmap.md`](docs/roadmap.md).
 
-1. **The 2 remaining unconfirmed scale regimes.** Still open: `aisvn2.lipo2_v`
-   ×0.01 over 2020-06-18 to 06-23, and ×0.001 for `maker-webhooks.solar2_v` and
-   `test.solar2_v` — both of which land squarely inside their recorded bands when
-   scaled, so the evidence is good and only the firmware is missing. The `aisvn`
-   windows that used to be on this list are resolved: the collector converted
-   `IFTTT_aisvn.xlsx` at source, so all seven are now **scale 1.0** rather than
-   ×0.001, and `temp_c`'s ×10 correction moved to the whole record rather than
-   starting at the recompile, which had left the first 1,480 readings in a
-   different unit from the rest of their own file. The windows stay in
-   `CONFIRMED_WINDOWS` as 1.0 because the archive still has the boundary and the
-   evidence for it has not changed; only the application was wrong.
-   `phumy2.current2_a` is now confirmed as milliamps and applied.
-
-   `aisvn2.current_a_chA` steps by ~200× between 2021-04 and 2021-10, which is not
-   a clean factor and is not at any known recompile. Nobody has recorded it.
-2. **`aisvn-solar.solar_v` maxes at 3,532 mV.** A photovoltaic panel should reach
-   15–20 V open circuit, so either that input is not a panel or the station never
-   saw a real panel voltage. It flags nothing today, because 3.5 V is inside a
-   0–60 V band. The collector is asked.
-3. **`phumy2.power_w` is not a power measurement.** The hardware was never
-   implemented and the ESP32 pin reads what the collector describes as phantasy
-   values: 415,112 of 415,117 readings are exactly 0 and the remaining five are
-   13,810-19,877 W, all flagged. Stored as milliwatts and kept, as instructed,
-   with no useful band. Only two stations have a power channel at all — `aisvn`
-   and `phumy2` — so "the power channel" is `aisvn`'s alone, and the other six
-   stations have no such thing to be a measurement of.
-
-4. **`maker-webhooks` resets its submission counter every 16 readings** — 526
-   resets in 8,535 readings, 523 of them with no gap in sampling. A genuine
-   reboot looks like that when the station keeps sampling, but a counter that
-   moves that fast may be something else. Unexplained.
-5. **The `phumy2` bridge ratio.** `solar2_v` is confirmed as millivolts, but the
-   level steps from ~5000 mV to ~1200 mV when a bridge and load were fitted, so
-   the stored value is a divider output rather than the panel voltage. Without
-   the ratio, `solar2_v` after the bridge is not a panel voltage and should not
-   be charted as one.
-6. **`aisvn.load_v` behaviour change.** The collector reports the load rail as
-   10–12 V when a load is switched on and 0 when none is present. The 0 state
-   works up to 2020-07-10 and persists sporadically until 2020-10-30
-   (28,192 readings: 80% of June, 78% of July, 19% of August, 0% from November
-   onwards, where the channel is 9.5–24.7 V and never 0). What changed, and
-   whether the 0 readings after July are genuine or a stuck pin, is unknown.
-   The column also **spans two units inside one file**: millivolts up to
-   2020-06-17 12:09 local, volts from 15:20 local — the recompile. That was true
-   before the 0.8.0 raw repair, and 0.8.0's repair made it worse by replacing 195
-   of the 198 volt readings with 0, which is invisible because 0 is a legitimate
-   state for this rail. **Both are now repaired at source**: the column is 0–13.716
-   V throughout `IFTTT_aisvn.xlsx`, the 195 readings are back, and the file's header
-   now reads `power, load` like every other 11-column `aisvn` sheet, so files (1)–(7)
-   no longer borrow a swapped order. The behaviour change above is still a question
-   about the hardware, and is still open.
-7. **The `aisvn` gaps.** No readings between 2020-10-25 and 2020-11-04, and
-   September 2020 has only 12 readings. **Confirmed by the collector: the
-   collector was down, no data was lost in the Sheets export.** No action
-   needed; recorded so nobody goes looking for a bug.
-8. **Non-production stations are published, and labelled as such.**
-   `test` is probe-only: its 11-column solar layout is in two source files and
-   the collector regards that stretch as system setup rather than measurement, so
-   both files are excluded by `config.FILE_EXCLUSIONS` and every row of them is
-   recorded in `rejects` with reason `station_setup`. What remains is 33,377
-   readings from the 4-column `nix`/`temp`/`wifi` probe, 2020-07-05 to
-   2020-08-21. `voltage-phumy` is an ADC calibration sheet.
-
-   Until 0.7.2 neither was written to `public/data/` at all, and the site showed
-   six of the eight stations this file documents — the rollups existed nowhere
-   even though the readings were in the database, in the Parquet export and in
-   the quality report. `build_exports.build` now writes every station in the
-   registry and marks the two with `published: false`, which is a *grouping* and
-   not a filter: the site lists them under "Not solar production" and prints the
-   station's own note. `--all-stations` only moves them into the main group.
-   `tests/test_export_policy.py` is what holds that in place.
-9. **`aisvn.temp_c` is stored in tenths of a degree**, and `phumy2.temp_c` in
-   tenths, but `test.temp_c` in **hundredths** — the collector asked for that
-   resolution on the probe. A plausibility band is keyed by column, so it can
-   only describe one unit; `config.CHANNEL_UNITS` carries a per-station override
-   and it is read in three places: `build_db._band_override` (the ingest and the
-   aggregate), and `build_exports.build`, which ships it to the browser as
-   `stations.json`'s `channel_units` so `discoverChannels` can divide by 100
-   rather than 10. Three places, because applying it in two is the same bug one
-   level up, and the third is a level further up where nothing else would fail.
-   The `aisvn` placeholder readings of `200` are nulled as `no_signal`, not
-    flagged, and the window ends at 11:14 local precisely so the 114 genuine tenths
-    that follow survive. Three stations need an override and all three were
-    otherwise mis-flagged on every reading they had: `test` in hundredths,
-    `aisvn-solar.battery_v` in millivolts (a 50/50 divider, ×2 at ingest, band
-    0–5,100 mV) and `aisvn2.lipo2_v` in millivolts for a 2S pack (band
-    0–8,000 mV). `tests/test_export_policy.py` and
-    `scripts/check_render.mjs` both assert the exact set, because a fourth
-    silently appearing means one of the three is being applied somewhere it should
-    not be.
-
-10. **`battery_v` is a lead-acid car battery, not a 3S LiPo.** The collector
-   confirms it. The band, 9-16 V, is right for a 12 V lead pack — it rests at
-   12.4-12.8 V, charges to 14.4 V and reads ~10.1 V flat — and it is what makes
-   `aisvn`'s 17.9 V daily peaks in 2021 and its 29.6 V in 2020 show up as
-   `out_of_range` rather than blending in. The description said "3S LiPo" until
-   0.7.2, which was a claim about the hardware nobody had checked; the band was
-   never derived from it. The real LiPo packs are `lipo_v`/`lipo2_v` at 2.5-4.35 V.
-11. **`wind_v` is wired and it logs.** It was described as "unused, reads 0",
-   which is false: `aisvn` records 0-13.3 V hourly in 2021, non-zero in 176 of
-   November's 696 hours, and up to 12,784 V in 2020; it is exactly 0 for all of
-   2022 and for `aisvn-solar`. It has **no band**, deliberately, because a band
-   would have to be a guess: the values are not a plausible generator output
-   either. The description is now just the name of the input and the finding is
-   recorded here instead. **What the input is connected to is asked of the
-   collector, not decided in code.**
+1. **`aisvn.battery_v` reaches 29.8 V in 2020 and 17.9 V in 2021** against a
+   12 V lead-acid pack the collector confirmed. 1,717 readings, 2.2% of the
+   channel. The band is right, so the readings are the question: a second pack, a
+   mis-scaled input, or a band wrong for what is installed.
+2. **`aisvn.lipo_v` and `maker-webhooks.lipo_v` are bimodal** — 6.84 V and
+   0.735 V plateaus against a 1S cell's 2.5-4.35 V. Nothing records a recompile at
+   the change. Both are bounded so the plateau is not a per-reading flag.
+3. **`aisvn2.current_a_chA` and `current_a_chB` step by roughly 200×** between
+   2021-04 and 2021-10, pinning at exactly 1240, and it is not a clean factor.
+   No recompile is recorded, so no scale is applied and no band is asserted.
+4. **`aisvn-solar.solar_v` maxes at 3,532 mV.** A photovoltaic panel should
+   reach 15-20 V open circuit. Either the input is not a panel or the station
+   never saw a real panel voltage.
+5. **`phumy2.power_w` is not a power measurement.** The hardware was never
+   implemented: 415,112 of 415,117 readings are exactly 0 and the remaining five
+   are 13,810-19,877 W. It is in the database, unbanded, and not on the chart.
+6. **`wind_v` is wired and it logs.** `aisvn` records 0-13.3 V hourly in 2021,
+   up to 29.8 V in 2020, exactly 0 for all of 2022; `aisvn-solar`'s is exactly 0
+   for all 13,788 of its readings; `maker-webhooks` reaches 14.7 V. It has no
+   band, because a band would have to be a guess — the values are not a plausible
+   generator output either. What the input is connected to is asked of the
+   collector.
+7. **`aisvn-solar.load1_v` and `load2_v` are in an unestablished unit.** They
+   record 0-1,598 and 0-3,026, which cannot be volts. Millivolts would make them
+   plausible; nothing confirms it, so they are neither charted nor banded.
+8. **`aisvn.load_v`'s 0 V state changes behaviour on 2020-07-10** and nothing
+   recorded explains it. The rail's full scale is also unresolved.
+9. **`phumy2.solar2_v` is a divider output after a bridge and load were fitted**,
+   stepping from ~5,000 mV to ~1,200 mV, so it is not a panel voltage and should
+   not be charted as one. The bridge ratio is unknown.
+10. **`maker-webhooks` resets its submission counter every 16 readings** — 526
+    times in 8,535, 523 of them with no gap in sampling. A genuine reboot looks
+    like that when the station keeps sampling, but a counter that moves that fast
+    may be something else. Unexplained.
+11. **`test/IFTTT_test (1).xlsx` is excluded on a stale reason.** The exclusion
+    still holds on the overlap, but 0.8 described the file as an 11-column solar
+    layout when the 0.8.0 raw repair left it as 4,121 rows of the same probe its
+    neighbours carry.
+12. **`aisvn` has no readings between 2020-10-25 and 2020-11-04**, and September
+    2020 has 12 readings. The collector confirmed the collector was down and no
+    data was lost in the export, so there is nothing to fix.
 
 ## Conventions
 
@@ -504,6 +461,6 @@ list, with what is known about each, is in
   decision. A comment restating the code is noise; a comment recording which
   file and row motivated the code is the point.
 - Tests use plain `unittest` assertions under `pytest`, and build real XLSX
-  fixtures so they exercise the same openpyxl path as production.
+  fixtures with openpyxl so they exercise the same path as production.
 - The frontend is plain JSX with no TypeScript and no state library. Keep it
   that way until there is a reason not to.

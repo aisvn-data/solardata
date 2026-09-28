@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  anyScaled,
   availableMonths,
+  channelsFor,
   classifyRows,
-  discoverChannels,
   filterByRange,
-  loadBands,
   loadRollup,
   loadStations,
-  rangesFor,
   seriesFor,
   statLabel,
   summarise,
@@ -22,24 +19,51 @@ import TimeSeriesChart from './TimeSeriesChart.jsx'
  *
  * State is deliberately local and explicit rather than in a store. The only
  * things that need to survive a re-render are the current station, year,
- * resolution, range and metric selection, and they are passed down as props.
+ * resolution, range and channel selection, and they are passed down as props.
  * Adding a state library for that would be more code than the state.
  *
  * Nothing is filtered out of the chart here. `classifyRows` says which values
- * fall outside the band the pipeline records for their channel; this component
- * decides whether to *draw* them, and always says how many it left out and why.
+ * fall outside the band the pipeline records for that station and channel; this
+ * component decides whether to *draw* them, and always says how many it left out
+ * and why.
  */
+function fmt(value, decimals = 2) {
+  if (value === null || value === undefined) return '—'
+  const abs = Math.abs(value)
+  if (abs >= 1000) return value.toFixed(0)
+  if (abs >= 100) return value.toFixed(Math.max(0, decimals - 1))
+  return value.toFixed(decimals)
+}
+
+/** True when the station's own readings fall outside the recorded band. */
+function disagrees(range, band) {
+  if (!range || !band || (band.lo === null && band.hi === null)) return false
+  if (band.lo !== null && range.min < band.lo) return true
+  if (band.hi !== null && range.max > band.hi) return true
+  return false
+}
+
+function bandText(band) {
+  if (!band || (band.lo === null && band.hi === null)) return null
+  const lo = band.lo === null ? '−∞' : fmt(band.lo)
+  const hi = band.hi === null ? '∞' : fmt(band.hi)
+  return `${lo} … ${hi}`
+}
+
 /**
  * This station's channels, what it recorded, and what the pipeline expects.
  *
  * The two columns are deliberately not collapsed into one "range". The band is
- * the pipeline's judgement about the hardware and is the same for every station
- * that logs a given column; the observed range is what *this* instrument actually
- * did. They agree on most channels and disagree loudly on the ones where a human
- * has a decision to make -- `aisvn`'s battery is banded 9-16 V for a 12 V lead-acid pack and
- * reads up to 29.6 V, `aisvn2`'s `solar3_v` is banded 0-60 V and reads 23,860
- * because the millivolt scale was never confirmed. Showing only the band hides
- * that; showing only the observed range hides the expectation.
+ * the pipeline's judgement about this station's hardware, in the unit the value is
+ * stored in; the observed range is what this instrument actually did. They agree
+ * on most channels and disagree loudly on the ones where a human has a decision
+ * to make — `aisvn`'s battery is banded 9-16 V for a 12 V lead-acid pack and reads
+ * up to 29.8 V. Showing only the band hides that; showing only the observed range
+ * hides the expectation.
+ *
+ * The band, the unit and the count of out-of-range readings are the three numbers
+ * the pipeline recorded, read from `stations.json`. There is no second copy in
+ * this file to fall out of step with the ingest.
  */
 function ChannelTable({ channels }) {
   return (
@@ -56,32 +80,36 @@ function ChannelTable({ channels }) {
             <th className="num">Readings</th>
             <th className="num">Observed</th>
             <th className="num">Band</th>
+            <th className="num">Out of range</th>
           </tr>
         </thead>
         <tbody>
-            {channels.map((channel) => {
+          {channels.map((channel) => {
             const r = channel.range
-            const d = channel.divisor ?? 1
-            const hasBand = channel.band && channel.band.lo !== null
+            const band = bandText(channel.band)
             return (
               <tr key={channel.key}>
                 <td>
                   <code>{channel.channel}</code>
-                  <span className="muted small"> {channel.label}</span>
+                  <span className="muted small">
+                    {' '}
+                    {channel.label}
+                    {channel.unit ? ` (${channel.unit})` : ''}
+                  </span>
                 </td>
                 <td className="num">{(r?.n ?? 0).toLocaleString()}</td>
                 <td className="num">
-                  {r ? `${fmt(r.min / d)} … ${fmt(r.max / d)}` : '—'}
-                  {r?.unit ? ` ${r.unit}` : ''}
+                  {r ? `${fmt(r.min, channel.decimals)} … ${fmt(r.max, channel.decimals)}` : '—'}
                 </td>
                 <td className="num">
-                  {hasBand ? (
-                    <span className={disagrees(r, channel.band, d) ? 'band-warn' : ''}>
-                      {fmt(channel.band.lo / d)} … {fmt(channel.band.hi / d)}
-                    </span>
+                  {band ? (
+                    <span className={disagrees(r, channel.band) ? 'band-warn' : ''}>{band}</span>
                   ) : (
                     <span className="muted">none</span>
                   )}
+                </td>
+                <td className="num">
+                  {channel.observedOor ? channel.observedOor.toLocaleString() : '—'}
                 </td>
               </tr>
             )
@@ -90,28 +118,79 @@ function ChannelTable({ channels }) {
       </table>
       <p className="muted small">
         <strong>Observed</strong> is min … max over every raw reading this station
-        ever recorded for that channel, so a single corrupt sample widens it.{' '}
-        <strong>Band</strong> is the range the pipeline records the hardware as
-        producing, from <code>etl/normalize/metrics.py</code>. A channel in
+        ever recorded for that channel, in the unit the column is stored in.{' '}
+        <strong>Band</strong> is the range the pipeline records this station&apos;s
+        hardware as producing, from <code>etl/catalog.py</code>. A channel in
         orange has readings outside its band — that is a question about the
-        hardware or an unconfirmed unit scale, not a value to discard.
+        hardware or about the unit, not a value to discard.
       </p>
     </details>
   )
 }
 
-/** True when the station's own readings fall outside the recorded band. */
-function disagrees(range, band, divisor = 1) {
-  if (!range || !band || band.lo === null) return false
-  return range.min < band.lo || range.max > band.hi
+/**
+ * The channels this station records that the site is not drawing, and why.
+ *
+ * Every one of them is in the database, in the Parquet interchange export and in
+ * the quality report. They are absent from the chart because the values are not
+ * measurements, because they never vary, or because nobody has established what
+ * unit they are in — and a reader who knows the station has a wind input or a
+ * power pin will otherwise conclude the site dropped a column. Showing the
+ * channel, the reason and the range it actually recorded answers that.
+ */
+const EXCLUDE_REASONS = {
+  not_measurement: 'Not a measurement',
+  constant: 'Never varies',
+  unresolved_unit: 'Unit not established',
+  text_label: 'A label, not a number',
 }
 
-function fmt(value) {
-  if (value === null || value === undefined) return '—'
-  const abs = Math.abs(value)
-  if (abs >= 1000) return value.toFixed(0)
-  if (abs >= 10) return value.toFixed(1)
-  return value.toFixed(2)
+function HiddenChannels({ station }) {
+  const hidden = station.hidden ?? []
+  if (hidden.length === 0) return null
+  return (
+    <details className="channel-table">
+      <summary>
+        {hidden.length} channel{hidden.length === 1 ? '' : 's'} this station records
+        that are not charted
+      </summary>
+      <table>
+        <thead>
+          <tr>
+            <th>Channel</th>
+            <th>Why not</th>
+            <th className="num">Recorded</th>
+          </tr>
+        </thead>
+        <tbody>
+          {hidden.map((channel) => (
+            <tr key={channel.channel}>
+              <td>
+                <code>{channel.channel}</code>
+                <span className="muted small"> {channel.label}</span>
+              </td>
+              <td>
+                <strong>{EXCLUDE_REASONS[channel.reason] ?? channel.reason}</strong>
+                <div className="muted small">{channel.note}</div>
+              </td>
+              <td className="num">
+                {channel.observed && channel.observed.n_values
+                  ? `${(channel.observed.n_values).toLocaleString()} readings, ${fmt(
+                      channel.observed.min,
+                    )} … ${fmt(channel.observed.max)}`
+                  : '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted small">
+        All of these are in <code>{station.table}</code> and in the quality report.
+        Excluding a channel is a decision about what to draw, never about what to
+        keep.
+      </p>
+    </details>
+  )
 }
 
 /**
@@ -148,10 +227,12 @@ function StationButton({ station, active, onPick }) {
  * would go stale the moment a file was re-ingested.
  *
  * Hourly, because this is the one place the solar curve is legible: at `Day` the
- * same month is a flat 2.9-13.6 V mean, and the point of the station is the shape
- * between dawn and dusk. Battery, solar and wind together, because between them
- * they are the whole of what `aisvn` is: a bank charging from 10.6 V, a panel
- * going to ~20 V, and an input the collector wired and never explained.
+ * same month is a flat mean, and the point of the station is the shape between
+ * dawn and dusk. Battery, solar and temperature together, because between them
+ * they are the whole of what `aisvn` measures: a bank charging from 10.6 V, a
+ * panel going to ~20 V, and the ambient the panel is in. The station's `wind_v`
+ * input is wired and logging and is *not* one of these, because what it logs is
+ * not a measurement — see `HiddenChannels`.
  *
  * Applied **once**, on the first rollup that loads, and only when that rollup is
  * this view. Re-asserting it on every change would take the range back out of the
@@ -163,7 +244,7 @@ export const DEFAULT_VIEW = {
   year: '2021',
   month: '2021-11',
   resolution: 'hourly',
-  channels: ['battery_v', 'solar_v', 'wind_v'],
+  channels: ['battery_v', 'solar_v', 'temp_c'],
 }
 
 /** True while the loaded view is the one DEFAULT_VIEW describes. */
@@ -201,12 +282,12 @@ export function openingView(stations) {
 /**
  * The channels to select the first time a view is opened.
  *
- * DEFAULT_VIEW's channels when this is that view and it still has them — they
- * are intersected with what the rollup discovered, because a channel the station
- * did not log must never reach the chart. Everything else keeps the old rule: the
- * first two channels discovered, which are the first two voltages and the most
- * readable pair. `scripts/check_render.mjs` asserts that the intersection is not
- * silently empty for the opening view, which is the failure this hides.
+ * DEFAULT_VIEW's channels when this is that view and it still has them —
+ * intersected with what the station publishes, because a channel the station does
+ * not record must never reach the chart. Everything else keeps the old rule: the
+ * first two channels, which are the first two voltages and the most readable
+ * pair. `scripts/check_render.mjs` asserts that the intersection is not silently
+ * empty for the opening view, which is the failure this hides.
  */
 export function defaultSelection(available, stationId, year, resolution) {
   if (isDefaultView(stationId, year, resolution)) {
@@ -246,7 +327,7 @@ export function monthBounds(rows, month) {
  * component threw the range away.
  *
  * `changed: false` means leave the controls alone. The effect that calls this
- * runs again for the same period when the station's observed ranges arrive, and
+ * runs again for the same period when the rollup's channel table arrives, and
  * again on every resolution change; clearing the range on either made the site
  * discard the view it had just opened on.
  *
@@ -255,16 +336,9 @@ export function monthBounds(rows, month) {
  * own range in those inputs, and a default that keeps reasserting itself is a
  * control that undoes itself.
  */
-export function rangeForLoad({
-  stationId,
-  year,
-  resolution,
-  previous,
-  opening,
-  openingApplied,
-}) {
-  // Station and year, and nothing else. `resolution` is accepted and ignored.
-  void resolution
+export function rangeForLoad({ stationId, year, previous, opening, openingApplied }) {
+  // Station and year, and nothing else. `resolution` is not passed at all, so it
+  // cannot be used here even by accident.
   const period = `${stationId}:${year}`
   if (period === previous) return { changed: false, from: null, to: null, opening: false }
   if (opening && !openingApplied) {
@@ -275,18 +349,15 @@ export function rangeForLoad({
 
 export default function StationExplorer() {
   const [stations, setStations] = useState([])
-  const [bands, setBands] = useState({})
-  const [ranges, setRanges] = useState(new Map())
-  const [channels, setChannels] = useState([])
   const [stationId, setStationId] = useState(null)
   const [year, setYear] = useState('')
   const [resolution, setResolution] = useState(DEFAULT_VIEW.resolution)
-  const [rows, setRows] = useState([])
+  const [rollup, setRollup] = useState({ header: [], channels: [], rows: [] })
   const [fromDay, setFromDay] = useState('')
   const [toDay, setToDay] = useState('')
-  // Keyed by station *and* resolution. Keying by station alone was a bug: the
-  // daily and hourly rollups do not carry the same channels, so a selection made
-  // on one was silently narrowed by the other and never restored.
+  // Keyed by station *and* resolution. Keying by station alone was a bug in 0.8:
+  // the daily and hourly rollups did not carry the same channels, so a selection
+  // made on one was silently narrowed by the other and never restored.
   const [selectionByView, setSelectionByView] = useState({})
   const [hoverRow, setHoverRow] = useState(null)
   const [hideFlagged, setHideFlagged] = useState(false)
@@ -307,10 +378,13 @@ export default function StationExplorer() {
 
   const viewKey = `${stationId}:${resolution}`
   const selected = selectionByView[viewKey] ?? []
-  // Declared here rather than next to the JSX that uses it, because the loader
-  // below needs this station's `channel_units` in its dependency list and a `const`
-  // cannot be read before the line that initialises it.
+  // The station and its channels come from one object now: `stations.json` carries
+  // the band, the unit, the decimals and the observed range for every channel
+  // this station has. There is no second fetch to keep in step, and nothing to
+  // discover from the rows.
   const station = stations.find((s) => s.station_id === stationId) ?? null
+  const allChannels = useMemo(() => channelsFor(station), [station])
+  const rows = rollup.rows
 
   useEffect(() => {
     let cancelled = false
@@ -337,65 +411,26 @@ export default function StationExplorer() {
     }
   }, [])
 
-  // The bands are a separate fetch because they describe every channel of every
-  // station, not the one being looked at. A failure here must not blank the
-  // chart: without bands the values are simply drawn unflagged, and the note
-  // below says so.
-  useEffect(() => {
-    let cancelled = false
-    loadBands()
-      .then((payload) => {
-        if (!cancelled) setBands(payload)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // The observed range of every channel, per station. This is a property of the
-  // station rather than of the loaded year, so it is fetched once per station and
-  // kept across resolution and year changes -- otherwise switching resolution
-  // would change which values count as unusual, which is not a thing the reader
-  // asked for.
-  useEffect(() => {
-    if (!stationId) return undefined
-    let cancelled = false
-    rangesFor(stationId)
-      .then((map) => {
-        if (!cancelled) setRanges(map)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [stationId])
-
   // Load the CSV whenever station, year or resolution changes. The From/To it
   // opens with is `rangeForLoad`'s decision, which is keyed on the *period* --
   // station and year -- and not on the resolution: switching Day for Hour is a
   // different sampling of the same days, and clearing the range there made the
   // Hour button look broken, because you pick November, press Hour to see the
   // dawn, and the chart jumps back to the whole year.
-  //
-  // It is also not keyed on this effect running: `ranges` is in the dependency
-  // list because the channel table needs it, and it arrives after the CSV, so the
-  // effect runs twice for the first period.
   useEffect(() => {
-    if (!stationId || !year || !resolution) return
+    if (!stationId || !year || !resolution) return undefined
     let cancelled = false
     setHoverRow(null)
-    Promise.all([loadRollup(stationId, resolution, year), loadBands()])
-      .then(([data, bandTable]) => {
+    loadRollup(stationId, resolution, year)
+      .then((data) => {
         if (cancelled) return
-        setRows(data)
+        setRollup(data)
         const opening = isDefaultView(stationId, year, resolution)
-          ? monthBounds(data, DEFAULT_VIEW.month)
+          ? monthBounds(data.rows, DEFAULT_VIEW.month)
           : null
         const next = rangeForLoad({
           stationId,
           year,
-          resolution,
           previous: rangeView.current,
           opening,
           openingApplied: defaultRangeDone.current,
@@ -406,24 +441,18 @@ export default function StationExplorer() {
           setFromDay(next.from)
           setToDay(next.to)
         }
-        discoverChannels(data, bandTable, ranges, station?.channel_units).then((found) => {
-          if (cancelled) return
-          setChannels(found)
-          const available = found.map((c) => c.key)
-          setSelectionByView((current) => {
-            const key = `${stationId}:${resolution}`
-            const kept = (current[key] ?? []).filter((k) => available.includes(k))
-            return {
-              ...current,
-              // First visit: the opening view's channels, or the first two
-              // discovered, which are the voltages the station reports and the
-              // most readable pair.
-              [key]:
-                kept.length > 0
-                  ? kept
-                  : defaultSelection(available, stationId, year, resolution),
-            }
-          })
+        setSelectionByView((current) => {
+          const key = `${stationId}:${resolution}`
+          const offered = allChannels.map((c) => c.key)
+          const kept = (current[key] ?? []).filter((k) => offered.includes(k))
+          return {
+            ...current,
+            // First visit: the opening view's channels, or the first two this
+            // station publishes, which are the voltages it reports and the most
+            // readable pair.
+            [key]:
+              kept.length > 0 ? kept : defaultSelection(offered, stationId, year, resolution),
+          }
         })
       })
       .catch((err) => {
@@ -432,7 +461,16 @@ export default function StationExplorer() {
     return () => {
       cancelled = true
     }
-  }, [stationId, year, resolution, ranges, station])
+  }, [stationId, year, resolution, allChannels])
+
+  // Only the channels this station publishes *and* the loaded rollup actually
+  // carries. The rollup's own header is the authority on the second half: it is
+  // the exporter's word about what is in the file, so a channel declared in the
+  // catalog but absent from a particular year's CSV cannot reach the chart.
+  const channels = useMemo(() => {
+    const present = new Set(rollup.channels ?? [])
+    return allChannels.filter((channel) => present.has(channel.key))
+  }, [allChannels, rollup.channels])
 
   const months = useMemo(() => availableMonths(rows), [rows])
   const inRange = useMemo(() => filterByRange(rows, fromDay, toDay), [rows, fromDay, toDay])
@@ -449,18 +487,26 @@ export default function StationExplorer() {
     [classified, hideFlagged],
   )
 
-  // The headline metric is whichever is selected first, and selection order is
+  // The headline channel is whichever is selected first, and selection order is
   // the reader's, so the tiles follow the reader rather than a fixed ranking.
   const primary = series[0] ?? null
   const summary = primary && plotted.length ? summarise(plotted, primary) : null
-  const primaryStat = primary && rows.length ? statLabel(rows[0].stats[primary.channel]) : null
+  const headlineStat = primary && rows.length ? statLabel(rows[0].stats[primary.channel]) : null
+
+  // Channels whose confirmed scale is not 1: the sheet wrote millivolts, or
+  // milliamps, or hundredths, and the value here is the reading rather than the
+  // number the collector logged.
+  const converted = useMemo(
+    () => (station?.channels ?? []).filter((c) => c.published && c.scale !== 1),
+    [station],
+  )
 
   function toggleMetric(key) {
     setSelectionByView((current) => {
       const existing = current[viewKey] ?? []
       let next
       if (existing.includes(key)) {
-        // Keep at least one metric selected, otherwise the chart has nothing
+        // Keep at least one channel selected, otherwise the chart has nothing
         // to draw and the user has no way back except re-picking.
         next = existing.length === 1 ? existing : existing.filter((k) => k !== key)
       } else {
@@ -530,6 +576,7 @@ export default function StationExplorer() {
   }
 
   const flagged = classified.flaggedRows
+  const noun = resolution === 'hourly' ? 'hour' : 'day'
   const granularityNote =
     resolution === 'hourly'
       ? 'each point is the mean of that hour’s readings'
@@ -540,8 +587,8 @@ export default function StationExplorer() {
   // that are in the database, in the Parquet export and in the quality report. A
   // reader who is told a station is a WiFi probe can decide what to do with it; a
   // reader who is shown six of eight stations cannot.
-  const production = stations.filter((s) => s.published)
-  const other = stations.filter((s) => !s.published)
+  const production = stations.filter((s) => s.is_production)
+  const other = stations.filter((s) => !s.is_production)
 
   return (
     <div className="explorer">
@@ -553,7 +600,7 @@ export default function StationExplorer() {
             active={s.station_id === stationId}
             onPick={() => {
               setStationId(s.station_id)
-              setYear(s.years[s.years.length - 1])
+              setYear(s.years[s.years.length - 1].year)
             }}
           />
         ))}
@@ -567,7 +614,7 @@ export default function StationExplorer() {
                 active={s.station_id === stationId}
                 onPick={() => {
                   setStationId(s.station_id)
-                  setYear(s.years[s.years.length - 1])
+                  setYear(s.years[s.years.length - 1].year)
                 }}
               />
             ))}
@@ -581,11 +628,12 @@ export default function StationExplorer() {
             <div className="station-heading">
               <h2>{station.display_name}</h2>
               <p className="muted">
-                {station.location} · {station.tz} · applet <code>{station.applet}</code>
+                {station.location} · {station.tz} · applet <code>{station.applet}</code> ·{' '}
+                <code>{station.table}</code>
               </p>
             </div>
 
-            {!station.published && (
+            {!station.is_production && (
               <div className="bench-banner" role="note">
                 <strong>Not solar production.</strong> {station.notes}
               </div>
@@ -603,7 +651,7 @@ export default function StationExplorer() {
               station={station}
               rows={plotted}
               metric={primary}
-              stat={primaryStat}
+              stat={headlineStat}
               summary={summary}
               range={fromDay || toDay ? { from: fromDay || 'start', to: toDay || 'end' } : null}
             />
@@ -642,7 +690,7 @@ export default function StationExplorer() {
             />
 
             <p className="chart-note muted">
-              {granularityNote}, from the archive&apos;s 119-second cadence
+              {granularityNote}, from the archive&apos;s native cadence
               {resolution === 'hourly'
                 ? '; the unaggregated readings are in the Parquet export'
                 : ' — switch to Hour for the intraday shape'}
@@ -651,42 +699,50 @@ export default function StationExplorer() {
 
             {flagged.length > 0 && (
               <p className="chart-note flagged" role="status">
-                {flagged.length} of {classified.plottable.length}{' '}
-                {resolution === 'hourly' ? 'hours' : 'days'} in this range are
-                outside their channel&apos;s recorded band or are built partly from
-                samples that are
+                {flagged.length} of {classified.plottable.length} {noun}
+                {flagged.length === 1 ? '' : 's'} in this range are outside their
+                channel&apos;s recorded band or are built partly from samples that are
                 {hideFlagged ? ', hidden at your request' : ', ringed on the chart'}.
                 The values are kept everywhere &mdash; only the drawing changes.
-                {Object.keys(bands).length === 0 &&
-                  ' The bands could not be loaded, so nothing could be flagged.'}
               </p>
             )}
 
-            {anyScaled(inRange) && (
+            {converted.length > 0 && (
               <p className="chart-note scaled" role="status">
-                Values for this station are converted from the units the
-                collector logged &mdash; several stations write millivolts as
-                integers, so the raw number is a thousand times the reading you
-                see here. The conversion is applied only to channels confirmed
-                against the firmware, and each affected {resolution === 'hourly' ? 'hour' : 'day'} records
-                which channels were converted.
+                {converted.length} of this station&apos;s channels
+                {converted.length === 1 ? ' is' : ' are'} logged by the collector in a
+                different unit &mdash; {converted
+                  .slice(0, 4)
+                  .map((c) => `${c.label} in ${c.raw_unit}`)
+                  .join(', ')}
+                {converted.length > 4 ? ', and others' : ''} &mdash; and converted once,
+                here, against the hardware. The value on the chart is the reading, not
+                the number the sheet recorded.
               </p>
             )}
 
             {classified.unplottable.length > 0 && (
               <p className="chart-note" role="status">
-                {classified.unplottable.length}{' '}
-                {resolution === 'hourly' ? 'hour' : 'day'}
-                {classified.unplottable.length === 1 ? '' : 's'} in this range
-                recorded no readings at all and are not drawn. The rows are in
-                the database and the Parquet export.
+                {classified.unplottable.length} {noun}
+                {classified.unplottable.length === 1 ? '' : 's'} in this range recorded no
+                readings at all and are not drawn. The rows are in{' '}
+                <code>{station.table}</code> and the Parquet export.
               </p>
             )}
 
-            {channels.length > 0 && <ChannelTable channels={channels} />}
+            {channels.length > 0 && (
+              <ChannelTable
+                channels={channels.map((c) => {
+                  const declared = station.channels.find((x) => x.channel === c.channel)
+                  return { ...c, observedOor: declared?.observed?.n_out_of_range ?? 0 }
+                })}
+              />
+            )}
+
+            <HiddenChannels station={station} />
 
             {/* The banner above already carries this for a bench station. */}
-            {station.published && station.notes && (
+            {station.is_production && station.notes && (
               <p className="station-note muted">{station.notes}</p>
             )}
           </>

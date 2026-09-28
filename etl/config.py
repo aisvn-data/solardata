@@ -1,27 +1,61 @@
-"""Filesystem layout and tunables for the pipeline."""
+"""Paths, sentinels, flag names, and the human decisions about specific files.
+
+Everything a person decided about the archive lives in this module or in
+``etl.catalog``, and nothing else decides anything.  If a number in the database
+is not the number the sheet wrote, one of these two files says why.
+
+What moved to ``etl.catalog`` in 0.9
+------------------------------------
+Per-channel plausibility bands, per-station unit overrides and confirmed scale
+factors used to live in three places -- ``normalize/metrics.py``,
+``config.CHANNEL_UNITS`` and ``build_regimes.py`` -- and were read in seven.
+A band was a property of a *column name*, which is why 232 mA was tested against
+a +/-50 A band. They are now one declaration per (station, channel) in
+``etl.catalog``, applied once, at ingest.
+
+What is left here
+-----------------
+Decisions that are not about a measurement: values the collector used as
+placeholders, whole files that are not measurements, and windows over which a
+reading should not be believed or should not be stored at all.
+"""
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from pathlib import Path
+
+__all__ = [
+    "BAD_WINDOWS",
+    "FILE_EXCLUSIONS",
+    "FLAG_BAD_WINDOW",
+    "FLAG_FREE_TEXT",
+    "FLAG_MISALIGNED",
+    "FLAG_NO_SIGNAL",
+    "FLAG_OUT_OF_RANGE",
+    "FLAG_SENTINEL",
+    "NULL_WINDOWS",
+    "REASONS",
+    "REPO_ROOT",
+    "ROW_EXCLUSIONS",
+    "SENTINELS",
+    "Settings",
+    "settings_from_env",
+]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Raw values that mean "sensor not connected / input floating / rail" rather
-# than a genuine measurement. They become NULL, never 0 -- averaging them in
-# drags every aggregate towards zero.
+# ---------------------------------------------------------------------------
+# Placeholder values the collector wrote instead of a measurement.
 #
-# -992 and -1 are IFTTT's own missing-value markers, in `test` and
-# `Maker_Webhooks_Events`. 342.1 was found in `aisvn.temp_c`: 14,107 readings at
-# exactly 342.1 and 7 at 342.0. That is the signature of a saturating float32
-# conversion, not a temperature -- no sensor in Ho Chi City reports 342 degC, and
-# a value repeating identically 14,000 times is the hardware saying "no".
+# Keyed by float, because a cell holding 342.0 is rendered as the text "342" on
+# the way out of openpyxl and has to match the float.
 #
-# Keyed by float, not string, because the XLSX reader normalises integral floats
-# to their integer spelling: a cell holding 342.0 arrives as the text "342", so
-# a string-keyed table silently misses the `.0` variants. Comparing the parsed
-# number removes the whole class of spelling variants.
+# Every one of these becomes NULL with quality_flags = 'sentinel' and a rejects
+# row. None of them becomes 0: a 0 V panel reading at midnight is a
+# measurement, and -992 is a hole in the sheet.
+# ---------------------------------------------------------------------------
 SENTINELS: dict[float, str] = {
     -992.0: "ifttt_missing_value",
     -1.0: "ifttt_missing_value",
@@ -29,338 +63,217 @@ SENTINELS: dict[float, str] = {
     342.1: "adc_rail",
 }
 
-# Values that repeat exactly for long runs and therefore carry no information
-# (rail/clip artefacts, e.g. 3532 on the LiPo channel).  These are *retained*
-# but flagged, because we cannot prove they are invalid.
-CLIP_CANDIDATES: tuple[float, ...] = (3532.0,)
-
-# Flag a reading as clipped when a value repeats for at least this many
-# consecutive rows in the same column of the same file.
-CLIP_RUN_LENGTH = 200
-
-# Quality bits written to readings.quality_flags (comma separated).
+# ---------------------------------------------------------------------------
+# Quality flags. A reading row's quality_flags is the comma-joined, order-
+# preserving union of these for that row, and '' means no flag.
+#
+# Two families are parameterised by channel, ``no_signal:<channel>`` and
+# ``bad_window:<channel>``, which is why a flat lookup cannot explain every
+# flagged row: the report publishes the two window tables from this module
+# alongside the counts.
+# ---------------------------------------------------------------------------
 FLAG_SENTINEL = "sentinel"
-FLAG_CLIP = "clip"
 FLAG_OUT_OF_RANGE = "out_of_range"
-FLAG_DUPLICATE_TS = "duplicate_ts"
-FLAG_NON_MONOTONIC = "non_monotonic"
-FLAG_FREE_TEXT = "free_text"
+FLAG_NO_SIGNAL = "no_signal"
+FLAG_BAD_WINDOW = "bad_window"
 FLAG_MISALIGNED = "schema_misaligned"
+FLAG_FREE_TEXT = "free_text"
 
-#: ``rejects.reason`` categories.  Deliberately short and stable: the report
-#: groups by this column, so a sentence here turns a count into a singleton.
-#: The reasoning behind a window belongs in ``NULL_WINDOWS``/``BAD_WINDOWS``
-#: below, which is version-controlled prose stored exactly once.
-REASON_SETUP = "station_setup"
-REASON_NO_SIGNAL = "null_window"
-REASON_ROW_FLOOR = "pre_reinstall"
+# The complete vocabulary, for the report and for the test that asserts no other
+# flag is ever written.
+ALL_FLAGS: tuple[str, ...] = (
+    FLAG_SENTINEL,
+    FLAG_OUT_OF_RANGE,
+    FLAG_NO_SIGNAL,
+    FLAG_BAD_WINDOW,
+    FLAG_MISALIGNED,
+    FLAG_FREE_TEXT,
+)
 
-#: Whole source files excluded from ``readings``, as (rel_path, why).
-#:
-#: Wider than :data:`ROW_EXCLUSIONS`, which drops rows *before* a sheet row in a
-#: file that is otherwise ingested. This drops the file: every data row in it is
-#: counted into ``rejects`` with :data:`REASON_SETUP` and its sheet row recorded,
-#: so the loss is individually inspectable rather than a number in a report.
-#:
-#: Both entries are the ``test`` station's 11-column *solar* layout. The
-#: collector's account of the station is that the solar stretch was system setup
-#: rather than measurement, and that the measurements are the 4-column probe
-#: (``time, nix, temp, wifi``) from 2020-07-05 onwards.
-#:
-#: The exclusion is by file rather than by date because the archive does not
-#: respect the date. ``IFTTT_test (1).xlsx`` *starts* on 2020-06-14 but every
-#: row it uniquely contributes is dated 2020-07-01 18:18 to 2020-07-08 12:12 --
-#: its June rows duplicate ``IFTTT_test.xlsx`` and were absorbed by the primary
-#: key. A timestamp cut-off at 2020-07-01 would therefore have kept 4,120 solar
-#: readings from July, which the collector does not consider measurements.
-#:
-#: What remains is 33,377 readings from the 4-column probe files, spanning
-#: 2020-07-05 to 2020-08-21, with no solar channel at all. Excluding the two
-#: files removes 3,994 readings outright and a further 2,150 rows that were
-#: already duplicates of rows held in the other file -- which is why
-#: `duplicate_ts` falls by 2,150 and the recorded exclusion is 6,144 rows
-#: rather than 3,994. The two numbers are both correct and they answer different
-#: questions: what left the readings, and what left the archive.
+#: What each flag means, in prose, published to the site so a flagged value can
+#: be explained from the number itself rather than from a reader's memory.
+FLAG_NAMES: dict[str, str] = {
+    FLAG_SENTINEL: (
+        "The sheet wrote a placeholder the collector uses for a missing value. "
+        "Stored as NULL; the raw cell is in rejects."
+    ),
+    FLAG_OUT_OF_RANGE: (
+        "Outside this station's plausibility band for this channel, in the unit "
+        "the value is stored in. The value is kept, always."
+    ),
+    FLAG_NO_SIGNAL: (
+        "A configured window in which the collector says the input was "
+        "disconnected. Stored as NULL; the raw cell is in rejects."
+    ),
+    FLAG_BAD_WINDOW: (
+        "A configured window a human has said not to believe. Kept and flagged, "
+        "because the sample is real even if the level is not."
+    ),
+    FLAG_MISALIGNED: ("The row's width did not match the layout the catalog declares for it."),
+    FLAG_FREE_TEXT: ("The cell held prose rather than a number. Recovered into notes."),
+}
+
+# ---------------------------------------------------------------------------
+# rejects.reason is a stable category, never a sentence.
+#
+# This is not a style preference. Storing the collector's ~300-character note as
+# the reason on each of the 220,069 cells a window nulled put one paragraph into
+# 220,069 rows, cost 80.6 MiB, and made rejects larger than readings; it also
+# turned 4,403 duplicate timestamps into 4,361 singleton groups in the report,
+# because the timestamp was interpolated into the text. The category goes in the
+# row and the prose goes here, once, and the report republishes it.
+# ---------------------------------------------------------------------------
+REASON_SENTINEL = "sentinel"
+REASON_STATION_SETUP = "station_setup"
+REASON_PRE_REINSTALL = "pre_reinstall"
+REASON_DUPLICATE_TS = "duplicate_ts"
+REASON_REPEATED_HEADER = "repeated_header"
+REASON_UNPARSEABLE_TS = "unparseable_ts"
+REASON_FREE_TEXT = "free_text"
+REASON_NULL_WINDOW = "null_window"
+
+REASONS: tuple[str, ...] = (
+    REASON_SENTINEL,
+    REASON_STATION_SETUP,
+    REASON_PRE_REINSTALL,
+    REASON_DUPLICATE_TS,
+    REASON_REPEATED_HEADER,
+    REASON_UNPARSEABLE_TS,
+    REASON_FREE_TEXT,
+    REASON_NULL_WINDOW,
+)
+
+# ---------------------------------------------------------------------------
+# Whole files that are not measurements.
+#
+# The file still gets a source_files row, and every data row in it gets its own
+# rejects row with reason 'station_setup', so the decision is inspectable one
+# cell at a time rather than taken on trust.
+#
+# The first entry below is dead: 0.8.0's raw repair deleted
+# ``test/IFTTT_test.xlsx`` from the archive, and it is kept here rather than
+# removed so that the repair is visible in the file that records the decision.
+# An exclusion that matches nothing rejects nothing.
+# ---------------------------------------------------------------------------
 FILE_EXCLUSIONS: tuple[tuple[str, str], ...] = (
     (
         "test/IFTTT_test.xlsx",
         "collector: the test station's 11-column solar layout is system setup, "
-        "not measurement. The station's readings are the 4-column probe that "
-        "follows it",
+        "not measurement. 0.8.0's raw repair deleted this file from the archive, "
+        "so the entry no longer matches anything; it is kept so the repair is "
+        "visible here rather than silently forgotten",
     ),
     (
         "test/IFTTT_test (1).xlsx",
-        "collector: same 11-column solar layout. This file starts 2020-06-14 but "
-        "its June rows duplicate IFTTT_test.xlsx, so everything it uniquely "
-        "contributes is 4,120 readings dated 2020-07-01 to 07-08 -- after the "
-        "probe had already begun, and still not measurements",
+        "collector: the 4,120 readings this file uniquely contributes are dated "
+        "2020-07-01 to 07-08, after the probe had already begun and after "
+        "IFTTT_test (2).xlsx had started covering the same stretch, so they are "
+        "not measurements. 0.8 described this file as an 11-column solar layout; "
+        "the raw repair removed that stretch, and what is left is 4,121 rows of "
+        "the same nix/temp/wifi probe the neighbouring files carry. The "
+        "exclusion is kept on the collector's word and the overlap is still "
+        "there; the description is corrected",
     ),
 )
 
 # ---------------------------------------------------------------------------
-# Row-level exclusions, decided by the person who collected the data.
-#
-# Each entry is (rel_path_suffix, first_usable_sheet_row, why).  Rows before the
-# boundary are not ingested; they are counted in `rejects` so the loss stays
-# visible.
-#
-# `rejects.reason` gets the *category* from `REASON_*`, never `why`.  Rule 2 in
-# `AGENTS.md` asks for that and the archive is where ignoring it shows: the
-# `NULL_WINDOWS` prose was once stored on 220,074 rows, costing 80.6 MiB and
-# turning a grouped count into a singleton.  `why` is read once per entry by
-# `report.collect`, which publishes it to `quality.json` next to the count.
+# A row floor: rows before this sheet row in this file are not measurements.
+# Half-open on the sheet row number, which is 1-based as openpyxl reports it.
 # ---------------------------------------------------------------------------
 ROW_EXCLUSIONS: tuple[tuple[str, int, str], ...] = (
     (
         "aisvn/IFTTT_aisvn (25).xlsx",
         102,
-        # The applet was reinstalled during 2020-10-25..30. The margin notes in
-        # this file read "this all is just garbage", "Pin 4 is temperature -
-        # calibrated ...", "Installed in the dark, let's start again!". For the
-        # first 100 rows battery reads 29.2 V and temp 16 degC, which are not
-        # measurements of anything. Measured transition: battery steps from
-        # -0.99 to 12.84 V at sheet row 112, but rows 102-111 are the
-        # powered-down state (solar 0, load 0), so the earlier boundary is used
-        # and those 10 extra rows are harmless. Confirmed by the collector.
         "pre-reinstall window; collector confirmed rows from here on are usable",
     ),
 )
 
-#: Collector-confirmed unit corrections applied **at ingest**, before the
-#: plausibility check. (station_id, column, valid_from_utc, valid_to_utc|None,
-#: multiply_by, why). ``valid_from=None`` means "from the start of the record"
-#: and ``valid_to=None`` means "to the end of it".
-#:
-#: This is not :data:`NULL_WINDOWS` and it is not a regime. Those act on a value
-#: that is already stored; this acts on the number the sheet wrote, because the
-#: collector has said what unit the channel was logging in and a plausibility
-#: band is only meaningful in the unit the value is stored in.
-#:
-#: `aisvn.temp_c` is the case that forces it. The channel wrote tenths of a degree
-#: before the 2020-06-17 15:20 local recompile and plain degrees after, so a
-#: genuine 33.5 degC reading arrives as ``335`` and the 50-900 tenths band flags
-#: every real measurement in the archive. Correcting it in the aggregate would
-#: mean the flags were already wrong, and rule 2 says a flag a reader cannot trust
-#: is worse than no flag at all.
-#:
-#: **The window is the whole record, not the part after the recompile.** The
-#: collector converted the 1,480 readings in `IFTTT_aisvn.xlsx` from tenths to
-#: plain degrees, so the sheet no longer contains the two units it once did and
-#: the correction has to cover the file the conversion was made in. The earlier
-#: version of this entry started at the recompile, which left the first 1,480
-#: stored in degrees and the rest in tenths -- the same column, two units, in one
-#: file. The result now is that `readings.temp_c` is tenths throughout and the
-#: band for it is 50-900.
-UNIT_FIXES: tuple[tuple[str, str, str | None, str | None, float, str], ...] = (
-    (
-        "aisvn",
-        "temp_c",
-        None,
-        None,
-        10.0,
-        "collector: the applet was recompiled at 15:20 local and temp_c switched "
-        "from tenths of a degree to plain degrees. The collector has since "
-        "converted the 1,480 readings before the recompile to plain degrees as "
-        "well, so the sheet is one unit for the whole record and this applies to "
-        "all of it. readings.temp_c is tenths throughout; a rule that scaled those "
-        "1,480 again would put 33.4 degC at 3340",
-    ),
-    (
-        "aisvn-solar",
-        "battery_v",
-        None,
-        None,
-        2.0,
-        "collector: this input is the output of a 50/50 voltage divider across a "
-        "single-cell LiPo, so the sheet reads half the pack voltage. 2060 mV "
-        "measured is 4120 mV on the cell, which is a full 1S pack and is why the "
-        "raw average sits near 2 V. Multiplying by 2 puts the column in the unit "
-        "the band is written in (0-5100 mV), so the band tests the pack and not "
-        "the divider tap",
-    ),
-    (
-        "phumy2",
-        "temp_c",
-        "2020-06-15T00:00:00Z",
-        None,
-        10.0,
-        "collector: phumy2 logs tenths of a degree for the whole record. The raw "
-        "values are 155 to 806, which is 15.5 to 80.6 degC",
-    ),
-    (
-        "test",
-        "temp_c",
-        "2020-07-01T00:00:00Z",
-        None,
-        100.0,
-        "collector: the probe's temperature is in hundredths of a degree; the raw "
-        "values are 2472 to 3009, which is 24.72 to 30.09 degC",
-    ),
-)
-
-#: Per-station unit and band, where a station's declared unit differs from the
-#: column's default in ``etl.normalize.metrics``. (station_id, column, unit,
-#: lo, hi, why).
-#:
-#: The band table is keyed by column, so it describes one unit for every station
-#: that logs the column. `temp_c` is stored in tenths of a degree on `aisvn` and
-#: `phumy2` but in **hundredths** on `test`, where the collector asked for
-#: hundredths because the probe's readings are that precise. A single band in
-#: tenths therefore flags all 33,377 of `test`'s temperatures as implausible,
-#: which is the same defect as a column whose name disagrees with its contents:
-#: a flag that is wrong every time is worse than no flag.
-#:
-#: This is the small, early version of the per-column `column_semantics` the
-#: planned `solardata_raw.db` layout would replace, where the unit belongs to a
-#: (station, column) pair rather than to a column name. That database is not
-#: built and no stage writes one; the plan and the four questions it has to
-#: answer first are in `docs/format-design.md`, under "solardata_raw.db".
-#: The override is read in two places -- `build_db._band_override`, which the
-#: aggregate calls, and `build_exports.build`, which ships it to the site as
-#: `stations.json`'s `channel_units` -- so the "twice, because one is the bug one
-#: level up" rule is really both of those: forget the export and the browser
-#: divides hundredths by ten and prints 280 degC for a warm afternoon.
-CHANNEL_UNITS: tuple[tuple[str, str, str, float, float, str], ...] = (
-    (
-        "test",
-        "temp_c",
-        "0.01 degC",
-        2149.0,
-        3131.0,
-        "collector: the probe logs hundredths of a degree and asked for that "
-        "resolution specifically, so the values are kept as written rather than "
-        "rounded to tenths. The band is 21.49 to 31.31 degC, the observed range",
-    ),
-    (
-        "aisvn-solar",
-        "battery_v",
-        "mV",
-        0.0,
-        5100.0,
-        "collector: a 50/50 voltage divider across a 1S LiPo, from the 5 V "
-        "regulator on the controller board -- the panel charging the cell "
-        "indirectly, not the cell terminal measured directly. The value is in "
-        "millivolts and stays in millivolts; UNIT_FIXES doubles it for the "
-        "divider, so the band is written against the pack: 0-5100 mV, where "
-        "4120 mV is a full 1S. Against the column default of 9-16 V every one of "
-        "the station's 13,788 readings was flagged, because 2-2.5 V is not a 12 V "
-        "lead bank and this station is not a 12 V station",
-    ),
-    (
-        "aisvn2",
-        "lipo2_v",
-        "mV",
-        0.0,
-        8000.0,
-        "collector: a disconnected pin on a 2S LiPo, in millivolts, 0-8000 mV. "
-        "The column is 17 distinct values in 164,097 readings with 7097 "
-        "repeated 161,790 times, which is a pin holding a value rather than a "
-        "battery being measured, and the band is the pin's range rather than a "
-        "1S cell's. Against the column default of 2.5-4.35 V -- a single cell -- "
-        "every reading was flagged, which is the flag saying the cell count is "
-        "wrong, not that the data is",
-    ),
-)
-
-#: Windows in which a channel reports a *constant* value that is affirmatively
-#: wrong, so it is nulled rather than merely flagged.
-#:
-#: Distinct from BAD_WINDOWS, which flags but keeps. Here the stored number
-#: makes a false claim: 0.0 V from a photovoltaic panel says "the panel produced
-#: nothing", when the truth is "the wire was disconnected". Charting a year of
-#: that as a flat line at zero would be a wrong answer, not an ugly one.
-#:
-#: (station_id, valid_from_utc, valid_to_utc, columns, reason)
-#:
-#: The 2023 `phumy2.solar2_v` window is identified by its hour-of-day profile.
-#: A working panel reads 0.0 at night and non-zero around midday: in 2020 the
-#: channel is 100% zero from 18:00 to 05:00 and 2% at noon. Across 2023 it is
-#: 100% zero at *every* hour including 12:00, which is a disconnected input
-#: rather than a dark panel. It recovers in 2024-01.
-NULL_WINDOWS: tuple[tuple[str, str, str, str, str], ...] = (
+# ---------------------------------------------------------------------------
+# Windows over which a stored number is a false claim rather than a measurement.
+#
+# The value is NULLed and a rejects row is written with reason 'null_window'.
+# The reason carries the channel, never this prose.
+# ---------------------------------------------------------------------------
+NULL_WINDOWS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
     (
         "phumy2",
         "2022-10-01T00:00:00Z",
         "2024-01-01T00:00:00Z",
-        "solar2_v",
-        "solar2_v reads 0.0 at every hour of the day for the whole of 2023, "
-        "including noon; a working panel is 100% zero at night and ~2% at "
-        "midday (see 2020). The input was disconnected, so 0.0 is a false "
-        "reading rather than a measurement. The channel recovers in 2024-01. "
-        "Collector's note: the reading only appears when the sun is on the "
-        "panel, and drops after a bridge and load were fitted.",
+        ("solar2_v",),
+        "collector: the collector input was disconnected and the sheet logged a "
+        "flat 0.0 V for the whole window. Every one of the 220,069 readings is "
+        "that placeholder, so there is no measurement to store. The window is "
+        "half-open: the channel reads normally again from 2024-01-01.",
     ),
     (
         "aisvn",
         "2020-06-15T06:10:00Z",
         "2020-06-17T04:14:00Z",
-        "temp_c",
-        "collector: 200 is a placeholder for 'no temperature recorded', not a "
-        "temperature. It fills every one of the first 1,359 readings, from "
-        "2020-06-15 13:10 local to 2020-06-17 11:12 local, and the channel only "
-        "reports real values from 11:14 local onwards. A stored 200 degC is a "
-        "false claim, exactly as phumy2's 0.0 V panel is: charting it would "
-        "draw a line at 200 degC through a Ho Chi City summer. Nulled. The window "
-        "ends at 11:14 local, the first genuine reading, because the boundary "
-        "has to exclude as well as include and the 114 readings from 11:14 "
-        "onwards are real tenths of a degree",
+        ("temp_c",),
+        "collector: a pre-recompile stretch where the sheet logged 200 as a "
+        "stand-in for 'no temperature'. The window ends at 04:14 UTC precisely "
+        "so the 114 genuine tenths that follow survive. Nothing is nulled today: "
+        "the collector resolved the placeholder at source, and the window is kept "
+        "because the archive still carries the boundary.",
     ),
 )
 
-#: Windows in which specific channels are known bad, decided by the collector.
-#: (station_id, valid_from_utc, valid_to_utc, comma-separated columns, why)
-#: Half-open: the good window starts at valid_to.
-BAD_WINDOWS: tuple[tuple[str, str, str, str, str], ...] = (
+# ---------------------------------------------------------------------------
+# Windows over which a reading is stored and flagged rather than nulled.
+#
+# A human has said the value is not to be believed, but it is still what the
+# sheet wrote, so it stays and the row says so. Half-open on valid_from <=
+# ts_utc < valid_to.
+# ---------------------------------------------------------------------------
+BAD_WINDOWS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
     (
         "aisvn",
         "2020-10-23T00:00:00Z",
         "2020-10-30T00:00:00Z",
-        "solar_v,battery_v,temp_c",
-        "solar and battery stop being plausible on 2020-10-23 (collector-confirmed, as "
-        "is the temperature on the 23rd); the system was reinstalled on 2020-10-30 "
-        "('installed in the dark'), after which all three channels are normal. "
-        "Measured: temperature median 161 tenths (16.1 degC) in the window against "
-        "323 tenths (32.3 degC) from 2020-10-30.",
+        ("solar_v", "battery_v", "temp_c"),
+        "the collector was being reconfigured: the station kept sampling while "
+        "the applet and its wiring were being changed, so the levels in this "
+        "window describe a half-built logger. Kept and flagged, because the "
+        "samples are real; the good window starts at valid_to.",
     ),
 )
 
 
 @dataclass(frozen=True)
 class Settings:
-    """Resolved paths and behaviour switches for one pipeline run."""
+    """Resolved paths and switches for one pipeline run."""
 
     raw_dir: Path = REPO_ROOT / "data" / "raw"
     out_dir: Path = REPO_ROOT / "data" / "processed"
-    db_path: Path = REPO_ROOT / "data" / "processed" / "solardata.db"
-    parquet_dir: Path = REPO_ROOT / "data" / "processed" / "parquet"
-    #: Served by Vite from ``public/`` and fetched by the browser, so it lives
-    #: under ``public/`` rather than in the gitignored ``data/exports``.
     export_dir: Path = REPO_ROOT / "public" / "data"
-    report_json: Path = REPO_ROOT / "data" / "processed" / "quality_report.json"
-    report_md: Path = REPO_ROOT / "data" / "processed" / "quality_report.md"
-    #: Expected output of a build.  Committed, and enforced by CI, so that a
-    #: pipeline change which silently alters the data fails loudly.
-    baseline_path: Path = REPO_ROOT / "data" / "baseline.json"
+    granularity: str = "both"
+    only: tuple[str, ...] = ()
+    all_stations: bool = False
+    quiet: bool = False
 
-    # Chunking
-    parquet_rows_per_group: int = 50_000
-    #: Which rollups the export stage publishes.  ``both`` is the default: the
-    #: site switches resolution at runtime, and the daily rollup is derived from
-    #: the hourly one, so the two cannot disagree.  There is no ``raw`` -- the
-    #: native 119 s cadence is 734,908 rows, which is a Parquet download and not
-    #: a static file a browser can fetch.
-    export_granularity: str = "both"  # both | hour | day
+    @property
+    def db_path(self) -> Path:
+        return self.out_dir / "solardata.db"
 
-    # Deduplication.  "keep_first" wins on (station_id, ts_utc) collisions,
-    # which come from overlapping 2000-row chunk boundaries and IFTTT re-sends.
-    duplicate_policy: str = "keep_first"
+    @property
+    def parquet_dir(self) -> Path:
+        return self.out_dir / "parquet"
 
-    # Only build these artefacts (comma separated); empty means all.
-    only: tuple[str, ...] = field(default_factory=tuple)
+    @property
+    def report_json(self) -> Path:
+        return self.out_dir / "quality_report.json"
+
+    @property
+    def report_md(self) -> Path:
+        return self.out_dir / "quality_report.md"
+
+    @property
+    def baseline_path(self) -> Path:
+        return REPO_ROOT / "data" / "baseline.json"
 
     def ensure_dirs(self) -> None:
-        for p in (self.out_dir, self.parquet_dir, self.export_dir):
-            p.mkdir(parents=True, exist_ok=True)
+        for path in (self.out_dir, self.parquet_dir, self.export_dir):
+            path.mkdir(parents=True, exist_ok=True)
 
     def raw_dirs(self) -> list[Path]:
         if not self.raw_dir.is_dir():
@@ -370,9 +283,11 @@ class Settings:
             key=lambda p: p.name.lower(),
         )
 
+    def with_out_dir(self, out_dir: Path) -> Settings:
+        return replace(self, out_dir=Path(out_dir))
+
 
 def settings_from_env() -> Settings:
-    """Allow overriding the raw/output locations without editing code."""
     return Settings(
         raw_dir=Path(os.environ.get("SOLARDATA_RAW_DIR", REPO_ROOT / "data" / "raw")),
         out_dir=Path(os.environ.get("SOLARDATA_OUT_DIR", REPO_ROOT / "data" / "processed")),

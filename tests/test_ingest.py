@@ -1,36 +1,23 @@
-"""End-to-end ingest against a synthetic archive that mimics the real problems.
+"""The ingest: XLSX in, eight tables out, from scratch every time.
 
-The fixtures are written as real XLSX files so the tests exercise the same
-openpyxl path as the production ingest.
+Real XLSX fixtures written with openpyxl, because that is the only way to catch
+a reader that has stopped understanding the file format.  The real archive is
+*not* read here -- ``etl.audit`` reads it, in the build, where a minute of
+reading is a minute of CI rather than a stalled test run.  That split is the
+reason this suite finishes in seconds where 0.8's took a minute and stalled.
 """
 
 from __future__ import annotations
 
-import tempfile
 import unittest
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import ClassVar
 
-import openpyxl
-from etl.build_db import ingest
-from etl.config import Settings
-from etl.db import connect
-from etl.readers.xlsx import detect_block, iter_cells
-from etl.stations import station_for_dir
+from etl import catalog
+from etl.config import SENTINELS
+from etl.readers import xlsx
 
+from tests.support import TempArchiveCase, write_xlsx
 
-def write_xlsx(path: Path, rows: list[list], sheet: str = "Sheet1") -> None:
-    workbook = openpyxl.Workbook()
-    worksheet = workbook.active
-    worksheet.title = sheet
-    for row in rows:
-        worksheet.append(row)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    workbook.save(path)
-
-
-HEADER_ROW = [
+AISVN_HEADER = [
     "time",
     "solar",
     "battery",
@@ -45,1016 +32,651 @@ HEADER_ROW = [
 ]
 
 
-def data_row(minute: int, *, day: int = 14, month: str = "July", year: int = 2020, **over):
-    base = {
-        "time": f"{month} {day}, {year} at 10:{minute:02d}AM",
-        "solar": 20.0,
-        "battery": 14.4,
-        "current": -6.4,
-        "power": -124.0,
-        "load": 13.8,
-        "wind": 0.0,
-        "temp": 34.0,
-        "solar2": 11.5,
-        "LiPo": 4.1,
-        "boot": 100 + minute,
-    }
-    base.update(over)
-    return [base[k] for k in HEADER_ROW]
+def aisvn_times(count: int, start_minute: int = 0) -> list[str]:
+    """``count`` distinct, well-formed timestamps, two minutes apart.
 
-
-class TestBlockDetection(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-
-    def test_header_file_block_ends_at_the_empty_separator(self):
-        path = self.tmp / "with_side_block.xlsx"
-        write_xlsx(
-            path,
-            [
-                [*HEADER_ROW, None, "time", "solar", "battery"],
-                [*data_row(10), None, "July 14, 2020 at 10:10AM", 20.0, 14.4],
-            ],
-        )
-        block = detect_block(path)
-        self.assertIsNotNone(block.header)
-        self.assertEqual(block.n_columns, len(HEADER_ROW))
-        self.assertEqual(block.extra_blocks, 1)
-        # The side block must not leak into the primary block.
-        cells = next(iter_cells(path, block))[1]
-        self.assertEqual(len(cells), len(HEADER_ROW))
-        self.assertEqual(float(cells[1]), 20.0)
-
-    def test_headerless_file_uses_full_width(self):
-        path = self.tmp / "headerless.xlsx"
-        write_xlsx(path, [data_row(10), data_row(12)])
-        block = detect_block(path)
-        self.assertIsNone(block.header)
-        self.assertEqual(block.n_columns, len(HEADER_ROW))
-        self.assertEqual(block.n_rows, 2)
-
-    def test_repeated_mid_file_header_is_counted(self):
-        path = self.tmp / "repeated.xlsx"
-        write_xlsx(path, [HEADER_ROW, data_row(10), HEADER_ROW, data_row(12)])
-        block = detect_block(path)
-        self.assertEqual(block.repeated_headers, [2])
-
-    def test_three_block_voltage_sheet(self):
-        # Mirrors data/raw/Voltage_phumy/Voltage_phumy.xlsx
-        path = self.tmp / "three_blocks.xlsx"
-        write_xlsx(
-            path,
-            [
-                ["time", "raw", "voltage", "millis()", None, "time", "time", "voltage"],
-                ["July 5, 2020 at 04:08AM", 2303, 1980, 2204, None, "04:08AM", "04:08:00", 11.286],
-            ],
-        )
-        block = detect_block(path)
-        self.assertEqual(block.n_columns, 4)
-        self.assertEqual(block.extra_blocks, 2)
-
-    def test_empty_file(self):
-        path = self.tmp / "empty.xlsx"
-        write_xlsx(path, [])
-        block = detect_block(path)
-        self.assertIsNone(block.header)
-        self.assertEqual(block.n_rows, 0)
-
-
-class TestIngest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        raw = self.tmp / "raw"
-        out = self.tmp / "out"
-        exports = self.tmp / "exports"
-        self.settings = Settings(
-            raw_dir=raw,
-            out_dir=out,
-            db_path=out / "solardata.db",
-            parquet_dir=out / "parquet",
-            export_dir=exports,
-            report_json=out / "q.json",
-            report_md=out / "q.md",
-        )
-
-        aisvn = raw / "aisvn"
-        # 1. a file WITH a header
-        write_xlsx(aisvn / "IFTTT_aisvn (1).xlsx", [HEADER_ROW, data_row(10), data_row(12)])
-        # 2. a file WITHOUT a header, same layout
-        write_xlsx(aisvn / "IFTTT_aisvn (2).xlsx", [data_row(14), data_row(16)])
-        # 3. an overlapping chunk that repeats a timestamp and adds a new one
-        write_xlsx(
-            aisvn / "IFTTT_aisvn (3).xlsx",
-            [data_row(16), data_row(18), data_row(20, power=-992.0, wind=-992.0)],
-        )
-        # 4. a file with a junk row and a repeated header
-        write_xlsx(
-            aisvn / "IFTTT_aisvn (4).xlsx",
-            [
-                HEADER_ROW,
-                data_row(22),
-                HEADER_ROW,
-                ["not a time", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-                data_row(24),
-            ],
-        )
-        # 5. a file with an embedded lab note
-        write_xlsx(
-            aisvn / "IFTTT_aisvn (5).xlsx",
-            [
-                HEADER_ROW,
-                data_row(26, power="discharge 7.5 Ah with 0.3A - 25 hours, starting at 18:00"),
-                data_row(28),
-            ],
-        )
-
-    def test_ingest_counts(self):
-        summary = ingest(self.settings, verbose=False)
-        self.assertEqual(summary.files, 5)
-        # Body rows: 2 + 2 + 3 + 4 + 2 = 13.
-        #   -1  duplicate timestamp at 10:16 shared between files 2 and 3
-        #   -2  rejected rows: the repeated header and the unparseable timestamp
-        # The duplicate is itself recorded in `rejects`, so it counts there too.
-        self.assertEqual(summary.rows_ingested, 10)
-        self.assertEqual(summary.rows_duplicate, 1)
-        self.assertEqual(summary.rows_rejected, 3)
-        self.assertEqual(summary.notes, 1)
-        self.assertEqual(summary.failed, 0)
-
-    def test_header_presence_is_recorded(self):
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        rows = conn.execute(
-            "SELECT filename, has_header, extra_blocks FROM source_files ORDER BY filename"
-        ).fetchall()
-        conn.close()
-        by_name = {r["filename"]: r for r in rows}
-        self.assertEqual(by_name["IFTTT_aisvn (1).xlsx"]["has_header"], 1)
-        self.assertEqual(by_name["IFTTT_aisvn (2).xlsx"]["has_header"], 0)
-        self.assertEqual(by_name["IFTTT_aisvn (1).xlsx"]["extra_blocks"], 0)
-
-    def test_readings_are_typed_and_sentinel_safe(self):
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute("SELECT * FROM readings WHERE power_w = -124.0 LIMIT 1").fetchone()
-        self.assertIsNotNone(row)
-        self.assertEqual(row["station_id"], "aisvn")
-        self.assertIsInstance(row["battery_v"], float)
-        self.assertEqual(row["ts_utc"], "2020-07-14T03:10:00Z")
-        self.assertEqual(row["ts_local"], "2020-07-14T10:10:00")
-        self.assertEqual(row["tz"], "Asia/Ho_Chi_Minh")
-
-        # The -992 row is stored as NULL, not -992 and not 0.
-        nulled = conn.execute(
-            "SELECT power_w, wind_v, quality_flags FROM readings WHERE ts_utc = ?",
-            ("2020-07-14T03:20:00Z",),
-        ).fetchone()
-        self.assertIsNone(nulled["power_w"])
-        self.assertIsNone(nulled["wind_v"])
-        self.assertIn("sentinel", nulled["quality_flags"])
-
-        # Zero is preserved as a real measurement.
-        zero = conn.execute(
-            "SELECT wind_v FROM readings WHERE ts_utc = ?", ("2020-07-14T03:10:00Z",)
-        ).fetchone()
-        self.assertEqual(zero["wind_v"], 0.0)
-        conn.close()
-
-    def test_provenance_is_traceable(self):
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute(
-            "SELECT r.sheet_row, f.rel_path FROM readings r"
-            " JOIN source_files f ON f.file_id = r.source_file_id"
-            " WHERE r.ts_utc = ?",
-            ("2020-07-14T03:10:00Z",),
-        ).fetchone()
-        self.assertEqual(row["rel_path"], "aisvn/IFTTT_aisvn (1).xlsx")
-        self.assertEqual(row["sheet_row"], 2)
-        conn.close()
-
-    def test_metric_defs_marks_inferred_columns(self):
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        rows = conn.execute(
-            "SELECT col_index, raw_name, canonical_col, inferred, n_files FROM metric_defs"
-            " WHERE source_dir = 'aisvn' ORDER BY col_index"
-        ).fetchall()
-        conn.close()
-        # 5 files, 1 with a header -> the header-derived name sticks.
-        self.assertEqual(len(rows), len(HEADER_ROW) - 1)
-        self.assertEqual(rows[0]["canonical_col"], "solar_v")
-        self.assertEqual(rows[0]["raw_name"], "solar")
-        self.assertEqual(rows[0]["n_files"], 5)
-
-    def test_notes_and_rejects_are_recorded(self):
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        note = conn.execute("SELECT note FROM notes").fetchone()
-        self.assertIn("discharge 7.5 Ah", note["note"])
-        reasons = {r["reason"] for r in conn.execute("SELECT reason FROM rejects")}
-        self.assertTrue(any("repeated header" in r for r in reasons))
-        self.assertTrue(any("unparseable" in r for r in reasons))
-        conn.close()
-
-    def test_duplicate_timestamps_are_traceable_not_just_counted(self):
-        # The (station_id, ts_utc) primary key absorbs duplicates, but rule 2 in
-        # AGENTS.md says a dropped row must still be traceable.  The 4,403
-        # duplicates in the real archive have to be inspectable individually.
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        rows = conn.execute(
-            "SELECT f.rel_path, r.sheet_row, r.raw_value, r.reason"
-            " FROM rejects r JOIN source_files f ON f.file_id = r.file_id"
-            " WHERE r.reason = 'duplicate_ts'"
-        ).fetchall()
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["rel_path"], "aisvn/IFTTT_aisvn (3).xlsx")
-        self.assertEqual(rows[0]["raw_value"], "July 14, 2020 at 10:16AM")
-        # `reason` stays a stable category so the report can group by it; the
-        # instant lives in raw_value and the station in its own column.
-        self.assertEqual(rows[0]["reason"], "duplicate_ts")
-        # And the reading itself is still present exactly once.
-        count = conn.execute(
-            "SELECT COUNT(*) FROM readings WHERE station_id='aisvn' AND ts_utc=?",
-            ("2020-07-14T03:16:00Z",),
-        ).fetchone()[0]
-        self.assertEqual(count, 1)
-        conn.close()
-
-    def test_aggregates_are_built(self):
-        # The rollups are a separate stage now: they need the regimes table, so
-        # they are built after the detector rather than inside the ingest.
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path)
-        try:
-            from etl.build_aggregate import build
-
-            build(conn, verbose=False)
-            hourly = conn.execute("SELECT * FROM readings_hourly").fetchone()
-            daily = conn.execute("SELECT * FROM readings_daily").fetchone()
-        finally:
-            conn.close()
-        self.assertIsNotNone(hourly, "no hourly rollup was built")
-        self.assertEqual(hourly["n_samples"], 10)
-        self.assertEqual(daily["n_samples"], 10)
-        self.assertEqual(daily["day"], "2020-07-14")
-        self.assertAlmostEqual(daily["energy_wh"], hourly["energy_wh"], places=6)
-
-    def test_ingest_alone_does_not_build_rollups(self):
-        """The ordering is load-bearing: scaling needs the regimes table, so
-        rolling up during the ingest would silently produce unscaled values."""
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        count = conn.execute("SELECT COUNT(*) FROM readings_daily").fetchone()[0]
-        conn.close()
-        self.assertEqual(count, 0, "ingest must not populate the rollups")
-
-    def test_station_coverage_is_filled_in(self):
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        station = conn.execute(
-            "SELECT first_ts_utc, last_ts_utc, n_readings FROM stations WHERE station_id = 'aisvn'"
-        ).fetchone()
-        conn.close()
-        self.assertEqual(station["first_ts_utc"], "2020-07-14T03:10:00Z")
-        self.assertEqual(station["last_ts_utc"], "2020-07-14T03:28:00Z")
-        self.assertEqual(station["n_readings"], 10)
-
-    def test_unknown_folders_are_skipped_not_crashed(self):
-        stray = self.settings.raw_dir / "not_a_station"
-        write_xlsx(stray / "x.xlsx", [HEADER_ROW, data_row(30)])
-        summary = ingest(self.settings, verbose=False)
-        self.assertEqual(summary.unknown_dirs, ["not_a_station"])
-        self.assertEqual(summary.rows_ingested, 10)  # unchanged
-
-
-class TestOorCountsFollowTheConfirmedScale(unittest.TestCase):
-    """An out-of-range count has to be counted in the unit the value is published in.
-
-    `_oor_exprs` counts a sample out of band by testing the value in `readings`, and
-    `_scale_rows` then multiplies the bucket's aggregates by a confirmed regime. For
-    every bucket a scale touches, the two disagree: `phumy2` reported all 416,088 of
-    its `current2_a` samples out of range while publishing 0.155-2.0 A on a +/-50 A
-    band. The site uses these counts to decide whether an aggregate is contaminated,
-    so a stale count marks a station broken on the strength of a conversion the
-    collector has since confirmed.
+    Built from the hour and minute fields rather than interpolated into the
+    string, because ``strptime`` and the archive's regex are strict about a
+    two-digit minute and a fixture that is 3 minutes malformed tests nothing.
     """
+    from datetime import datetime, timedelta
 
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        out = self.tmp / "out"
-        self.settings = Settings(
-            raw_dir=self.tmp / "raw",
-            out_dir=out,
-            db_path=out / "solardata.db",
-            parquet_dir=out / "parquet",
-            export_dir=self.tmp / "exports",
-            report_json=out / "q.json",
-            report_md=out / "q.md",
+    base = datetime(2020, 6, 18, 8, 52) + timedelta(minutes=start_minute)
+    return [
+        (base + timedelta(minutes=2 * i)).strftime("%B %d, %Y at %I:%M%p") for i in range(count)
+    ]
+
+
+def aisvn_rows() -> list[list[object]]:
+    """Six readings inside every band, with one of each interesting thing."""
+    times = aisvn_times(6)
+    return [
+        [times[0], 14.45, 12.80, 1.21, 17.56, 0, 0, 32.5, 12.12, 4.12, 448],
+        [times[1], 14.50, 12.81, 1.19, 17.60, 0, 0, 32.6, 12.10, 4.11, 449],
+        # Out of the 9-16 V battery band: kept, and flagged.
+        [times[2], 14.52, 29.80, 1.18, 17.62, 0, 0, 32.7, 12.08, 4.10, 450],
+        # -992 is the collector's placeholder, not a reading.
+        [times[3], 14.60, -992, 1.10, 17.70, 0, 0, 32.8, 12.05, 4.09, 451],
+        # Blank cells are gaps, not zeros.
+        [times[4], "", "", "", "", "", "", "", "", "", ""],
+        # Above the 60 degC ambient band: kept, and flagged.
+        [times[5], 14.10, 12.70, 1.30, 17.40, 0, 0, 63.3, 12.20, 4.20, 453],
+    ]
+
+
+class TestPerStationTables(TempArchiveCase):
+    def test_one_table_per_station_holding_only_its_channels(self) -> None:
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(s_aisvn)")}
+        expected = {ch.name for ch in catalog.BY_ID["aisvn"].channels}
+        self.assertEqual(
+            columns - {"ts_utc", "ts_local", "flags", "source_file_id", "sheet_row"}, expected
         )
-        folder = self.settings.raw_dir / "aisvn"
-        folder.mkdir(parents=True, exist_ok=True)
-        # Ten readings of 230 "mA" and 12 "V" -- each far outside its own band at
-        # the raw scale, and both comfortably inside once multiplied by 0.001.
-        # `current2` rather than `current`, because `CHANNEL_COLUMNS` is what says
-        # which rollup columns a scale touches, and `current_a` is not one of them.
-        rows = [
+        # And no table exists for a channel another station has.
+        self.assertNotIn("battery2_v", columns)
+        self.assertNotIn("solar3_v", columns)
+
+    def test_every_station_gets_a_table_even_with_no_readings(self) -> None:
+        # Eight tables, always. A station whose files are all excluded still has
+        # its table, empty, so a query does not have to know in advance which
+        # stations are in this build.
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        names = {
+            r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        for station in catalog.STATIONS:
+            self.assertIn(station.table, names, station.station_id)
+
+    def test_the_catalog_lands_in_the_database(self) -> None:
+        # So a query can answer "what does this station collect" without
+        # importing the Python package, and the site reads the same table the
+        # report does rather than a second copy of the declaration.
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        rows = conn.execute(
+            "SELECT channel, unit, scale, band_lo, band_hi FROM station_channels"
+            " WHERE station_id = 'aisvn' ORDER BY channel"
+        ).fetchall()
+        self.assertEqual(len(rows), len(catalog.BY_ID["aisvn"].channels))
+        battery = next(r for r in rows if r["channel"] == "battery_v")
+        self.assertEqual(
+            (battery["unit"], battery["band_lo"], battery["band_hi"]), ("V", 9.0, 16.0)
+        )
+        layouts = conn.execute(
+            "SELECT n_columns, channels FROM station_layouts WHERE station_id = 'aisvn'"
+        ).fetchall()
+        self.assertEqual(len(layouts), 1)
+        self.assertEqual(layouts[0]["n_columns"], 11)
+
+
+class TestHeaderlessFiles(TempArchiveCase):
+    def test_a_headerless_file_gets_its_meanings_from_the_catalog(self) -> None:
+        # 305 of the 364 real files have no header row. 0.8 found their schema by
+        # borrowing the header of the nearest preceding sibling of the same width,
+        # ordered on the parsed timestamp, and getting that wrong discarded 90% of
+        # the archive's measurements while every timestamp still ingested and
+        # nothing reported a problem. 0.9 looks the layout up by (station, width).
+        summary = self.build({"aisvn": aisvn_rows()})
+        self.assertEqual(summary.rows_ingested, 6)
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM s_aisvn").fetchone()[0], 6)
+        row = conn.execute("SELECT solar_v, battery_v, temp_c FROM s_aisvn").fetchone()
+        # Column 1 is `solar`, column 2 is `battery`, column 7 is `temp`. If the
+        # donor machinery had shifted the order these would be transposed.
+        self.assertAlmostEqual(row["solar_v"], 14.45)
+        self.assertAlmostEqual(row["battery_v"], 12.80)
+        self.assertAlmostEqual(row["temp_c"], 32.5)
+
+    def test_a_headered_file_agrees_with_a_headerless_one(self) -> None:
+        # Same station, same width, two files: one with a header row and one
+        # without. They must land in the same columns, which is the property the
+        # layout lookup guarantees and 0.8's donor search had to earn.
+        self.raw.mkdir(parents=True, exist_ok=True)
+        write_xlsx(self.raw / "aisvn" / "a.xlsx", AISVN_HEADER, aisvn_rows())
+        write_xlsx(self.raw / "aisvn" / "b.xlsx", None, aisvn_rows())
+        xlsx.clear_read_cache()
+        from etl import build_db
+
+        build_db.ingest(self.settings, verbose=False)
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM s_aisvn").fetchone()[0], 6)
+        self.assertAlmostEqual(
+            conn.execute("SELECT solar_v FROM s_aisvn ORDER BY ts_utc LIMIT 1").fetchone()[0],
+            14.45,
+        )
+
+    def test_an_undeclared_width_fails_loudly(self) -> None:
+        # The failure mode this replaces: silently borrowing a neighbour's schema
+        # and ingesting every timestamp with the wrong columns. Here the build
+        # stops, with a message naming the widths that are known.
+        self.raw.mkdir(parents=True, exist_ok=True)
+        write_xlsx(
+            self.raw / "aisvn" / "wide.xlsx",
             [
                 "time",
                 "solar",
                 "battery",
                 "current",
-                "current2",
                 "power",
                 "load",
                 "wind",
                 "temp",
+                "solar2",
+                "LiPo",
+                "boot",
+                "something_new",
             ],
-            *[
-                [
-                    f"July 14, 2020 at {3 + i // 30:02d}:{(i * 2) % 60:02d}AM",
-                    "12",
-                    "13",
-                    "0.5",
-                    "230",
-                    "20",
-                    "0",
-                    "0",
-                    "300",
-                ]
-                for i in range(10)
-            ],
-        ]
-        write_xlsx(folder / "IFTTT_aisvn.xlsx", rows)
-        ingest(self.settings, verbose=False)
-
-    def _rollups(self, *, confirm: bool) -> dict[str, dict]:
-        from etl.build_aggregate import build
-
-        conn = connect(self.settings.db_path)
-        try:
-            if confirm:
-                # Written directly rather than by running the detector: the contract
-                # under test is that the *aggregate* honours a confirmed regime for the
-                # count as well as the value, and the detector's opinion on whether
-                # 230 is a plausible amp reading is not the subject here.
-                conn.execute(
-                    "INSERT INTO regimes (station_id, column, valid_from, scale,"
-                    " status, detected_by, confidence, notes)"
-                    " VALUES ('aisvn', 'current2_a', '2020-07-13T00:00:00Z', 0.001,"
-                    " 'confirmed', 'test', 'high', 'the collector says milliamps')"
-                )
-                conn.commit()
-            build(conn, verbose=False)
-            return {
-                name: dict(
-                    conn.execute(
-                        f"SELECT * FROM readings_{name} WHERE station_id = 'aisvn'"
-                    ).fetchone()
-                )
-                for name in ("hourly", "daily")
-            }
-        finally:
-            conn.close()
-
-    def test_a_confirmed_scale_clears_the_out_of_range_count(self):
-        # The bug, stated as a number. The raw 230 A is off the +/-50 A band, so
-        # this is exactly what the SQL aggregate alone produces.
-        raw = self._rollups(confirm=False)
-        self.assertEqual(raw["hourly"]["current2_a_n_oor"], 10)
-        self.assertEqual(raw["daily"]["current2_a_n_oor"], 10)
-
-        scaled = self._rollups(confirm=True)
-        self.assertAlmostEqual(scaled["hourly"]["current2_a_avg"], 0.230, places=6)
-        self.assertEqual(scaled["hourly"]["current2_a_n_oor"], 0)
-        # And the daily row, which is a SUM of the hourly counts, has to follow --
-        # otherwise the two tables disagree about the same day, which is the shape
-        # of "corrected" with nothing corrected.
-        self.assertEqual(scaled["daily"]["current2_a_n_oor"], 0)
-
-    def test_the_daily_value_is_not_scaled_twice(self):
-        # The daily rollup is derived from the hourly table, and the hourly values
-        # are scaled before that happens. Scaling the day's mean again applies the
-        # same regime to both levels: `phumy2`'s daily `current2_a` came out at
-        # 0.00023 A for a reading that is 0.23 A, published by the site. The daily
-        # row still has to *record* the regime, because that is what tells a reader
-        # the number is in a converted unit.
-        scaled = self._rollups(confirm=True)
-        self.assertAlmostEqual(scaled["daily"]["current2_a_avg"], 0.230, places=6)
-        self.assertEqual(scaled["daily"]["current2_a_avg"], scaled["hourly"]["current2_a_avg"])
-        self.assertIn("current2_a", scaled["daily"]["scaled_channels"])
-
-    def test_an_unconfirmed_regime_leaves_the_count_alone(self):
-        # Only a *confirmed* regime is applied (rule 3), and the count has to obey
-        # the same rule: a detector proposal must not quietly clear a flag.
-        from etl.build_aggregate import build
-
-        conn = connect(self.settings.db_path)
-        try:
-            conn.execute(
-                "INSERT INTO regimes (station_id, column, valid_from, scale, status,"
-                " detected_by, confidence) VALUES ('aisvn', 'current_a',"
-                " '2020-07-13T00:00:00Z', 0.001, 'unconfirmed', 'test', 'medium')"
-            )
-            conn.commit()
-            build(conn, verbose=False)
-            row = conn.execute(
-                "SELECT current2_a_n_oor FROM readings_hourly WHERE station_id = 'aisvn'"
-            ).fetchone()
-        finally:
-            conn.close()
-        self.assertEqual(row["current2_a_n_oor"], 10)
-
-
-class TestHeaderlessSchemaInheritance(unittest.TestCase):
-    """The regression that mattered: headerless files must not lose their data.
-
-    328 of the 364 raw files have no header row.  If the pipeline does not give
-    them a schema, it ingests timestamps and silently discards every
-    measurement -- which is 90% of the archive.
-    """
-
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.settings = Settings(
-            raw_dir=self.tmp / "raw",
-            out_dir=self.tmp / "out",
-            db_path=self.tmp / "out" / "solardata.db",
-            parquet_dir=self.tmp / "out" / "parquet",
-            export_dir=self.tmp / "exports",
-            report_json=self.tmp / "out" / "q.json",
-            report_md=self.tmp / "out" / "q.md",
+            aisvn_rows(),
         )
-        folder = self.settings.raw_dir / "aisvn"
-        # Only the first file carries a header; the next three do not.
-        write_xlsx(folder / "IFTTT_aisvn (1).xlsx", [HEADER_ROW, data_row(10), data_row(12)])
-        write_xlsx(folder / "IFTTT_aisvn (2).xlsx", [data_row(14), data_row(16)])
-        write_xlsx(folder / "IFTTT_aisvn (3).xlsx", [data_row(18), data_row(20)])
-
-    def test_headerless_rows_get_measurements_not_just_timestamps(self):
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute(
-            "SELECT solar_v, battery_v, temp_c, boot_count FROM readings WHERE ts_utc = ?",
-            ("2020-07-14T03:14:00Z",),  # from the headerless file (2)
-        ).fetchone()
-        conn.close()
-        self.assertIsNotNone(row)
-        self.assertEqual(row["solar_v"], 20.0)
-        self.assertEqual(row["battery_v"], 14.4)
-        self.assertEqual(row["temp_c"], 340.0)  # tenths of a degree: 34.0 degC
-        self.assertEqual(row["boot_count"], 114)
-
-    def test_donor_is_recorded_for_audit(self):
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        rows = conn.execute(
-            "SELECT filename, has_header, schema_donor, inferred FROM source_files"
-            " ORDER BY filename"
-        ).fetchall()
-        conn.close()
-        by_name = {r["filename"]: r for r in rows}
-        self.assertIsNone(by_name["IFTTT_aisvn (1).xlsx"]["schema_donor"])
-        self.assertEqual(by_name["IFTTT_aisvn (1).xlsx"]["inferred"], 0)
-        for name in ("IFTTT_aisvn (2).xlsx", "IFTTT_aisvn (3).xlsx"):
-            self.assertEqual(by_name[name]["has_header"], 0)
-            self.assertEqual(by_name[name]["inferred"], 1)
-            self.assertEqual(by_name[name]["schema_donor"], "aisvn/IFTTT_aisvn (1).xlsx")
-
-    def test_donor_is_the_nearest_preceding_file_not_the_first(self):
-        # A second, later header-bearing file must take over as donor.
-        folder = self.settings.raw_dir / "aisvn"
-        late_header = [
-            "time",
-            "solar",
-            "battery",
-            "current",
-            "power",
-            "load",
-            "wind",
-            "temp",
-            "solar2",
-            "LiPo",
-            "boot",
-        ]
-        write_xlsx(
-            folder / "IFTTT_aisvn (4).xlsx",
-            [late_header, data_row(22, day=20, month="August")],
-        )
-        write_xlsx(
-            folder / "IFTTT_aisvn (5).xlsx",
-            [data_row(24, day=21, month="August"), data_row(26, day=21, month="August")],
-        )
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute(
-            "SELECT schema_donor FROM source_files WHERE filename = 'IFTTT_aisvn (5).xlsx'"
-        ).fetchone()
-        conn.close()
-        # August inherits from the August header, not the July one.
-        self.assertEqual(row["schema_donor"], "aisvn/IFTTT_aisvn (4).xlsx")
-
-    def test_narrower_donor_does_not_overflow_the_file(self):
-        # A 4-column file inheriting an 11-column header keeps 3 metrics.
-        folder = self.settings.raw_dir / "test"
-        write_xlsx(
-            folder / "IFTTT_test (2).xlsx",
-            [["time", "nix", "temp", "wifi"], ["July 5, 2020 at 11:40AM", 96, 29.47, 5520]],
-        )
-        write_xlsx(
-            folder / "IFTTT_test (3).xlsx",
-            [["July 8, 2020 at 07:11AM", 84, 25.79, 3952]],
-        )
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute(
-            "SELECT nix_raw, wifi_raw, solar_v, battery_v FROM readings"
-            " WHERE station_id = 'test' AND ts_utc = ?",
-            ("2020-07-08T00:11:00Z",),
-        ).fetchone()
-        conn.close()
-        self.assertEqual(row["nix_raw"], 84)
-        self.assertEqual(row["wifi_raw"], 3952)
-        self.assertIsNone(row["solar_v"])
-        self.assertIsNone(row["battery_v"])
-
-
-class TestSideBlockNoteRecovery(unittest.TestCase):
-    """Lab notes live in spare side-block columns and must not be lost.
-
-    data/raw/Voltage_phumy/Voltage_phumy (2).xlsx holds the discharge-test
-    annotation in column H, which is outside the primary A:D block.  Reading only
-    the primary block -- which is correct for measurements -- would drop it.
-    """
-
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.settings = Settings(
-            raw_dir=self.tmp / "raw",
-            out_dir=self.tmp / "out",
-            db_path=self.tmp / "out" / "solardata.db",
-            parquet_dir=self.tmp / "out" / "parquet",
-            export_dir=self.tmp / "exports",
-            report_json=self.tmp / "out" / "q.json",
-            report_md=self.tmp / "out" / "q.md",
-        )
-        folder = self.settings.raw_dir / "Voltage_phumy"
-        # The archive really does contain a headered sibling; it is what lets
-        # the headerless annotation file borrow its column meaning.
-        write_xlsx(
-            folder / "Voltage_phumy.xlsx",
-            [
-                ["time", "raw", "voltage", "millis()", None, "time", "time", "voltage"],
-                ["July 5, 2020 at 04:08AM", 2303, 1980, 2204, None, "04:08AM", "04:08:00", 11.286],
-            ],
-        )
-        note = "discharge 7.5 Ah with 0.3A - 25 hours, starting at 18:00 on July 11th"
-        write_xlsx(
-            folder / "Voltage_phumy (2).xlsx",
-            [
-                # primary block A:D, blank E, side block F..H
-                [
-                    "July 12, 2020 at 10:00AM",
-                    2853,
-                    2449,
-                    631431035,
-                    None,
-                    "10:00AM",
-                    "10:00:00",
-                    11.2,
-                ],
-                [
-                    "July 12, 2020 at 10:02AM",
-                    3091,
-                    2511,
-                    631553494,
-                    None,
-                    "10:02AM",
-                    "10:02:00",
-                    note,
-                ],
-            ],
-        )
-
-    def test_note_in_a_side_block_is_recovered_and_anchored(self):
-        summary = ingest(self.settings, verbose=False)
-        self.assertEqual(summary.notes, 1)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute("SELECT station_id, ts_utc, column_name, note FROM notes").fetchone()
-        conn.close()
-        self.assertEqual(row["station_id"], "voltage-phumy")
-        self.assertEqual(row["column_name"], "H")
-        self.assertIn("discharge 7.5 Ah", row["note"])
-        # Anchored to the reading on the same sheet row.
-        self.assertEqual(row["ts_utc"], "2020-07-12T03:02:00Z")
-
-    def test_side_block_values_do_not_become_measurements(self):
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute(
-            "SELECT battery_v, adc_raw, voltage_adc FROM readings WHERE ts_utc = ?",
-            ("2020-07-12T03:00:00Z",),
-        ).fetchone()
-        conn.close()
-        # Column B -> adc_raw, column C -> voltage_adc; the side block's 11.2 V
-        # must not appear in any canonical voltage column.
-        self.assertEqual(row["adc_raw"], 2853)
-        self.assertEqual(row["voltage_adc"], 2449)
-        self.assertIsNone(row["battery_v"])
-
-
-class TestStationRegistry(unittest.TestCase):
-    def test_phumy_chunks_map_to_one_station(self):
-        for folder in ("phumy2", "phumy2a", "phumy2b"):
-            self.assertEqual(station_for_dir(folder).station_id, "phumy2")
-
-    def test_bench_stations_are_flagged_non_production(self):
-        self.assertEqual(station_for_dir("test").station_id, "test")
-        self.assertEqual(
-            station_for_dir("test").station_id
-            in __import__("etl.stations", fromlist=["x"]).NON_PRODUCTION,
-            True,
-        )
-
-    def test_every_registry_station_declares_its_timezone(self):
-        from zoneinfo import ZoneInfo
-
-        from etl.stations import STATIONS
-
-        for station in STATIONS:
-            ZoneInfo(station.tz)  # raises if the zone name is wrong
-
-
-class TestDonorWidthMatching(unittest.TestCase):
-    """A donor header must have the same number of columns as the file.
-
-    Regression. On 2020-06-17 the ``aisvn`` applet gained a ``power`` column,
-    going from 10 columns to 11. The header-bearing chunk that predates it is
-    the donor a date-only rule would reach for, and applying a 10-column header
-    to an 11-column row shifts every channel from index 4 onwards by one:
-    ``load`` lands in ``wind``, ``wind`` lands in ``temp``, ``temp`` lands in
-    ``solar2``, and the real ``boot`` counter is dropped.
-
-    That mislabelled 45,986 readings -- 59% of the station -- and it presented
-    as a sensor fault, because ``temp_c`` was receiving the ``wind`` channel,
-    which reads 0.0. 41,698 readings looked like sub-5 degC temperatures in Ho
-    Chi City, and it took the collector's margin notes to make the window look
-    like a hardware problem.
-    """
-
-    HEADER_10: ClassVar[list[str]] = [
-        "time",
-        "solar",
-        "battery",
-        "current",
-        "load",
-        "wind",
-        "temp",
-        "solar2",
-        "LiPo",
-        "boot",
-    ]
-    HEADER_11: ClassVar[list[str]] = [
-        "time",
-        "solar",
-        "battery",
-        "current",
-        "power",
-        "load",
-        "wind",
-        "temp",
-        "solar2",
-        "LiPo",
-        "boot",
-    ]
-
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.settings = Settings(
-            raw_dir=self.tmp / "raw",
-            out_dir=self.tmp / "out",
-            db_path=self.tmp / "out" / "solardata.db",
-            parquet_dir=self.tmp / "out" / "parquet",
-            export_dir=self.tmp / "exports",
-            report_json=self.tmp / "out" / "q.json",
-            report_md=self.tmp / "out" / "q.md",
-        )
-
-    def _build(self):
-        """Mirror the real archive: a 10-column header, headerless 11-column
-        files, then a later 11-column header -- exactly the shape of
-        data/raw/aisvn, where the applet gained ``power`` on 2020-06-17."""
-        folder = self.settings.raw_dir / "aisvn"
-        write_xlsx(folder / "IFTTT_aisvn.xlsx", [self.HEADER_10, self._row_10(10)])
-        write_xlsx(
-            folder / "IFTTT_aisvn (1).xlsx",
-            [self._row_11(10, 10), self._row_11(12, 11)],
-        )
-        # The next header-bearing file, two months later, 11 columns wide.
-        write_xlsx(
-            folder / "IFTTT_aisvn (9).xlsx",
-            [self.HEADER_11, self._row_11(20, 900, day=20, month="August")],
-        )
-        return folder
-
-    def _row_10(self, minute, day=14, month="July"):
-        # time, solar, battery, current, load, wind, temp, solar2, LiPo, boot
-        return [
-            f"{month} {day}, 2020 at 10:{minute:02d}AM",
-            14.45,
-            14.35,
-            1.21,
-            17.56,
-            0.0,
-            0.0,
-            32.5,
-            12.12,
-            4.12,
-        ]
-
-    def _row_11(self, minute, boot, day=14, month="July"):
-        # time, solar, battery, current, power, load, wind, temp, solar2, LiPo, boot
-        return [
-            f"{month} {day}, 2020 at 10:{minute:02d}AM",
-            14.45,
-            14.35,
-            1.21,
-            17.56,
-            0.0,
-            0.0,
-            32.5,
-            12.12,
-            4.12,
-            boot,
-        ]
-
-    def test_donor_must_have_the_same_column_count(self):
-        self._build()
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute(
-            "SELECT n_columns, schema_donor FROM source_files"
-            " WHERE filename = 'IFTTT_aisvn (1).xlsx'"
-        ).fetchone()
-        conn.close()
-        self.assertEqual(row["n_columns"], 11)
-        # A later 11-column header exists, so it is used -- not the nearer
-        # 10-column sibling, which would shift every channel from index 4.
-        self.assertEqual(row["schema_donor"], "aisvn/IFTTT_aisvn (9).xlsx")
-
-    def test_wrong_width_donor_does_not_shift_channels(self):
-        """The regression's actual symptom: temp_c receiving the wind channel."""
-        self._build()
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute(
-            "SELECT temp_c, load_v, power_w, boot_count, lipo_v"
-            " FROM readings WHERE station_id = 'aisvn' AND ts_utc = ?",
-            ("2020-07-14T03:10:00Z",),
-        ).fetchone()
-        conn.close()
-        # Correctly aligned: temp gets 32.5, load gets 0.0, power gets 17.56,
-        # boot gets the counter, LiPo gets 4.12.
-        self.assertEqual(row["temp_c"], 325.0)  # tenths of a degree: 32.5 degC
-        self.assertEqual(row["load_v"], 0.0)
-        self.assertEqual(row["power_w"], 17.56)
-        self.assertEqual(row["boot_count"], 10)
-        self.assertEqual(row["lipo_v"], 4.12)
-
-    def test_a_file_with_no_width_matching_donor_is_left_unmapped(self):
-        """Never map onto a layout that does not fit; record the gap instead."""
-        folder = self.settings.raw_dir / "aisvn"
-        # Only a 10-column header exists, but the data file has 14 columns.
-        write_xlsx(folder / "IFTTT_aisvn.xlsx", [self.HEADER_10, self._row_10(10)])
-        wide = [f"July 14, 2020 at 10:{m:02d}AM" for m in (30,) for _ in [0]] + [
-            f"ch{i}" for i in range(13)
-        ]
-        write_xlsx(folder / "IFTTT_aisvn (1).xlsx", [[wide[0]] + [1.0] * 13])
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute(
-            "SELECT schema_donor, inferred FROM source_files WHERE filename = 'IFTTT_aisvn (1).xlsx'"
-        ).fetchone()
-        count = conn.execute("SELECT COUNT(*) FROM readings WHERE station_id = 'aisvn'").fetchone()[
-            0
-        ]
-        conn.close()
-        # No donor chosen, so no channel is invented, but the timestamps and the
-        # file itself are still recorded.
-        self.assertIsNone(row["schema_donor"])
-        self.assertEqual(row["inferred"], 0)
-        self.assertEqual(count, 2)  # both files' timestamps still ingested
-
-    def test_donor_prefers_preceding_when_widths_match(self):
-        folder = self.settings.raw_dir / "aisvn"
-        write_xlsx(folder / "IFTTT_aisvn.xlsx", [self.HEADER_10, self._row_10(10)])
-        write_xlsx(
-            folder / "IFTTT_aisvn (1).xlsx",
-            [self._row_10(12), self._row_10(14)],
-        )
-        # A later header-bearing file with the same 10-column width.
-        write_xlsx(
-            folder / "IFTTT_aisvn (9).xlsx",
-            [self.HEADER_10, self._row_10(20, day=20)],
-        )
-        ingest(self.settings, verbose=False)
-        conn = connect(self.settings.db_path, read_only=True)
-        row = conn.execute(
-            "SELECT schema_donor FROM source_files WHERE filename = 'IFTTT_aisvn (1).xlsx'"
-        ).fetchone()
-        conn.close()
-        self.assertEqual(row["schema_donor"], "aisvn/IFTTT_aisvn.xlsx")
-
-
-class TestHeadersInOneFolderAgree(unittest.TestCase):
-    """Two files of the same width must not disagree about what a column is.
-
-    `metric_defs` is keyed on ``(station_id, source_dir, n_columns, col_index)``.
-    That is enough to hold a folder that *gained* a column -- the pre- and
-    post-recompile `aisvn` layouts are 10 and 11 columns and both survive -- and
-    it is **not** enough to hold a folder whose files are the same width in a
-    different column *order*. The two collide on one key and the later write
-    replaces the earlier one, so the table reports one meaning for a folder that
-    holds two, and every headerless file in it inherits whichever donor was
-    chosen.
-
-    That is not hypothetical. The collector converted `IFTTT_aisvn.xlsx` and for a
-    while its header read ``load, power`` at indices 4 and 5, where `(8)` and
-    `(24)`-`(27)` read ``power, load``. Files (1)-(7) are headerless and sit after
-    the converted file, so they borrowed its order and their two channels were
-    stored swapped. The collector has since re-exported the file in the majority
-    order, and this is what catches a regression back to the old one.
-
-    Asserted against the real archive rather than a fixture, because the fixture
-    would have to reproduce the archive to fail, and the archive is what is wrong.
-    """
-
-    def test_no_two_files_of_one_width_disagree_about_a_column(self):
-        from etl.readers.xlsx import detect_block
-
-        raw_dir = Path(__file__).resolve().parent.parent / "data" / "raw"
-        if not raw_dir.is_dir():
-            self.skipTest("no data/raw; clone the repository to run this")
-
-        by_layout: dict[tuple[str, int], dict[int, str]] = {}
-        for path in sorted(raw_dir.rglob("*.xlsx")):
-            block = detect_block(path)
-            if not block.header:
-                continue  # a headerless file has no opinion of its own
-            folder = str(path.parent.relative_to(raw_dir))
-            # Index 0 is the timestamp column and is excluded from every mapping by
-            # `map_headers`, so how the sheet spells it cannot change a reading.
-            # `phumy2` writes `date` on some chunks and `time` on others, and that
-            # difference is cosmetic -- asserting on it would be asserting on a
-            # label the pipeline never reads. Only the data columns are a contract.
-            names = {i: n for i, n in enumerate(block.header) if n and i > 0}
-            key = (folder, block.n_columns)
-            previous = by_layout.setdefault(key, {})
-            for index, name in names.items():
-                other = previous.get(index)
-                if other is None:
-                    previous[index] = name
-                    continue
-                if other != name:
-                    self.fail(
-                        f"{folder}: a {block.n_columns}-column file says column "
-                        f"{index} is {name!r} where an earlier one says {other!r} "
-                        f"({path.name}). metric_defs is keyed on width, so one of "
-                        "the two meanings replaces the other and every headerless "
-                        "file inherits whichever donor it was given. Either make the "
-                        "column order identical, or give the two layouts different "
-                        "widths."
-                    )
-
-
-class TestTimezoneIsHoChiMinh(unittest.TestCase):
-    """The stations are in Ho Chi City; UTC+07:00 all year, no DST.
-
-    Confirmed against the data by the diurnal temperature cycle: the daily
-    minimum lands at 05:00 local, which is sunrise in Ho Chi City. An offset
-    wrong by 5 or 7 hours would put that minimum at 22:00 or midnight.
-    """
-
-    def test_phumy2_ambient_cycle_peaks_and_troughs_in_the_right_hours(self):
-        db = Path(__file__).resolve().parent.parent / "data" / "processed" / "solardata.db"
-        if not db.exists():
-            self.skipTest("no built database; run `python -m etl ingest` first")
-        conn = connect(db, read_only=True)
-        try:
-            rows = conn.execute(
-                "SELECT CAST(substr(ts_local, 12, 2) AS INTEGER) AS h, AVG(temp_c) AS t"
-                " FROM readings WHERE station_id = 'phumy2'"
-                # 200 to 400 tenths is 20 to 40 degC. The column is stored in
-                # tenths of a degree, per the collector's confirmation, so the
-                # bounds scale with it. In degrees they would be 200-400 degC and
-                # the query would return nothing -- which is exactly the failure
-                # this assertion is here to make visible.
-                "   AND temp_c BETWEEN 200 AND 400"
-                " GROUP BY h"
-            ).fetchall()
-        finally:
-            conn.close()
-        self.assertGreater(len(rows), 12, "not enough hourly temperature data")
-        by_hour = {r["h"]: r["t"] for r in rows}
-        hottest = max(by_hour, key=by_hour.get)
-        coldest = min(by_hour, key=by_hour.get)
-        # Tropical diurnal cycle: peak early-mid afternoon, trough near dawn.
-        self.assertIn(hottest, range(12, 16), f"peak at {hottest}:00 local")
-        self.assertIn(coldest, range(3, 8), f"trough at {coldest}:00 local")
-
-    def test_vietnam_has_no_dst_so_the_offset_is_constant(self):
-        from zoneinfo import ZoneInfo
-
-        tz = ZoneInfo("Asia/Ho_Chi_Minh")
-        summer = datetime(2020, 7, 1, 12, tzinfo=tz)
-        winter = datetime(2021, 1, 15, 12, tzinfo=tz)
-        self.assertEqual(summer.utcoffset(), timedelta(hours=7))
-        self.assertEqual(winter.utcoffset(), timedelta(hours=7))
-
-
-class TestReadCache(unittest.TestCase):
-    """Every sheet must be parsed once, not three times.
-
-    The ingest reads each file to scan it, again in `detect_block`, and again in
-    `iter_cells`. Profiling 364 files showed 1820 calls to `_read_rows` -- 86% of
-    the build's runtime spent re-reading the same XML -- so the reader caches by
-    path.
-    """
-
-    def setUp(self):
-        from etl.readers.xlsx import clear_read_cache
-
-        clear_read_cache()
-        self.tmp = Path(tempfile.mkdtemp())
-
-    def tearDown(self):
-        from etl.readers.xlsx import clear_read_cache
-
-        clear_read_cache()
-
-    def test_reading_the_same_sheet_twice_reuses_the_cache(self):
-        from etl.readers import xlsx
-
-        path = self.tmp / "a.xlsx"
-        write_xlsx(path, [HEADER_ROW, data_row(10), data_row(12)])
-
-        block = xlsx.detect_block(path)
-        self.assertEqual(len(xlsx._read_cache), 1)
-        rows_a = list(xlsx.iter_cells(path, block))
-        rows_b = list(xlsx.iter_cells(path, block))
-        self.assertEqual(len(xlsx._read_cache), 1, "the sheet was re-parsed")
-        self.assertEqual(rows_a, rows_b)
-
-    def test_cache_is_dropped_on_request(self):
-        from etl.readers import xlsx
-
-        path = self.tmp / "a.xlsx"
-        write_xlsx(path, [HEADER_ROW, data_row(10)])
-        xlsx.detect_block(path)
-        self.assertEqual(len(xlsx._read_cache), 1)
         xlsx.clear_read_cache()
-        self.assertEqual(len(xlsx._read_cache), 0)
+        from etl import build_db
 
-    def test_cache_does_not_serve_a_file_that_changed_size(self):
-        from etl.readers import xlsx
+        with self.assertRaises(ValueError) as caught:
+            build_db.ingest(self.settings, verbose=False)
+        message = str(caught.exception)
+        self.assertIn("no layout for a 12-column sheet", message)
+        self.assertIn("Known widths: 11", message)
+        self.assertIn("etl.catalog", message)
 
-        path = self.tmp / "a.xlsx"
-        write_xlsx(path, [HEADER_ROW, data_row(10)])
-        xlsx.detect_block(path)
-        first = len(list(xlsx.iter_cells(path)))
-        # Rewrite with a different number of rows, so the file size changes.
-        write_xlsx(path, [HEADER_ROW, data_row(10), data_row(12), data_row(14)])
-        self.assertEqual(len(list(xlsx.iter_cells(path))), 3)
-        self.assertEqual(first, 1)
+    def test_a_header_row_is_detected_and_skipped(self) -> None:
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        row = conn.execute(
+            "SELECT has_header, n_rows FROM source_files WHERE rel_path = ?",
+            ("aisvn/IFTTT_test.xlsx",),
+        ).fetchone()
+        self.assertEqual(row["has_header"], 1)
+        self.assertEqual(row["n_rows"], 6, "the header is not a data row")
 
-    def test_ingest_populates_rollups_only_via_the_aggregate_stage(self):
-        # Guards the CI split as well: a frontend-only change must not need the
-        # data build, which is only true if this build is cheap.
-        from etl.build_aggregate import build
 
-        settings = Settings(
-            raw_dir=self.tmp / "raw",
-            out_dir=self.tmp / "out",
-            db_path=self.tmp / "out" / "solardata.db",
-            parquet_dir=self.tmp / "out" / "pq",
-            export_dir=self.tmp / "ex",
-            report_json=self.tmp / "out" / "q.json",
-            report_md=self.tmp / "out" / "q.md",
+class TestValuesAndFlags(TempArchiveCase):
+    def test_a_blank_cell_is_a_gap_not_a_zero(self) -> None:
+        # Rule: `0 W` at midnight is a measurement and an empty cell is a hole in
+        # the sheet. Coercing the second to the first is how a sensor outage
+        # becomes a reading.
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        row = conn.execute("SELECT * FROM s_aisvn WHERE sheet_row = 6").fetchone()
+        for ch in catalog.BY_ID["aisvn"].channels:
+            self.assertIsNone(row[ch.name], f"{ch.name} should be NULL, not 0")
+        self.assertEqual(row["flags"], "", "a gap carries no flag")
+
+    def test_a_genuine_zero_survives_as_zero(self) -> None:
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        row = conn.execute(
+            "SELECT wind_v, load_v, flags FROM s_aisvn WHERE sheet_row = 2"
+        ).fetchone()
+        self.assertEqual(row["wind_v"], 0.0)
+        self.assertEqual(row["load_v"], 0.0)
+        self.assertNotIn("out_of_range", row["flags"], "0 is inside a 0-60 V band")
+
+    def test_a_sentinel_becomes_null_with_a_flag_and_a_rejects_row(self) -> None:
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        row = conn.execute("SELECT battery_v, flags FROM s_aisvn WHERE sheet_row = 5").fetchone()
+        self.assertIsNone(row["battery_v"], "-992 is a hole in the sheet, not a voltage")
+        self.assertIn("sentinel", row["flags"])
+        rejects = conn.execute(
+            "SELECT raw_value, reason, column_name FROM rejects WHERE reason = 'sentinel'"
+        ).fetchall()
+        self.assertEqual(len(rejects), 1)
+        self.assertEqual(rejects[0]["raw_value"], "-992")
+        self.assertEqual(rejects[0]["column_name"], "battery_v")
+
+    def test_an_out_of_range_value_is_kept_and_flagged(self) -> None:
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        row = conn.execute("SELECT battery_v, flags FROM s_aisvn WHERE sheet_row = 4").fetchone()
+        self.assertAlmostEqual(row["battery_v"], 29.80, msg="the value is kept")
+        self.assertIn("out_of_range", row["flags"])
+
+    def test_the_band_is_aisvn_batterys_not_a_global_one(self) -> None:
+        # 9-16 V is a claim about a 12 V lead-acid pack. 0.8 held one band per
+        # *column name* and tested raw millivolt cells against it, which is how
+        # 232 mA ended up inside a +/-50 A band and 416,088 readings were flagged.
+        station = catalog.BY_ID["aisvn"].channel("battery_v")
+        self.assertEqual(station.band, (9.0, 16.0))
+        phumy2 = catalog.BY_ID["phumy2"].channel("current2_a")
+        self.assertEqual(phumy2.scale, 0.001, "milliamps, confirmed against the hardware")
+        self.assertEqual(phumy2.unit, "A")
+        self.assertEqual(phumy2.band, (-5.0, 5.0), "and the band is in amps")
+
+    def test_a_scale_is_applied_once_and_the_band_tests_the_scaled_value(self) -> None:
+        # phumy2.current2_a: a 232 mA cell becomes 0.232 A at ingest, and the
+        # band is applied to 0.232. Testing 232 against -5..5 is the 0.8 bug.
+        from etl import build_db
+        from etl.catalog import BY_ID
+
+        station = BY_ID["phumy2"]
+        channel = station.channel("current2_a")
+        value, flags = build_db._coerce("232", channel, [])
+        self.assertAlmostEqual(value, 0.232, msg="scaled once")
+        self.assertEqual(flags, (), "and 0.232 A is inside -5..5 A")
+
+    def test_a_sentinel_is_checked_before_the_scale(self) -> None:
+        # -992 is -992 whether the channel publishes volts or milliamps. Scaling
+        # first would give -0.992, which is a plausible-looking number and not a
+        # placeholder at all.
+        from etl import build_db
+        from etl.catalog import BY_ID
+
+        for sentinel in SENTINELS:
+            for name in ("current2_a", "solar2_v"):
+                value, flags = build_db._coerce(str(sentinel), BY_ID["phumy2"].channel(name), [])
+                self.assertIsNone(value, f"{sentinel} on {name}")
+                self.assertEqual(flags, ("sentinel",))
+
+    def test_every_sentinel_becomes_null(self) -> None:
+        for sentinel in SENTINELS:
+            value, flags = build_db_value(sentinel)
+            self.assertIsNone(value, f"{sentinel} should be NULL")
+            self.assertEqual(flags, ("sentinel",))
+
+
+def build_db_value(sentinel: float):
+    from etl import build_db
+    from etl.catalog import BY_ID
+
+    return build_db._coerce(str(sentinel), BY_ID["aisvn"].channel("solar_v"), [])
+
+
+class TestDuplicates(TempArchiveCase):
+    def test_a_repeated_timestamp_is_absorbed_and_recorded(self) -> None:
+        # Overlapping 2000-row chunk boundaries and IFTTT re-sends. The primary
+        # key keeps the first copy; the absorbed row goes to `rejects` so it stays
+        # inspectable rather than vanishing.
+        rows = [*aisvn_rows(), aisvn_rows()[0]]
+        summary = self.build({"aisvn": rows}, {"aisvn": AISVN_HEADER})
+        self.assertEqual(summary.rows_ingested, 6)
+        self.assertEqual(summary.rows_duplicate, 1)
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        reject = conn.execute(
+            "SELECT reason, raw_value, column_name FROM rejects WHERE reason = 'duplicate_ts'"
+        ).fetchone()
+        self.assertEqual(reject["raw_value"], "June 18, 2020 at 08:52AM")
+        self.assertEqual(reject["column_name"], "time")
+
+    def test_the_same_instant_at_two_stations_is_not_a_duplicate(self) -> None:
+        # ~121,000 timestamps are shared *between* stations: separate instruments
+        # sampling the same instant, and both readings are real.
+        self.build(
+            {
+                "aisvn": aisvn_rows(),
+                "aisvn2": [["June 18, 2020 at 08:52AM", 3000, 12000, 5, 5, 7000, 0, 500]],
+            },
+            {
+                "aisvn": AISVN_HEADER,
+                "aisvn2": [
+                    "time",
+                    "solar3",
+                    "battery2",
+                    "currentA",
+                    "currentB",
+                    "LiPo2",
+                    "load",
+                    "boot",
+                ],
+            },
         )
-        folder = settings.raw_dir / "phumy2"
-        write_xlsx(folder / "IFTTT_phumy2.xlsx", [HEADER_ROW, data_row(10), data_row(12)])
-        write_xlsx(folder / "IFTTT_phumy2 (1).xlsx", [data_row(14), data_row(16)])
-        summary = ingest(settings, verbose=False)
-        self.assertEqual(summary.rows_ingested, 4)
-        conn = connect(settings.db_path)
-        try:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM readings_daily").fetchone()[0], 0)
-            hourly, daily, _scaled = build(conn, verbose=False)
-            self.assertEqual(hourly, 1)
-            self.assertEqual(daily, 1)
-        finally:
-            conn.close()
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        self.assertEqual(
+            conn.execute("SELECT COUNT(*) FROM rejects WHERE reason = 'duplicate_ts'").fetchone()[
+                0
+            ],
+            0,
+        )
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM s_aisvn2").fetchone()[0], 1)
+
+
+class TestWindowsAndExclusions(TempArchiveCase):
+    def test_an_excluded_file_records_every_row_and_ingests_none(self) -> None:
+        # 0.8's `test/IFTTT_test (1).xlsx` exclusion: 4,121 rows, each with its
+        # sheet row and timestamp, so the decision is inspectable one cell at a
+        # time rather than taken on trust from a prose exclusion.
+        from etl import build_db
+
+        rows = [
+            ["July 1, 2020 at 06:18PM", 96, 29.47, 5495],
+            ["July 1, 2020 at 06:20PM", 95, 29.40, 5400],
+        ]
+        write_xlsx(
+            self.raw / "test" / "IFTTT_test (1).xlsx", ["time", "nix", "temp_c", "wifi_tx_ms"], rows
+        )
+        xlsx.clear_read_cache()
+        summary = build_db.ingest(self.settings, verbose=False)
+        self.assertEqual(summary.rows_ingested, 0)
+        self.assertEqual(summary.rows_rejected, 2)
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        rejects = conn.execute(
+            "SELECT sheet_row, raw_value, reason FROM rejects ORDER BY sheet_row"
+        ).fetchall()
+        self.assertEqual([r["reason"] for r in rejects], ["station_setup"] * 2)
+        self.assertEqual(
+            rejects[0]["sheet_row"], 2, "sheet rows are 1-based as openpyxl reports them"
+        )
+        self.assertEqual(rejects[0]["raw_value"], "July 1, 2020 at 06:18PM")
+        note = conn.execute("SELECT note FROM notes").fetchone()
+        self.assertIn("not measurements", note["note"])
+        self.assertIn("2020-07-01", note["note"], "the prose is the collector's, kept verbatim")
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM source_files").fetchone()[0], 1)
+
+    def test_a_null_window_only_corrects_a_cell_that_had_a_value(self) -> None:
+        # The 0.9 correction to 0.8: a blank cell is already a gap and needs
+        # nothing. Flagging it would assert that the collector said the input was
+        # disconnected when the sheet says nothing at all, which is a different
+        # claim. 1,359 of aisvn's rows in the temp window are blank at source.
+        from etl import build_db
+
+        in_window = "June 15, 2020 at 01:00PM"  # 08:00 UTC, inside the window
+        rows = [
+            [in_window, 14.0, 12.5, 0, 0, 0, 0, "", 0, 0, 1],  # temp is blank
+            ["June 15, 2020 at 01:02PM", 14.0, 12.5, 0, 0, 0, 0, 32.0, 0, 0, 2],  # real
+        ]
+        write_xlsx(self.raw / "aisvn" / "IFTTT_test.xlsx", AISVN_HEADER, rows)
+        xlsx.clear_read_cache()
+        build_db.ingest(self.settings, verbose=False)
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        blank = conn.execute("SELECT temp_c, flags FROM s_aisvn WHERE sheet_row = 2").fetchone()
+        self.assertIsNone(blank["temp_c"])
+        self.assertEqual(blank["flags"], "", "a blank cell is a gap and carries no flag")
+        real = conn.execute("SELECT temp_c, flags FROM s_aisvn WHERE sheet_row = 3").fetchone()
+        self.assertAlmostEqual(real["temp_c"], 32.0)
+        self.assertEqual(real["flags"], "")
+
+    def test_a_bad_window_keeps_the_value_and_flags_it(self) -> None:
+        from etl import build_db
+
+        rows = [["October 25, 2020 at 12:00PM", 14.0, 12.5, 0, 0, 0, 0, 32.0, 0, 0, 1]]
+        write_xlsx(self.raw / "aisvn" / "IFTTT_test.xlsx", AISVN_HEADER, rows)
+        xlsx.clear_read_cache()
+        build_db.ingest(self.settings, verbose=False)
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        row = conn.execute("SELECT solar_v, battery_v, temp_c, flags FROM s_aisvn").fetchone()
+        self.assertAlmostEqual(row["solar_v"], 14.0, msg="kept")
+        self.assertIn("bad_window:solar_v", row["flags"])
+        self.assertIn("bad_window:battery_v", row["flags"])
+        self.assertIn("bad_window:temp_c", row["flags"])
+        self.assertNotIn("bad_window:wind_v", row["flags"], "only the named channels")
+        self.assertEqual(
+            conn.execute("SELECT COUNT(*) FROM rejects WHERE reason = 'null_window'").fetchone()[0],
+            0,
+            "a bad window flags; it does not null",
+        )
+
+    def test_a_row_floor_rejects_earlier_rows(self) -> None:
+        from etl import build_db
+
+        # 103 body rows, because the floor is at sheet row 102 and the fixture has
+        # to straddle it to prove anything.
+        times = aisvn_times(103)
+        rows = [
+            [times[index - 1], 14.0, 12.5, 0, 0, 0, 0, 32.0, 0, 0, index] for index in range(1, 104)
+        ]
+        write_xlsx(self.raw / "aisvn" / "IFTTT_aisvn (25).xlsx", AISVN_HEADER, rows)
+        xlsx.clear_read_cache()
+        build_db.ingest(self.settings, verbose=False)
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        # Rows 2..101 are below the floor: 100 of them, which is the archive's
+        # recorded pre_reinstall count exactly.
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM s_aisvn").fetchone()[0], 3)
+        self.assertEqual(
+            conn.execute("SELECT COUNT(*) FROM rejects WHERE reason = 'pre_reinstall'").fetchone()[
+                0
+            ],
+            100,
+        )
+        first = conn.execute(
+            "SELECT MIN(sheet_row), MAX(sheet_row) FROM rejects WHERE reason = 'pre_reinstall'"
+        ).fetchone()
+        self.assertEqual((first[0], first[1]), (2, 101), "the floor is at sheet row 102")
+
+    def test_a_repeated_header_inside_a_file_is_rejected(self) -> None:
+        rows = [
+            ["June 18, 2020 at 08:52AM", 14.0, 12.5, 0, 0, 0, 0, 32.0, 0, 0, 1],
+            ["time", 14.0, 12.5, 0, 0, 0, 0, 32.0, 0, 0, 2],
+        ]
+        self.build({"aisvn": rows})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM s_aisvn").fetchone()[0], 1)
+        self.assertEqual(
+            conn.execute(
+                "SELECT COUNT(*) FROM rejects WHERE reason = 'repeated_header'"
+            ).fetchone()[0],
+            1,
+        )
+
+
+class TestRebuildFromScratch(TempArchiveCase):
+    def test_a_second_ingest_replaces_rather_than_appends(self) -> None:
+        # No incremental path, and that is the point: an incremental update has to
+        # be right about which rows changed and what a partial failure left behind,
+        # and every one of those is a way to end up with a database that looks
+        # complete and is not. The build is a minute and the archive is immutable.
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        first = self.connect()
+        first.close()
+        self.build({"aisvn": aisvn_rows()[:2]}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        self.assertEqual(
+            conn.execute("SELECT COUNT(*) FROM s_aisvn").fetchone()[0],
+            2,
+            "the second build replaced the first rather than adding to it",
+        )
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM ingest_runs").fetchone()[0], 1)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM source_files").fetchone()[0], 1)
+
+    def test_provenance_records_the_sha256_of_every_file(self) -> None:
+        import hashlib
+
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        row = conn.execute("SELECT sha256, bytes, rel_path FROM source_files").fetchone()
+        path = self.raw / "aisvn" / "IFTTT_test.xlsx"
+        self.assertEqual(row["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
+        self.assertEqual(row["bytes"], path.stat().st_size)
+        self.assertEqual(row["rel_path"], "aisvn/IFTTT_test.xlsx")
+
+    def test_sheet_row_is_the_row_a_person_would_count(self) -> None:
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        rows = conn.execute("SELECT sheet_row FROM s_aisvn ORDER BY ts_utc").fetchall()
+        self.assertEqual([r["sheet_row"] for r in rows], [2, 3, 4, 5, 6, 7])
+
+
+class TestMultipleStations(TempArchiveCase):
+    def test_three_archive_folders_are_one_station(self) -> None:
+        # `phumy2` is split across phumy2/, phumy2a/ and phumy2b/ because Google
+        # Sheets split the sheet at 2000 rows. Three folders, one instrument, one
+        # table -- and the coverage is continuous across all three.
+        header = ["time", "solar2", "current2", "power", "temp", "LiPo2", "boot"]
+        self.build(
+            {
+                "phumy2": [["June 18, 2020 at 08:52AM", 3000, 232, 0, 32.0, 4000, 1]],
+                "phumy2a": [["June 18, 2020 at 08:54AM", 3100, 233, 0, 32.1, 4001, 2]],
+                "phumy2b": [["June 18, 2020 at 08:56AM", 3200, 234, 0, 32.2, 4002, 3]],
+            },
+            {"phumy2": header, "phumy2a": header, "phumy2b": header},
+        )
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM s_phumy2").fetchone()[0], 3)
+        # And the millivolt/milliamp channels are in their published units.
+        row = conn.execute(
+            "SELECT solar2_v, current2_a, temp_c, lipo2_v FROM s_phumy2 ORDER BY ts_utc LIMIT 1"
+        ).fetchone()
+        self.assertAlmostEqual(row["solar2_v"], 3.0)
+        self.assertAlmostEqual(row["current2_a"], 0.232)
+        self.assertAlmostEqual(row["temp_c"], 32.0)
+        self.assertAlmostEqual(row["lipo2_v"], 4.0)
+        self.assertEqual(
+            conn.execute("SELECT COUNT(*) FROM rejects WHERE reason = 'out_of_range'").fetchone()[
+                0
+            ],
+            0,
+        )
+
+    def test_an_unknown_folder_is_reported_not_ingested(self) -> None:
+        self.build({"not_a_station": aisvn_rows()}, {"not_a_station": AISVN_HEADER})
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM source_files").fetchone()[0], 0)
+        run = conn.execute("SELECT notes FROM ingest_runs").fetchone()
+        self.assertIn("not_a_station", run["notes"])
+
+    def test_coverage_is_filled_in_per_station_table(self) -> None:
+        self.build(
+            {
+                "aisvn": aisvn_rows(),
+                "aisvn2": [["June 18, 2020 at 08:52AM", 3000, 12000, 5, 5, 7000, 0, 500]],
+            },
+            {
+                "aisvn": AISVN_HEADER,
+                "aisvn2": [
+                    "time",
+                    "solar3",
+                    "battery2",
+                    "currentA",
+                    "currentB",
+                    "LiPo2",
+                    "load",
+                    "boot",
+                ],
+            },
+        )
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        rows = conn.execute(
+            "SELECT station_id, first_ts_utc, last_ts_utc, n_readings FROM stations"
+            " WHERE n_readings > 0 ORDER BY station_id"
+        ).fetchall()
+        self.assertEqual([r["station_id"] for r in rows], ["aisvn", "aisvn2"])
+        self.assertEqual(rows[0]["n_readings"], 6)
+        self.assertEqual(rows[1]["n_readings"], 1)
+        self.assertEqual(rows[0]["first_ts_utc"], "2020-06-18T01:52:00Z")
+        self.assertEqual(rows[0]["last_ts_utc"], "2020-06-18T02:02:00Z")
+
+
+class TestReaderCache(TempArchiveCase):
+    def test_a_sheet_is_parsed_once_per_build(self) -> None:
+        # Reading a sheet is 86% of the whole build, and 0.8 parsed each file
+        # three times: once to scan it, once in detect_block and once in
+        # iter_cells. 1,820 reads for 364 files. The cache is the whole reason a
+        # build is a minute rather than three.
+        self.build({"aisvn": aisvn_rows()}, {"aisvn": AISVN_HEADER})
+        after = xlsx.cached_read_count()
+        path = self.raw / "aisvn" / "IFTTT_test.xlsx"
+        for _ in range(20):
+            xlsx.detect_block(path)
+            list(xlsx.iter_cells(path, xlsx.detect_block(path)))
+        self.assertEqual(xlsx.cached_read_count(), after, "twenty more reads, no more parses")
+
+    def test_the_cache_notices_a_file_rewritten_in_place(self) -> None:
+        # The test suite writes a fixture, reads it, writes it again. A cache keyed
+        # on the path alone would hand back the first version's rows, and the
+        # second ingest would silently read stale data.
+        path = self.raw / "aisvn" / "IFTTT_test.xlsx"
+        write_xlsx(path, AISVN_HEADER, aisvn_rows()[:1])
+        self.assertEqual(xlsx.cached_read_count(), 0)
+        first = xlsx.detect_block(path)
+        write_xlsx(path, AISVN_HEADER, aisvn_rows()[:2])
+        second = xlsx.detect_block(path)
+        self.assertNotEqual(first.n_rows, second.n_rows)
+
+    def test_clear_read_cache_bounds_the_memory(self) -> None:
+        path = self.raw / "aisvn" / "IFTTT_test.xlsx"
+        write_xlsx(path, AISVN_HEADER, aisvn_rows())
+        xlsx.detect_block(path)
+        self.assertEqual(xlsx.cached_read_count(), 1)
+        xlsx.clear_read_cache()
+        self.assertEqual(xlsx.cached_read_count(), 0)
+
+
+class TestSideBlocks(TempArchiveCase):
+    def test_prose_in_a_side_block_becomes_a_note(self) -> None:
+        # Voltage_phumy carries a hand-made discharge summary and the lab's own
+        # annotations to the right of the primary block. `iter_all_cells` exists
+        # solely to recover that prose.
+        write_xlsx(
+            self.raw / "Voltage_phumy" / "IFTTT_test.xlsx",
+            ["time", "raw", "voltage", "millis()"],
+            [
+                ["July 12, 2020 at 10:02AM", 2500, 2200, 1000, "STROMAUSFALL!!"],
+                ["July 12, 2020 at 10:04AM", 2501, 2201, 2000, "leave home"],
+            ],
+        )
+        xlsx.clear_read_cache()
+        from etl import build_db
+
+        build_db.ingest(self.settings, verbose=False)
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        notes = conn.execute("SELECT note, ts_utc, column_name FROM notes ORDER BY note").fetchall()
+        self.assertEqual(
+            [n["note"] for n in notes],
+            ["STROMAUSFALL!!", "leave home"],
+            "short prose is recovered; a length threshold would have dropped it",
+        )
+        self.assertEqual(notes[0]["column_name"], "E")
+        self.assertIsNotNone(notes[0]["ts_utc"], "and it is anchored to an instant")
+
+    def test_a_side_block_header_is_not_prose(self) -> None:
+        # Without this, maker-webhooks contributes twenty-two notes that are all
+        # just the words "boot", "solar" and "battery".
+        write_xlsx(
+            self.raw / "Maker_Webhooks_Events" / "IFTTT_test.xlsx",
+            ["time", "solar", "battery", "curA", "curB", "load", "wind", "dump", "LiPo", "boot"],
+            [
+                [
+                    "June 1, 2020 at 10:00AM",
+                    1000,
+                    12000,
+                    900,
+                    900,
+                    3000,
+                    500,
+                    600,
+                    4000,
+                    1,
+                    "solar",
+                    "battery",
+                    "load",
+                    "wind",
+                    "LiPo",
+                    "boot",
+                ]
+            ],
+        )
+        xlsx.clear_read_cache()
+        from etl import build_db
+
+        build_db.ingest(self.settings, verbose=False)
+        conn = self.connect()
+        self.addCleanup(conn.close)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0], 0)
 
 
 if __name__ == "__main__":

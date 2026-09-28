@@ -1,259 +1,285 @@
 # Data dictionary
 
-Every table and column in `data/processed/solardata.db`. Read
-`etl/schema.sql` for the DDL and `AGENTS.md` for the rules that govern edits.
+Every table in `data/processed/solardata.db`, and the four files under
+`public/data` the site fetches. Read `etl/catalog.py` for the declarations this
+describes, `etl/schema.sql` for the DDL of the shared tables, and `AGENTS.md` for
+the rules that govern edits.
+
+## The one idea
+
+**A channel is a fact about a station, not a fact about a column name.**
+
+`solar_v` is 0-29.8 V at `aisvn`, 0-3,532 at `aisvn-solar` (millivolts), 0-23,860
+at `aisvn2` (millivolts) and -984-34,034 at `maker-webhooks` (millivolts). A
+plausibility band is a claim about a sensor at a site, so it belongs to a
+`(station, channel)` pair and nowhere else. 0.8 carried one band per column name
+and tested raw millivolt cells against it, which marked 631,252 readings out of
+range on arithmetic rather than on the hardware -- all 416,088 of `phumy2`'s
+samples, on a sensor measuring a quarter of an amp.
+
+The second consequence: **one unit, everywhere.** The confirmed scale is applied
+once, at ingest, so the database, the rollups, the CSVs and the browser all hold
+the same number in the same unit. There is no regime table, no stored-vs-display
+split, and no out-of-range count that has to be recomputed after the fact.
 
 ## Reading the clock
 
 | Column | Meaning |
 |---|---|
-| `ts_utc` | **The primary key clock.** RFC 3339, UTC, `Z` suffix: `2020-07-14T03:12:00Z`. Use for anything analytical. |
+| `ts_utc` | **The primary key.** RFC 3339, UTC, `Z` suffix: `2020-07-14T03:12:00Z` |
 | `ts_local` | Naive local wall clock, `2020-07-14T10:12:00`. Display only. |
-| `tz` | IANA zone assumed for the station, `Asia/Ho_Chi_Minh`. |
+| `tz` (in `stations`) | IANA zone assumed for the station, `Asia/Ho_Chi_Minh` |
 
-Raw column A is US-locale text with no offset, so `ts_utc` is derived. The
-offset is UTC+07:00 with no DST, which is correct for Vietnam, but it is an
-assumption — see `AGENTS.md` open question 1.
+Raw column A is US-locale text with no offset, so `ts_utc` is derived. The offset
+is UTC+07:00 with no DST, which is correct for Vietnam and an assumption about
+every reading in the archive. `etl/readers/times.py` parses it with a fixed
+month table rather than `strptime`, because `%B` and `%p` need a locale that is
+not loaded on Windows and every cell then fails to parse.
 
-## Tables
+**Never compare these as strings.** The sheets write `July 4` and `July 14`
+unpadded, so string order puts the fourteenth before the fourth. Every
+comparison, `GROUP BY` and donor-equivalent goes through the parsed clock.
 
-### `stations`
+## The station tables
 
-One row per physical instrument, not per folder. `source_dirs` is a JSON array
-because `phumy2`/`phumy2a`/`phumy2b` are three archive chunks of one station.
+Eight tables, one per station, named `s_<station_id>` with hyphens replaced by
+underscores:
 
-| Column | Meaning |
-|---|---|
-| `station_id` | Stable slug used in every other table |
-| `is_production` | 0 for `test` and `voltage-phumy`: not solar production. Their rollups are still exported and browsable |
-| `first_ts_utc`, `last_ts_utc`, `n_readings` | Observed coverage, filled in after ingest |
+| Station | Table | Readings | Coverage (UTC) |
+|---|---|---:|---|
+| AISVN #1 | `s_aisvn` | 77,526 | 2020-06-15 to 2022-02-22 |
+| AISVN #2 | `s_aisvn2` | 164,098 | 2020-06-18 to 2021-11-01 |
+| AISVN Solar (archived) | `s_aisvn_solar` | 13,788 | 2020-05-21 to 2020-06-12 |
+| Maker Webhooks (archived) | `s_maker_webhooks` | 8,535 | 2020-05-30 to 2020-06-12 |
+| Phu My Hung #2 | `s_phumy2` | 416,088 | 2020-06-15 to 2026-09-27 |
+| Solar bench (2020-05-16) | `s_solar_2020_05` | 12,920 | 2020-05-16 to 2020-06-15 |
+| Test bench | `s_test` | 33,377 | 2020-07-05 to 2020-08-21 |
+| Voltage calibration | `s_voltage_phumy` | 5,553 | 2020-07-04 to 2020-07-12 |
 
-### `source_files`
+Each holds only the channels that station collects, so there is no 32-column grid
+in which 75% of every row is NULL and no reader can tell which NULLs mean "not
+connected" from which mean "not measured". **A channel is NULL when the station
+did not have it, and NULL is not 0.**
 
-Provenance for all 364 raw files. `sha256` lets a rebuild prove it read the
-same bytes.
-
-| Column | Meaning |
-|---|---|
-| `has_header` | 1 if row 1 is a header row (59 of 364 files) |
-| `schema_donor` | For a headerless file, the sibling whose header supplied the column names; NULL if the file had its own |
-| `inferred` | 1 when the column meaning was borrowed rather than read |
-| `extra_blocks` | Redundant side-by-side column blocks found to the right |
-| `repeated_headers` | Sheet rows where a header repeats mid-file |
-| `n_ingested`, `n_duplicate_ts`, `n_rejected` | Per-file outcome |
-
-### `readings`
-
-One row per station per instant, wide and sparse. **A channel is NULL when the
-station did not have it, and NULL is not the same as 0.**
-
-| Column | Type | Unit | Notes |
-|---|---|---|---|
-| `solar_v`, `solar2_v`, `solar3_v` | REAL | V | Panel/collector voltage |
-| `battery_v`, `battery2_v` | REAL | V | Bank voltage; banded 9–16 V (3S LiPo) |
-| `current_a`, `current2_a` | REAL | A | Banded ±50 A |
-| `current_a_chA`, `current_a_chB` | REAL | A | Headers `currentA`/`curA` and `currentB`/`curB` |
-| `power_w` | REAL | W | Banded ±2000 W |
-| `load_v`, `load1_v`, `load2_v` | REAL | V | Meaning disputed — see open question 5 |
-| `wind_v` | REAL | V | Wired and logging: 0-13.3 V hourly in `aisvn` 2021, up to 12,784 V in 2020, 0 for all of 2022. No plausible band, so never flagged |'
-| `temp_c` | REAL | 0.1 degC | Stored in **tenths** of a degree, banded 50–900. The applet wrote tenths before the 2020-06-17 recompile and plain degrees after, so the correction is applied at ingest (`config.UNIT_FIXES`); one column cannot hold both. `test` stores **hundredths**, banded 2149–3131, via the per-station override in `config.CHANNEL_UNITS` |
-| `lipo_v`, `lipo2_v` | REAL | V | Single-cell pack, banded 2.5-4.35 V. `aisvn2.lipo2_v` reads 6.3-7.1 V, which is a 2S pack; the band is still written for 1S and the disagreement is deliberate until the hardware is confirmed |
-| `adc_raw`, `voltage_adc`, `digital_adc`, `dump_adc` | REAL | count | Uncalibrated, no band, never flagged |
-| `boot_count` | INTEGER | count | Successful submissions since the last reboot. Increments by exactly 1 on 98.0% of consecutive pairs; ~650 resets across the archive, and no timestamp carries two different values |
-| `millis_ms` | INTEGER | ms | `millis()` since boot |
-| `nix_raw`, `wifi_raw` | REAL | count | `test` bench only |
-| `event` | TEXT | — | IFTTT event name, `solar-2020-05` only |
-| `quality_flags` | TEXT | — | Comma-separated, see below |
-| `source_file_id`, `sheet_row` | — | — | Exact provenance for the row |
-
-Bands only ever set a flag. No value is ever clipped, nulled, or rescaled
-because of them. The same table is published to the browser as
-`public/data/metrics.json`, so the site's chart applies the identical criterion
-to a rollup value that the ingest applied to the raw cell.
-
-### `quality_flags`
-
-Comma-separated, so one row can carry several at once. Two families are
-parameterised by column — `bad_window:<column>` and `no_signal:<column>` — which
-is why a flat lookup is not enough to explain every flagged row.
-
-| Flag | Rows | Set when |
+| Column | Type | Notes |
 |---|---|---|
-| `out_of_range` | 638,555 | Value kept, but outside the metric's band |
-| `no_signal:<column>` | 220,069 | A `NULL_WINDOWS` entry: the input was disconnected, so the stored number is a false reading. Nulled, with a `rejects` row carrying the prose |
-| `sentinel` | 30,599 | Raw cell was `-992`, `-1`, `342.0` or `342.1`; stored as NULL |
-| `bad_window:<column>` | 6,303 | A `BAD_WINDOWS` entry: kept, but a human has said not to believe it |
-| `schema_misaligned` | 0 | Row did not match the donor schema. Unreachable now that donors match on width |
-| `clip` | 0 | Detector implemented and unit-tested, never wired into the ingest |
-| `non_monotonic` | 0 | No reboot detector runs, despite `boot_count` being a usable one |
-| `free_text` | 0 | Unmapped columns are skipped before this could be set |
+| `ts_utc` | TEXT | `PRIMARY KEY`, `WITHOUT ROWID` |
+| `ts_local` | TEXT | Display only |
+| *one per channel* | REAL / INTEGER / TEXT | See `etl/catalog.py`. INTEGER for the uptime counters. |
+| `flags` | TEXT | Comma-separated, see below. `''` means no flag. |
+| `source_file_id`, `sheet_row` | INTEGER | Exact provenance. `sheet_row` is 1-based as openpyxl reports it, so it is the number a person counting the file would say. |
 
-`duplicate_ts` appears **only** as a `rejects.reason`, never in
-`readings.quality_flags`: the primary key absorbs the second copy, so no
-`readings` row exists to carry the flag.
+`WITHOUT ROWID` with a TEXT key stores the rows in key order, which is both
+smaller than a rowid table plus an index and free to range-scan.
 
-`rejects.reason` is a **stable category, never a sentence**, and the archive is
-where the cost of breaking that rule shows: storing the collector's ~300-character
-note as the reason on every cell the `NULL_WINDOWS` path nulled put one paragraph
-into 220,074 rows, cost 80.6 MiB, and made `rejects` as large as `readings`. The
-prose lives once, in `etl/config.py`, and `report.collect` republishes it to
-`quality.json` as `null_windows` and `bad_windows` next to the number of rows each
-explains. `check_frontend.mjs` has a check by name for this.
+### The channels
 
-| `rejects.reason` | Rows | What it means |
+| Channel | Unit | Scale | Stations | Band | Note |
+|---|---|---:|---|---|---|
+| `solar_v`, `solar2_v`, `solar3_v` | V | 1 / 0.001 | varies | 0-30 V | volts at `aisvn`; millivolts elsewhere |
+| `battery_v` | V | 1 | `aisvn` | 9-16 V | a 12 V lead-acid car battery, collector-confirmed |
+| `battery2_v` | V | 0.001 | `aisvn2` | 9-16 V | millivolts, same bank design |
+| `current_a` | A | 1 | `aisvn` | ±50 A | recorded −12.81 to 3.68 |
+| `current2_a` | A | 0.001 | `phumy2` | ±5 A | milliamps; 0.155-1.997 A |
+| `current_a_chA`, `current_a_chB` | — | 1 | `aisvn2`, `maker-webhooks` | none | **unit unresolved**, see open questions |
+| `power_w` | W | 1 | `aisvn` | ±2000 W | a real measurement there |
+| `power_w` | W | 1 | `phumy2` | none | **not a measurement.** The hardware was never implemented. |
+| `load_v` | V | 1 | `aisvn` | 0-60 V | the load/dump rail |
+| `load_v` | — | 1 | `aisvn2` | 0-1 | a 0/1 logic level, not a voltage |
+| `load1_v`, `load2_v` | — | 1 | `aisvn-solar` | none | **unit unresolved.** 0-1,598 and 0-3,026 cannot be volts. |
+| `wind_v` | V | 1 / 0.001 | `aisvn`, `aisvn-solar`, `maker-webhooks` | none | wired and logging; not a plausible generator output |
+| `temp_c` | degC | 1 | `aisvn`, `phumy2`, `test` | 0-60 degC | all three write plain degrees |
+| `lipo_v`, `lipo2_v` | V | 1 / 0.001 | varies | see below | 1S and 2S packs |
+| `*_adc`, `nix_raw`, `wifi_raw` | count | 1 | varies | none | uncalibrated, so no plausible range |
+| `boot_count` | count | 1 | 5 stations | none | the logger's monotonic counter, reset by a reboot |
+| `millis_ms` | ms | 1 | `voltage-phumy` | none | `millis()` since boot |
+| `event` | TEXT | 1 | `solar-2020-05` | none | the string `solar_reading` |
+
+**Every temperature is plain degrees.** 0.8 multiplied `aisvn.temp_c` and
+`phumy2.temp_c` by 10 and `test.temp_c` by 100, and banded each in the multiplied
+unit — 50-900 and 2149-3131 — so `32.5 degC` was stored as `325` and sat inside a
+band that was wrong by the same factor. Two errors cancelling, the record looking
+banded when it was only rescaled, and no flag firing anywhere. The sheets write
+`32.5`, `24.2` and `29.47`.
+
+**LiPo bands differ by pack, not by column name.** `aisvn.lipo_v` and
+`maker-webhooks.lipo_v` are bounded 0-8.7 V and 0-4.35 V respectively, because
+the first is bimodal with a 6.84 V plateau and banding it as a 1S cell flagged 20%
+and 19% of each record. `aisvn2.lipo2_v` is a 2S pack and is bounded 0-8.7 V.
+
+## `station_channels` and `station_layouts`
+
+The catalog, as it landed in the database. Written verbatim from
+`etl/catalog.py` by `etl.db.write_catalog`, so a query can answer "what does this
+station collect, in what unit, banded how" without importing the Python package.
+`public/data/stations.json` and the quality report are generated from these
+tables, so there is one answer rather than three.
+
+`station_channels` has one row per `(station_id, channel)`: `label`, `kind`,
+`description`, `unit`, `raw_unit`, `scale`, `band_lo`, `band_hi`, `band_note`,
+`stats`, `published`, `exclude_reason`, `exclude_note`, `is_counter`, `decimals`.
+
+**`band_note` is not decoration.** `etl.audit` fails the build if a band fires on
+more than `BAND_FIRE_FRACTION` (1%) of its channel's own record without one. A
+band is a claim about a sensor, and a flag that fires on a fifth of a channel
+cannot mark a contaminated aggregate — it is reporting a unit mismatch.
+
+`station_layouts` has one row per `(station_id, n_columns)`: the raw header, the
+channel order, and the file count. **Width alone identifies a layout.** The
+archive contains exactly nine such pairs and no station has two layouts of the
+same width, so a headerless file's column meanings come from here rather than
+from whichever sibling happened to have a header first. An undeclared width is a
+hard build failure, not a fallback.
+
+`maker-webhooks` is the only station with two layouts (10 and 11 columns), and
+the added `solar2` sits between `dump` and `LiPo` — so reading the 11-column
+files with the 10-column order would put LiPo's value in `solar2` and wind's in
+`dump_adc`, both banded, both plausible, both wrong.
+
+## `flags`
+
+Comma-separated, so one row can carry several. Two families are parameterised by
+channel, `no_signal:<channel>` and `bad_window:<channel>`.
+
+| Flag | Meaning |
+|---|---|
+| `out_of_range` | Outside **this station's** band for **this channel**, in the unit the value is stored in. Kept, always. |
+| `sentinel` | The sheet wrote a placeholder. Stored as NULL; the raw cell is in `rejects`. |
+| `no_signal:<channel>` | A `NULL_WINDOWS` entry. Stored as NULL; the raw cell is in `rejects`. |
+| `bad_window:<channel>` | A `BAD_WINDOWS` entry. Kept and flagged: the sample is real even if the level is not. |
+| `schema_misaligned` | The row's width did not match the catalog's layout for it. |
+| `free_text` | The cell held prose. Recovered into `notes`. |
+
+## `rejects`
+
+Every cell that did not become a reading, with `sheet_row`, `raw_value` and
+`reason`. **`reason` is a stable category, never a sentence.** This is not a style
+preference: 0.8 stored the collector's ~300-character note as the reason on each
+of the 220,069 cells a window nulled, which put one paragraph into 220,069 rows,
+cost 80.6 MiB, made `rejects` larger than `readings`, and turned 4,403 duplicate
+timestamps into 4,361 singleton groups in the report because the timestamp was
+interpolated into the text. The category goes in the row; the prose lives once in
+`etl/config.py` and the report republishes it.
+
+| `reason` | Rows | Meaning |
 |---|---:|---|
-| `null_window` | 221,433 | A `NULL_WINDOWS` entry: the stored number was a false claim — 0.0 V from a panel, or 200 as a stand-in for "no temperature". Value nulled |
-| `station_setup` | 6,144 | A `FILE_EXCLUSIONS` entry: the whole source file is the collector's system setup rather than measurement. Every data row is recorded individually, with its sheet row and timestamp |
-| `duplicate_ts` | 2,249 | Absorbed by the `(station_id, ts_utc)` primary key; the instant is in `raw_value` |
-| `pre_reinstall` | 100 | A `ROW_EXCLUSIONS` entry: rows before a hardware reinstall the collector confirmed unusable |
-| `repeated header row` | 3 | A header row repeated inside a headerless chunk |
+| `null_window` | 220,074 | A `NULL_WINDOWS` entry: the sheet logged a placeholder rather than a measurement |
+| `sentinel` | 32,916 | A placeholder cell. 0.8 counted these in a flag and did not record them |
+| `station_setup` | 4,121 | A `FILE_EXCLUSIONS` entry: the file is the collector's setup, not measurement |
+| `duplicate_ts` | 2,250 | Absorbed by the primary key; the instant is in `raw_value` |
+| `pre_reinstall` | 100 | A `ROW_EXCLUSIONS` entry: rows before a confirmed hardware reinstall |
+| `repeated_header` | 2 | A header row repeated inside a headerless chunk |
 
-### `metric_defs`
+A same-station duplicate timestamp lands here. The ~121,000 timestamps shared
+*between* stations are separate instruments sampling the same instant, and both
+are kept.
 
-What each raw column of each station means, and how confident we are. One row per
-`(station_id, source_dir, n_columns, col_index)`.
+`notes` holds human prose found in a data cell or a side block, anchored to
+`ts_utc` and the spreadsheet column. Currently 11. The side-block test is
+structural — not a number, not a timestamp, not a header word from the catalog,
+not a clock or a date — because a 20-character length threshold drops
+`STROMAUSFALL!!`, which is 14 characters of genuine prose.
+
+## `channel_stats`
+
+One row per `(station, channel)`, measured on the real archive: `n_values`,
+`n_nulls`, `first_ts_utc`, `last_ts_utc`, `min`, `max`, `mean`, `p01`, `p50`,
+`p99`, `n_zero`, `n_sentinel`, `n_null_window`, `n_out_of_range`, `n_constant`.
+
+This is the per-station documentation the project exists to produce, and it is
+*measured* rather than asserted — so a band that starts firing on a third of a
+record shows up as a number that moved. The percentiles are nearest-rank, which
+matters: an interpolated percentile over a channel that is 99% one value invents
+a value the channel never recorded.
+
+## `readings_hourly` and `readings_daily`
+
+Pre-aggregated so the website never scans a raw table. Both are keyed by
+`station_id` because the tables are shared, and their value columns are the union
+over stations of the published channels' statistics. `readings_daily` is derived
+from `readings_hourly`, so the two cannot disagree — there is no second
+aggregation to reach a different answer.
 
 | Column | Meaning |
 |---|---|
-| `n_columns` | Width of the raw layout this row describes |
-| `col_index` | 0-based index in the raw sheet |
-| `raw_name` | Header text, `''` when the file had no header |
-| `canonical_col` | Target column in `readings`, NULL when unmapped |
-| `confidence` | `high` for an exact header match, else lower |
-| `inferred` | 1 when the names were borrowed from a donor file |
-| `reason` | Why it mapped, or why it did not |
-| `n_files` | Files in the folder using this layout |
+| `ts_utc` / `day` | The UTC hour, or the **local** calendar day |
+| `ts_utc_day` (daily) | The UTC midnight of that day label. Not the same instant, and both are provided. |
+| `n_samples` | Raw readings in the bucket; `n_hours` is how many hourly buckets the day was derived from |
+| `n_out_of_range` | Samples in the bucket with any out-of-band value |
+| `<channel>_<stat>` | `avg`, `min` or `max`, chosen per channel: a LiPo pack's health is its lowest reading, a power spike is a peak |
+| `<channel>_n_oor` | Samples in the bucket **that channel's** band rejected |
 
-`n_columns` is part of the key because a folder is a chronological run of chunks
-from one applet and the applet may change its columns partway through. `aisvn`
-went from 10 columns to 11 on 2020-06-17 when a `power` channel was added, so
-column 4 is `load` in one file and `power` in the other 38; `test` holds two
-unrelated schemas (4 columns of nix/temp/wifi probe for 16 of its 19 files, 11
-columns of solar channels for 2). Keyed on the column index alone, a folder can
-hold only one meaning per index and the second layout overwrites the first.
+**Per-channel counters, and why.** The row-level count cannot say *which* channel
+broke. 0.8's worked example was `phumy2`: every sample of every hour was flagged,
+so 30-of-30 carried no information, while the same hour's `power_w_n_oor` of 1 was
+the entire finding. A channel with **no** band gets no counter — it would only
+ever ship zeros, and a zero that means "not measured" is worse than no column.
 
-`confidence` is the column to filter on before trusting an automatic analysis.
+**Counters are `min` and `max`, never a mean.** A mean across a reboot averages
+two boot sessions into a number that never happened. A bucket whose min is 1
+restarted; the max is how long it had been up.
 
-### `regimes`
+**There is no `energy_wh`.** 0.8 computed it as
+`avg_power * n_samples * 2 / 3600` for every station, which asserts a 2-minute
+cadence and multiplies it by a power channel six of the eight stations do not
+have — and for `phumy2` by a channel that is not a measurement. 731,885 readings
+have a timestamp and nothing else.
 
-Windows over which a column's scaling is believed constant. Written by
-`etl.normalize.units` with `status='unconfirmed'` and the evidence as JSON.
+## The site data
 
-| Column | Meaning |
+`public/data/` is 3.3 MiB, committed, and generated by `python -m etl export`.
+
+| Path | Contents |
 |---|---|
-| `scale` | Proposed multiplier, e.g. `0.001` for millivolts |
-| `valid_from`, `valid_to` | Half-open UTC window; `valid_to` NULL means open |
-| `status` | `unconfirmed` \| `confirmed` \| `rejected` |
-| `detected_by` | `range` (heuristic) or `manual` |
-| `confidence` | `high` \| `medium` \| `low` |
+| `{station}/hourly/{year}.csv` | `ts, n_samples`, then that station's channels' statistics, then their `_n_oor` |
+| `{station}/daily/{year}.csv` | The same, plus `n_hours` |
+| `stations.json` | Every station, its channel list with unit/band/decimals/observed range, the excluded channels with reasons, its years and its table name |
+| `metrics.json` | The same bands, keyed `"<station>.<channel>"` |
+| `quality.json` | The whole report, for the inspector tab |
 
-**No code applies an unconfirmed regime.** A human promotes one to `confirmed`
-after checking it against the hardware.
+32 CSVs: 16 station-years at two resolutions.
 
-### `rejects` and `notes`
+**A station's CSV carries only the channels that station collects.** The header
+is generated per station, so there is nothing to discover and nothing to keep in
+step. 0.8 wrote 32 statistic columns into every CSV for all 16 station-years, so
+`phumy2` shipped 27 columns of NULL and the browser had to work out which were
+real. An empty column is allowed — a null window can empty one for a whole file
+— and `scripts/check_frontend.mjs` requires it to have a documented reason.
 
-`rejects` holds every cell that did not become a reading, with `sheet_row`,
-`raw_value` and `reason`. `reason` is a stable category so the report can group
-by it; currently `repeated header row` (6) and `duplicate_ts` (4,403).
-
-A same-station duplicate timestamp lands here too. The `readings` primary key
-keeps the first copy and absorbs the second, and the absorbed row is recorded
-here so it stays inspectable. This is distinct from the ~121,000 timestamps
-shared *between* stations, which are separate instruments sampling the same
-instant and are both kept as normal readings.
-
-`notes` holds human prose found in a data cell, anchored to `ts_utc` and the
-spreadsheet column it came from. Currently 10 rows; see `CHANGELOG.md` F4.
-
-### `readings_hourly` and `readings_daily`
-
-Pre-aggregated so the website never scans the raw table. `readings_daily` is
-derived from `readings_hourly`, so the two cannot disagree — `check_frontend.mjs`
-checks that every day and every sample count matches across the pair.
-
-Which columns exist, and which statistic each one holds, is declared **once**, in
-`etl/rollup_schema.py`, and imported by both the aggregate stage and the export
-stage. Three places need to agree on that list — the schema, the SQL and the CSV
-header — and they already had drifted once.
-
-- `day` is the **local** calendar day; `ts_utc_day` is the UTC midnight of that
-  local day. They are not the same instant and both are provided.
-- `<channel>_<stat>` is `avg`, `min` or `max`, chosen per channel: a LiPo pack's
-  health is its lowest reading, a power spike is a peak.
-- `<channel>_n_oor` counts the samples in the bucket whose value fell outside the
-  channel's band in `etl/normalize/metrics.py`, applied one channel at a time.
-  This exists because the row-level `n_out_of_range` cannot say *which* channel
-  broke: for `phumy2` every sample of every hour is flagged (`current2_a` reads
-  ~232 against a ±50 A band), so 30-of-30 carries no information — while the same
-  hour's `power_w_n_oor` of 1 is the entire finding. That hour averages one
-  sample of 19,877 W into 29 zeros and lands on 662.57 W, inside the ±2000 W
-  band, so the value alone says nothing is wrong.
-- `boot_count_min` / `boot_count_max` carry the logger's own monotonic read
-  counter, which resets on reboot. Min and max, never a mean: a mean across a
-  reboot averages two boot sessions into a number that never happened. A bucket
-  whose min is 1 restarted; the max is how long it had been up. This is the only
-  channel recording the hardware's view of its own uptime, and it is absent for
-  `solar-2020-05` and `voltage-phumy`, whose sheets have no such column.
-- `energy_wh` assumes a 2-minute nominal cadence
-  (`avg_power * n_samples * 2 / 3600`), which matches 357 of 364 files.
-
-### `channel_ranges` (in `quality.json`, not a table)
-
-What each channel actually recorded, per station, beside what it is banded to.
-The band is one global answer per column name and is not enough on its own:
-`battery_v` is banded 9–16 V for a 12 V lead-acid pack — the collector confirms
-`aisvn`'s is a lead car battery, not the 3S LiPo this band was once described as
-belonging to — and `aisvn` reads up to 29.6 V. That is
-either a second pack, an unconfirmed scale, or a band wrong for the site it is
-installed in, and the archive cannot say which — so both are reported and the
-disagreement is the finding.
+An empty cell is a gap, never a 0. `0 W` at midnight is a measurement.
 
 ## Artefacts
 
-| Path | Format | Size | In git? | Purpose |
-|---|---|---|---|---|
-| `data/processed/solardata.db` | SQLite | 166 MiB VACUUMed | no | Canonical store, query in place. 19 MiB gzipped as a Release asset |
-| `data/processed/parquet/` | Parquet, `station=X/year=Y` | 7.5 MiB | **yes** | Interchange; pandas/duckdb/dask. All 730,914 readings at the native 119 s cadence |
-| `public/data/{station}/daily/{year}.csv` | CSV | 0.28 MiB | **yes** | Daily rollups the site's Day view fetches. 15 files, 1,181 buckets |
-| `public/data/{station}/hourly/{year}.csv` | CSV | 5.2 MiB | **yes** | Hourly rollups the site's Hour view fetches. 15 files, 25,528 buckets |
-| `public/data/stations.json` | JSON | 5 KB | **yes** | Station metadata, coverage, which rollups exist, per-station unit overrides |
-| `public/data/metrics.json` | JSON | 4 KB | **yes** | The plausibility bands, verbatim from the ETL |
-| `public/data/quality.json` | JSON | 98 KB | **yes** | The whole report, for the inspector tab |
-| `data/processed/quality_report.md` | Markdown | ~10 KB | **yes** | The review artefact |
-| `data/processed/quality_report.json` | JSON | ~80 KB | **yes** | Machine-readable form of the same |
-| `data/baseline.json` | JSON | ~1 KB | **yes** | Expected counts, enforced by CI |
+| Path | In git? | Purpose |
+|---|---|---|
+| `data/processed/solardata.db` | no | Canonical store. ~85 MiB VACUUMed; a Release asset |
+| `data/processed/quality_report.md` / `.json` | **yes** | The review artefact, per station |
+| `public/data/` | **yes** | What the site fetches |
+| `data/baseline.json` | **yes** | Expected counts, enforced by CI |
+| `data/raw/**` | **yes** | The primary source of truth. Never edit. |
 
-`public/data/` is committed because the site is static: GitHub Pages serves the
-files straight from a clone, and a frontend-only change must not need the ingest.
-`solardata.db` is gitignored — at 166 MiB it is over GitHub's 100 MiB
-per-file limit. `release.yml` ships it VACUUMed and gzipped (19 MiB); the
-committed Parquet is 7.5 MiB for the same 730,914 rows and needs no download
-at all.
-Everything is rebuilt with `make build`; the database is also distributed as a
-Release asset.
-
-`stations.json` is the one export that grew: it now carries `channel_units` per
-station, so the browser can divide a channel by the unit that station actually
-logged. Seven of the eight have `{}`; `test` carries `temp_c` at `0.01 degC`
-where the rest of the archive uses tenths. A station without an override is a
-miss in the lookup, not an undefined property — see `discoverChannels` in
-`src/data.js` and the assertion in `scripts/check_render.mjs`.
+0.9 removed the committed `data/processed/parquet/` tree along with the stage
+that wrote it and `scripts/parquet_manifest.py`. A fifth build stage with its own
+manifest comparison and its own `pyarrow` dependency is not a fifth thing this
+dataset needs; the SQLite file is the distribution channel.
 
 ## `data/baseline.json`
 
-The expected output of a build, enforced by `python -m etl verify` and by CI.
+The expected output of a build, enforced by `python -m etl verify` and by
+`data.yml`.
 
 | Field | Guards against |
 |---|---|
-| `readings` | The headline number. Any drift means a change in what was ingested. |
-| `files` | A raw file disappeared or was skipped. |
-| `stations` | The station registry changed. |
-| `duplicate_ts` | `INSERT OR IGNORE` dedupe changed behaviour. |
-| `malformed_rejects` | The timestamp parser got stricter or looser. |
+| `readings` | The headline. A sum over the eight station tables, because there is no longer one `readings` table to `COUNT(*)`. |
+| `files`, `stations` | A raw file disappeared, or the registry changed. |
+| `duplicate_ts`, `rejects`, `sentinels`, `null_windows` | The dedupe, the coercion or the windows changed behaviour. |
 | `notes` | Note recovery changed; these are human context, not noise. |
-| `unconfirmed_regimes` | The scale detector moved, which may mean a new finding. |
-| `headerless_without_donor` | **Pinned to 0.** Non-zero means a headerless file's measurements were discarded. |
-| `hourly_buckets`, `daily_buckets` | The aggregate rollups changed shape. |
+| `excluded_files` | A file exclusion stopped matching. |
+| `out_of_range` | **The number 0.9 exists for.** 631,252 → 3,695. A band firing on most of a record moves this. |
+| `channel_stats` | The per-station measurement pass ran on every channel. |
+| `hourly_buckets`, `daily_buckets` | The rollups changed shape. |
+| `undeclared_layouts` | **Pinned to 0.** Non-zero means a raw file was ingested with no column meanings. |
 
-`recorded.reason` is required and travels with the file, so a future diff
-explains itself without re-running anything.
+`recorded.reason` is required and travels with the file, so a future diff explains
+itself without re-running anything. Never loosen the file by hand: a failing
+build is the point.
