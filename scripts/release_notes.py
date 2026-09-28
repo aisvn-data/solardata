@@ -28,6 +28,7 @@ non-zero as a failure, so a version bump that forgot the changelog cannot ship.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import sys
@@ -123,7 +124,31 @@ def release_notes(version: str | None = None) -> tuple[str, list[str]]:
     return body, problems
 
 
+def _utf8_stdout() -> None:
+    """Make stdout able to print the changelog on a Windows console.
+
+    A changelog is prose, and prose contains em dashes and arrows. Python's
+    stdout on Windows defaults to the active code page -- cp1252 for most of
+    Western Europe -- so printing a note containing one raises
+    ``UnicodeEncodeError`` and takes the whole run down. The failure is a
+    traceback in a script whose entire job is printing text, and it happens on
+    the platform the collector actually works on.
+
+    The same shape as ``etl.readers.times`` refusing ``strptime``: the C library's
+    locale tables are not loaded on Windows, and the answer is not to depend on
+    them. Reconfigure where the API exists and fall back quietly where it does
+    not, because a POSIX ``PYTHONIOENCODING`` is the right answer already.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        with contextlib.suppress(ValueError, OSError):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument(
         "--check",

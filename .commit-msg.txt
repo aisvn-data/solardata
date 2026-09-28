@@ -1,0 +1,32 @@
+Cut 0.10.1, and make the release-notes script able to print its own notes
+
+`package.json`, `etl/__init__.py` and `pyproject.toml` move to 0.10.1, with a
+changelog section covering the four commits that shipped after the `v0.10.0`
+tag: the band-note count fix, `test.wifi_raw` in the unit the collector named,
+the `Voltage_phumy` re-save, and the `docs/pipeline.md` guard.
+
+Nothing about the data changes. 731,885 readings, 364 files, `out_of_range`
+still 40,393, `verify` matches the baseline, audit clean, 174 tests.
+
+The `v0.10.0` tag stays where it is. It was cut before these four commits, and
+moving it would rewrite the ref a published release points at.
+
+## Fixed
+
+`scripts/release_notes.py` could not print the 0.10.0 notes on Windows. A
+changelog is prose, and prose contains em dashes and arrows; Python's stdout on
+Windows defaults to the active code page, cp1252, which has no `U+2192`. So:
+
+    UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'
+
+Exit 1, in a script whose entire job is printing text, on the platform the
+collector works on. It would have hit any release whose section contains a
+character outside cp1252 -- which is most of them, and 0.10.0's certainly is.
+`--check` never caught it, because the check path does not print the notes.
+
+Stdout and stderr are reconfigured to UTF-8 before anything is written, falling
+back quietly where the API does not exist. Same shape as
+`etl.readers.times` refusing `strptime`: the C library's locale tables are not
+what we should be depending on.
+
+174 tests, no data change.
