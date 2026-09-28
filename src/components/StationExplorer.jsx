@@ -670,7 +670,7 @@ export default function StationExplorer() {
             active={s.station_id === stationId}
             onPick={() => {
               setStationId(s.station_id)
-              setYear(s.years[s.years.length - 1].year)
+              setYear(yearForPick(s))
             }}
           />
         ))}
