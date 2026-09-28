@@ -179,11 +179,7 @@ def write_clean_xlsx(output_path: Path, header: list[str], rows: list[list[str]]
                         else:
                             row_cells.append(f'<c r="{ref}"><v>{s_val}</v></c>')
                     except ValueError:
-                        esc = (
-                            s_val.replace("&", "&amp;")
-                            .replace("<", "&lt;")
-                            .replace(">", "&gt;")
-                        )
+                        esc = s_val.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                         row_cells.append(f'<c r="{ref}" t="inlineStr"><is><t>{esc}</t></is></c>')
 
                 sheet_f.write(f'<row r="{r_idx}">{"".join(row_cells)}</row>\n'.encode())
@@ -312,7 +308,9 @@ def clean_voltage_phumy(raw_dir: Path, archive_dir: Path) -> None:
         dst = archive_dir / "Voltage_phumy"
         print(f"  Archiving {old_folder} -> {dst}")
         archive_dir.mkdir(parents=True, exist_ok=True)
-        res = subprocess.run(["git", "mv", str(old_folder), str(dst)], capture_output=True, text=True)
+        res = subprocess.run(
+            ["git", "mv", str(old_folder), str(dst)], capture_output=True, text=True
+        )
         if res.returncode != 0:
             if dst.exists():
                 shutil.rmtree(dst)
@@ -354,13 +352,15 @@ def consolidate_station(
         hdr, body, first_ts, primary_w = inspect_raw_chunk(p)
         if not body:
             continue
-        parsed_chunks.append({
-            "path": p,
-            "header": hdr,
-            "body": body,
-            "first_ts": first_ts,
-            "primary_width": primary_w,
-        })
+        parsed_chunks.append(
+            {
+                "path": p,
+                "header": hdr,
+                "body": body,
+                "first_ts": first_ts,
+                "primary_width": primary_w,
+            }
+        )
 
     parsed_chunks.sort(key=lambda c: c["first_ts"] or datetime.max)
     print(f"  First chunk: {parsed_chunks[0]['path'].name} ({parsed_chunks[0]['first_ts']})")
@@ -372,7 +372,7 @@ def consolidate_station(
     n_boundary_dups = 0
 
     for chunk in parsed_chunks:
-        is_maker_10 = (station_key == "Maker_Webhooks_Events" and chunk["primary_width"] == 10)
+        is_maker_10 = station_key == "Maker_Webhooks_Events" and chunk["primary_width"] == 10
         for r in chunk["body"]:
             if not r or not r[0] or looks_like_header(r[0]):
                 continue
@@ -454,9 +454,7 @@ def main():
         clean_voltage_phumy(raw_dir, archive_dir)
         return
 
-    stations_to_process = (
-        list(STATION_SPECS.keys()) if args.station == "all" else [args.station]
-    )
+    stations_to_process = list(STATION_SPECS.keys()) if args.station == "all" else [args.station]
 
     for st in stations_to_process:
         consolidate_station(st, raw_dir, archive_dir, dry_run=args.dry_run)
