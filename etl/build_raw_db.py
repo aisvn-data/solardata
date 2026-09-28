@@ -244,6 +244,17 @@ def build_raw_db(settings: Settings, *, verbose: bool = True, force: bool = Fals
         )
 
         file_id_counter = 0
+
+        # Ensure all 8 raw station tables exist upfront even if a station has no raw files
+        for station in catalog.STATIONS:
+            table = raw_table_name(station.station_id)
+            col_defs = ", ".join(
+                f"{ch.name} {'TEXT' if ch.kind == 'text' else 'INTEGER'}" for ch in station.channels
+            )
+            conn.execute(
+                f"CREATE TABLE IF NOT EXISTS {table} (ts INTEGER PRIMARY KEY, {col_defs}, flags TEXT NOT NULL DEFAULT '') WITHOUT ROWID"
+            )
+
         sources = settings.raw_sources()
         for source in sources:
             station = catalog.station_for_source(source.name)
@@ -261,14 +272,6 @@ def build_raw_db(settings: Settings, *, verbose: bool = True, force: bool = Fals
                 continue
 
             table = raw_table_name(station.station_id)
-            col_defs = ", ".join(
-                f"{ch.name} {'TEXT' if ch.kind == 'text' else 'INTEGER'}" for ch in station.channels
-            )
-
-            conn.execute(
-                f"CREATE TABLE {table} (ts INTEGER PRIMARY KEY, {col_defs}, flags TEXT NOT NULL DEFAULT '') WITHOUT ROWID"
-            )
-
             tz = ZoneInfo(station.tz)
             station_rows = 0
             min_ts: int | None = None
