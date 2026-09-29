@@ -39,13 +39,15 @@ import QualityInspector from '../src/components/QualityInspector.jsx'
 import DiffInspector from '../src/components/DiffInspector.jsx'
 import {
   DEFAULT_VIEW,
+  buildExploreHash,
   defaultSelection,
   monthBounds,
   openingView,
+  parseExploreHash,
   rangeForLoad,
   yearForPick,
 } from '../src/components/StationExplorer.jsx'
-import { channelsFor, filterByRange, loadRollup } from '../src/data.js'
+import { channelsFor, filterByRange, loadRollup, summarise } from '../src/data.js'
 
 // Anchored on the working directory, not on this file's location: the check is
 // built into `node_modules/` before it runs, so `import.meta.url` would put the
@@ -741,6 +743,56 @@ await check('the picker is driven by the station, not by a fixed list', () => {
   )
   assert.equal(counts.test, 3, 'the probe offers its three channels')
   assert.equal(counts['voltage-phumy'], 4, 'the calibration sheet offers four')
+})
+
+await check('TimeSeriesChart renders 175k raw telemetry rows without call stack overflow', () => {
+  const count = 175000
+  const largeRows = []
+  const baseDate = 1592188140000
+  for (let i = 0; i < count; i++) {
+    largeRows.push({
+      key: `2023-01-01T00:00:00Z:${i}`,
+      date: baseDate + i * 120000,
+      day: '2023-01-01 00:00:00',
+      dateDay: '2023-01-01',
+      values: { battery_v: 12.4 + (i % 10) * 0.05, solar_v: 18.0 + (i % 20) * 0.1 },
+      byStat: { battery_v: { raw: 12.4 }, solar_v: { raw: 18.0 } },
+      stats: { battery_v: 'raw', solar_v: 'raw' },
+      nSamples: 1,
+      nHours: 1,
+      nOutOfRange: 0,
+      breaches: [],
+    })
+  }
+  const series = [
+    { key: 'battery_v', channel: 'battery_v', label: 'Battery', stat: 'raw', colour: '#3182ce', decimals: 2, unit: 'V' },
+    { key: 'solar_v', channel: 'solar_v', label: 'Solar', stat: 'raw', colour: '#dd6b20', decimals: 2, unit: 'V' },
+  ]
+  const html = renderToStaticMarkup(
+    React.createElement(TimeSeriesChart, {
+      rows: largeRows,
+      series,
+      resolution: 'raw',
+      height: 340,
+    }),
+  )
+  assert.ok(html.includes('<svg'), 'large row chart did not render SVG')
+  assert.ok(html.includes('class="series-line"'), 'series path missing in large row chart')
+
+  const summary = summarise(largeRows, { channel: 'battery_v' }, 'raw')
+  assert.equal(summary.count, count, 'summarise failed on 175k rows')
+  assert.ok(summary.min !== null && summary.max !== null, 'summarise min/max missing')
+})
+
+await check('hash routing round-trips exploration parameters', () => {
+  const hash = buildExploreHash('phumy2', '2023', 'raw', '2023-05-01', '2023-08-31')
+  assert.equal(hash, '#explore?station=phumy2&year=2023&res=raw&from=2023-05-01&to=2023-08-31')
+  const parsed = parseExploreHash(hash)
+  assert.equal(parsed.stationId, 'phumy2')
+  assert.equal(parsed.year, '2023')
+  assert.equal(parsed.resolution, 'raw')
+  assert.equal(parsed.fromDay, '2023-05-01')
+  assert.equal(parsed.toDay, '2023-08-31')
 })
 
 console.log(`\n${passed} render checks passed`)

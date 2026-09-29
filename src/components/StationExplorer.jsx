@@ -371,12 +371,41 @@ export function yearForPick(station) {
   return years.length > 0 ? years[years.length - 1] : undefined
 }
 
+export function parseExploreHash(hashString) {
+  if (!hashString) return {}
+  const raw = hashString.replace(/^#/, '')
+  const [route, query] = raw.split('?')
+  if (route && route !== 'explore') return {}
+  const params = new URLSearchParams(query || '')
+  return {
+    stationId: params.get('station') || null,
+    year: params.get('year') || null,
+    resolution: params.get('res') || null,
+    fromDay: params.get('from') || null,
+    toDay: params.get('to') || null,
+  }
+}
+
+export function buildExploreHash(stId, yr, res, from, to) {
+  if (!stId || !yr) return '#explore'
+  const params = new URLSearchParams()
+  params.set('station', stId)
+  params.set('year', yr)
+  if (res && res !== DEFAULT_VIEW.resolution) {
+    params.set('res', res)
+  }
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  return `#explore?${params.toString()}`
+}
+
 export default function StationExplorer() {
   const [stations, setStations] = useState([])
   const [stationId, setStationId] = useState(null)
   const [year, setYear] = useState('')
   const [resolution, setResolution] = useState(DEFAULT_VIEW.resolution)
   const [rollup, setRollup] = useState({ header: [], channels: [], rows: [] })
+  const isNavigatingFromHistory = useRef(false)
   // The station/year/resolution `rollup` was actually loaded for.
   //
   // This exists because a rollup that belongs to a different period than the
@@ -448,11 +477,27 @@ export default function StationExplorer() {
         // Every station with a rollup, production or not. Filtering on `published`
         // here is what made the two bench stations disappear from the site.
         setStations(list.filter((s) => s.years.length > 0))
-        const opening = openingView(list)
-        if (opening) {
-          setStationId(opening.stationId)
-          setYear(opening.year)
+        const initParams = typeof window !== 'undefined' ? parseExploreHash(window.location.hash) : {}
+        const initialStation = initParams.stationId && list.find((s) => s.station_id === initParams.stationId)
+        if (initialStation) {
+          setStationId(initialStation.station_id)
+          if (initParams.year && initialStation.years.includes(initParams.year)) {
+            setYear(initParams.year)
+          } else {
+            setYear(yearForPick(initialStation))
+          }
+        } else {
+          const opening = openingView(list)
+          if (opening) {
+            setStationId(opening.stationId)
+            setYear(opening.year)
+          }
         }
+        if (initParams.resolution && ['daily', 'hourly', 'raw'].includes(initParams.resolution)) {
+          setResolution(initParams.resolution)
+        }
+        if (initParams.fromDay) setFromDay(initParams.fromDay)
+        if (initParams.toDay) setToDay(initParams.toDay)
         setLoading(false)
       })
       .catch((err) => {
@@ -463,6 +508,50 @@ export default function StationExplorer() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  // Sync state to browser history when station, year, or resolution changes
+  useEffect(() => {
+    if (!stationId || !year) return
+    if (typeof window === 'undefined') return
+
+    if (isNavigatingFromHistory.current) {
+      isNavigatingFromHistory.current = false
+      return
+    }
+
+    const currentHash = window.location.hash
+    const newHash = buildExploreHash(stationId, year, resolution, fromDay, toDay)
+    if (currentHash !== newHash) {
+      const currentRoute = currentHash.replace(/^#/, '').split('?')[0]
+      if (currentRoute === 'explore' || !currentRoute) {
+        window.history.pushState(
+          { stationId, year, resolution, fromDay, toDay },
+          '',
+          newHash,
+        )
+      }
+    }
+  }, [stationId, year, resolution, fromDay, toDay])
+
+  // Listen to browser popstate (e.g. Back/Forward buttons)
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+
+    function onPopState() {
+      const parsed = parseExploreHash(window.location.hash)
+      if (!parsed.stationId) return
+
+      isNavigatingFromHistory.current = true
+      if (parsed.stationId) setStationId(parsed.stationId)
+      if (parsed.year) setYear(parsed.year)
+      if (parsed.resolution) setResolution(parsed.resolution)
+      if (parsed.fromDay !== undefined) setFromDay(parsed.fromDay || '')
+      if (parsed.toDay !== undefined) setToDay(parsed.toDay || '')
+    }
+
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
   // Load the CSV whenever station, year or resolution changes. The From/To it
