@@ -398,6 +398,7 @@ export default function StationExplorer() {
   const [selectionByView, setSelectionByView] = useState({})
   const [hoverRow, setHoverRow] = useState(null)
   const [hideFlagged, setHideFlagged] = useState(false)
+  const [showStats, setShowStats] = useState(true)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [rawDbReady, setRawDbReady] = useState(isRawDbReady())
@@ -719,10 +720,21 @@ export default function StationExplorer() {
           <>
             <div className="station-heading">
               <h2>{station.display_name}</h2>
-              <p className="muted">
-                {station.location} · {station.tz} · applet <code>{station.applet}</code> ·{' '}
-                <code>{station.table}</code>
-              </p>
+              <div className="station-meta-row">
+                <p className="muted">
+                  {station.location} · {station.tz} · applet <code>{station.applet}</code> ·{' '}
+                  <code>{station.table}</code>
+                </p>
+                <button
+                  type="button"
+                  className="stats-toggle-btn"
+                  onClick={() => setShowStats((prev) => !prev)}
+                  title={showStats ? 'Hide summary statistics tiles' : 'Show summary statistics tiles'}
+                  aria-expanded={showStats}
+                >
+                  {showStats ? 'Hide Stats ▲' : 'Show Stats ▼'}
+                </button>
+              </div>
             </div>
 
             {!station.is_production && (
@@ -739,14 +751,16 @@ export default function StationExplorer() {
              * read that chart sit directly under it — where they are read *after*
              * the line has been interpreted, instead of being skipped above it.
              */}
-            <StatTiles
-              station={station}
-              rows={plotted}
-              metric={primary}
-              stat={headlineStat}
-              summary={summary}
-              range={fromDay || toDay ? { from: fromDay || 'start', to: toDay || 'end' } : null}
-            />
+            {showStats && (
+              <StatTiles
+                station={station}
+                rows={plotted}
+                metric={primary}
+                stat={headlineStat}
+                summary={summary}
+                range={fromDay || toDay ? { from: fromDay || 'start', to: toDay || 'end' } : null}
+              />
+            )}
 
             <TimeControls
               years={station.years}

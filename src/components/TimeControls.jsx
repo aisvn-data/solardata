@@ -188,13 +188,10 @@ export default function TimeControls({
             checked={hideFlagged}
             onChange={(e) => onHideFlaggedChange(e.target.checked)}
           />
-          Hide values that are outside their channel&apos;s recorded band, or built
-          partly from samples that are
+          Hide values outside recorded band
         </label>
         {' · '}
-        The band is the one the pipeline applies to every raw reading. Hiding one
-        is a reading aid, not a judgement: the value stays in the database, in the
-        Parquet export and in the flagged list under the chart.
+        Pipeline filter aid; flagged readings remain preserved in the full database and list below.
       </p>
     </div>
   )
