@@ -635,7 +635,7 @@ await check('TimeControls accepts the props StationExplorer passes it', async ()
   assert.ok(html.includes('Resolution'), 'the resolution switch is missing')
   assert.ok(html.includes('Quick range'), 'the quick-range buttons are missing')
   assert.ok(
-    html.includes('Hide values that are outside'),
+    html.includes('Hide values outside recorded band'),
     'the flagged-value toggle is missing',
   )
   // Two checkboxes per selected channel, at least.

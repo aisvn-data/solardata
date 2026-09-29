@@ -117,7 +117,33 @@ nav a.active { color: #102a43; font-weight: 700; }
 
 .explorer-main { min-width: 0; }
 .station-heading h2 { margin-bottom: 4px; }
-.station-heading p { margin-bottom: 20px; }
+.station-heading p { margin-bottom: 0; }
+.station-meta-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.stats-toggle-btn {
+  background: #f0f4f8;
+  border: 1px solid #d9e2ec;
+  border-radius: 6px;
+  color: #486581;
+  cursor: pointer;
+  font: inherit;
+  font-size: .75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  transition: all .15s ease;
+  white-space: nowrap;
+}
+.stats-toggle-btn:hover {
+  background: #e2e8f0;
+  border-color: #bcccdc;
+  color: #102a43;
+}
 .station-note { font-size: .82rem; margin-top: 14px; }
 
 /* Stated at the top of a bench station's panel, because a reader who charts a
