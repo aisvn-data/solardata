@@ -726,3 +726,213 @@ nav a.active { color: #102a43; font-weight: 700; }
 .band-inputs input { width: 90px; }
 .rule-correction-info { margin-top: 4px; }
 
+/* Annual Quality Heatmap */
+.year-heatmap-container {
+  background: #fff;
+  border: 1px solid #e5edf3;
+  border-radius: 12px;
+  margin-top: 24px;
+  margin-bottom: 24px;
+  padding: 18px 22px;
+}
+.heatmap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 14px;
+}
+.heatmap-title h4 {
+  margin: 0 0 4px 0;
+  font-size: 1.05rem;
+  color: #102a43;
+}
+.heatmap-svg-scroll {
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+.heatmap-svg {
+  display: block;
+}
+.heatmap-month-label {
+  fill: #64748b;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.heatmap-day-label {
+  fill: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+.heatmap-cell {
+  cursor: pointer;
+  transition: opacity 0.15s ease, stroke 0.15s ease;
+}
+.heatmap-cell:hover {
+  opacity: 0.85;
+  stroke: #0284c7;
+  stroke-width: 1.5;
+}
+.heatmap-cell.cell-selected {
+  stroke: #0284c7;
+  stroke-width: 2;
+}
+.heatmap-status-bar {
+  margin-top: 10px;
+  min-height: 24px;
+}
+.heatmap-tooltip {
+  font-size: 0.85rem;
+  color: #334e68;
+}
+.badge-status-black {
+  background: #0f172a;
+  color: #fff;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.badge-status-green {
+  background: #dcfce7;
+  color: #15803d;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.badge-status-orange {
+  background: #ffedd5;
+  color: #c2410c;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.badge-status-red {
+  background: #fee2e2;
+  color: #b91c1c;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+.legend-label {
+  font-weight: 700;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* 24-Hour Diurnal Overlay Chart */
+.diurnal-chart-container {
+  background: #fff;
+  border: 1px solid #e5edf3;
+  border-radius: 12px;
+  margin-top: 24px;
+  margin-bottom: 24px;
+  padding: 18px 22px;
+}
+.diurnal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.diurnal-title h4 {
+  margin: 0 0 4px 0;
+  font-size: 1.05rem;
+  color: #102a43;
+}
+.diurnal-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.diurnal-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+.diurnal-picker select {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  color: #1e293b;
+}
+.diurnal-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: #475569;
+  cursor: pointer;
+}
+.diurnal-svg-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+.diurnal-svg {
+  display: block;
+  min-width: 720px;
+}
+.diurnal-x-label {
+  fill: #64748b;
+  font-size: 0.72rem;
+  font-family: inherit;
+}
+.diurnal-x-label.bold {
+  font-weight: 700;
+  fill: #0f172a;
+}
+.diurnal-axis-text {
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: monospace;
+}
+.diurnal-trace {
+  transition: stroke-opacity 0.15s ease;
+}
+.diurnal-footer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+.diurnal-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.diurnal-badge {
+  border: 1px solid;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+

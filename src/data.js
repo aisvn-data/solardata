@@ -235,6 +235,18 @@ function applyChannelCorrection(val, tsUtc, channelConfig) {
   return typeof res === 'number' ? Math.round(res * 1e9) / 1e9 : res
 }
 
+export const VIETNAM_TZ_OFFSET_MS = 7 * 3600 * 1000
+
+export function toLocalWallClock(utcEpochMs) {
+  const local = new Date(utcEpochMs + VIETNAM_TZ_OFFSET_MS)
+  const iso = local.toISOString()
+  return {
+    dayHourly: iso.slice(0, 16).replace('T', ' '),
+    dayRaw: iso.slice(0, 19).replace('T', ' '),
+    dateDay: iso.slice(0, 10),
+  }
+}
+
 export async function loadRawYear(stationId, year) {
   const [db, stations, normalization, bands] = await Promise.all([
     initRawDatabase(),
@@ -247,8 +259,9 @@ export async function loadRawYear(stationId, year) {
   const stationNorm = normalization?.stations?.[stationId] ?? {}
   const tableName = `r_${stationId.replace(/-/g, '_')}`
 
-  const minTs = Math.floor(Date.parse(`${year}-01-01T00:00:00Z`) / 1000)
-  const maxTs = Math.floor(Date.parse(`${year}-12-31T23:59:59.999Z`) / 1000)
+  // Vietnam is UTC+07:00 with no DST. Bound query in UTC matching the local calendar year.
+  const minTs = Math.floor(Date.parse(`${year}-01-01T00:00:00Z`) / 1000) - 7 * 3600
+  const maxTs = Math.floor(Date.parse(`${year}-12-31T23:59:59.999Z`) / 1000) - 7 * 3600
 
   const stmt = `SELECT * FROM ${tableName} WHERE ts >= ${minTs} AND ts <= ${maxTs} ORDER BY ts ASC`
   const result = db.exec(stmt)
@@ -272,8 +285,9 @@ export async function loadRawYear(stationId, year) {
     const ts = rowArr[tsIndex]
     const instant = new Date(ts * 1000).toISOString()
     const stamp = instant.replace('.000Z', 'Z')
-    const dateDay = stamp.slice(0, 10)
-    const day = stamp.slice(0, 19).replace('T', ' ')
+    const local = toLocalWallClock(ts * 1000)
+    const dateDay = local.dateDay
+    const day = local.dayRaw
     const date = ts * 1000
 
     const rowValues = {}
@@ -433,6 +447,15 @@ function decorateRow(raw, folder, columns, timeColumn) {
   // Asia/Ho_Chi_Minh, which is why the label and the instant are kept apart.
   const stamp = raw[timeColumn] ?? ''
   const instant = hourly ? stamp : `${stamp}T00:00:00Z`
+  const utcEpochMs = Date.parse(instant)
+
+  let day = stamp
+  let dateDay = stamp.slice(0, 10)
+  if (hourly && stamp) {
+    const local = toLocalWallClock(utcEpochMs)
+    day = local.dayHourly
+    dateDay = local.dateDay
+  }
 
   // Per-channel out-of-range counts, kept per channel rather than summarised
   // into a row-level count, because the row-level count cannot say which channel
@@ -461,12 +484,11 @@ function decorateRow(raw, folder, columns, timeColumn) {
     // The row's own identifier, kept verbatim so a value on screen can be found
     // in the CSV and in the database without a conversion in the reader's head.
     key: stamp,
-    // What the axis and the readout print.
-    day: hourly ? stamp.slice(0, 16).replace('T', ' ') : stamp,
-    // What the From/To date inputs compare against, so a range boundary lands
-    // on the day a reader typed rather than on the first hour of it.
-    dateDay: stamp.slice(0, 10),
-    date: Date.parse(instant),
+    // What the axis and the readout print (in local wall clock time).
+    day,
+    // What the From/To date inputs compare against (local date).
+    dateDay,
+    date: utcEpochMs,
     tsUtcDay: hourly ? stamp : `${stamp}T00:00:00Z`,
     nSamples: num(raw.n_samples),
     // An hourly bucket is one hour wide by construction; the daily rollup

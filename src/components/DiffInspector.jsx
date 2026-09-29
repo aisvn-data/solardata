@@ -7,6 +7,7 @@ import {
   loadNormalization,
   loadStations,
   onRawDbReady,
+  toLocalWallClock,
 } from '../data.js'
 
 function applyCorrection(val, tsUtc, corrections) {
@@ -31,7 +32,7 @@ function applyCorrection(val, tsUtc, corrections) {
 }
 
 export default function DiffInspector() {
-  const [subTab, setSubTab] = useState('diff') // 'diff' | 'pipeline'
+  const [subTab, setSubTab] = useState('pipeline') // 'pipeline' | 'diff'
   const [stations, setStations] = useState([])
   const [normalization, setNormalization] = useState(null)
   const [curation, setCuration] = useState(null)
@@ -41,7 +42,7 @@ export default function DiffInspector() {
   // Diff query controls
   const [stationId, setStationId] = useState('aisvn')
   const [selectedChannel, setSelectedChannel] = useState('')
-  const [queryDate, setQueryDate] = useState('2020-08-25')
+  const [queryDate, setQueryDate] = useState('2020-06-15')
   const [diffRows, setDiffRows] = useState([])
   const [queryLoading, setQueryLoading] = useState(false)
   const [queryError, setQueryError] = useState(null)
@@ -59,8 +60,12 @@ export default function DiffInspector() {
         setNormalization(normData)
         setCuration(curData)
         setBands(bandsData)
-        if (stList.length > 0 && !stationId) {
-          setStationId(stList[0].station_id)
+        if (stList.length > 0) {
+          const initSt = stList.find((s) => s.station_id === stationId) || stList[0]
+          setStationId(initSt.station_id)
+          if (initSt.first_ts_utc) {
+            setQueryDate(toLocalWallClock(Date.parse(initSt.first_ts_utc)).dateDay)
+          }
         }
       })
       .catch((e) => console.error('Failed to load metadata in DiffInspector:', e))
@@ -79,6 +84,14 @@ export default function DiffInspector() {
     [currentStation],
   )
 
+  const handleStationChange = (newStationId) => {
+    setStationId(newStationId)
+    const st = stations.find((s) => s.station_id === newStationId)
+    if (st?.first_ts_utc) {
+      setQueryDate(toLocalWallClock(Date.parse(st.first_ts_utc)).dateDay)
+    }
+  }
+
   // Execute interactive raw vs curated diff query
   useEffect(() => {
     if (!rawDbReady || !stationId || !queryDate || !normalization) return
@@ -91,8 +104,9 @@ export default function DiffInspector() {
       try {
         const db = await initRawDatabase()
         const tableName = `r_${stationId.replace(/-/g, '_')}`
-        const minTs = Math.floor(Date.parse(`${queryDate}T00:00:00Z`) / 1000)
-        const maxTs = Math.floor(Date.parse(`${queryDate}T23:59:59.999Z`) / 1000)
+        // Convert local calendar day to UTC boundaries (UTC+7 for Vietnam)
+        const minTs = Math.floor(Date.parse(`${queryDate}T00:00:00Z`) / 1000) - 7 * 3600
+        const maxTs = Math.floor(Date.parse(`${queryDate}T23:59:59.999Z`) / 1000) - 7 * 3600
 
         const res = db.exec(
           `SELECT * FROM ${tableName} WHERE ts >= ${minTs} AND ts <= ${maxTs} ORDER BY ts ASC LIMIT 600`,
@@ -116,8 +130,8 @@ export default function DiffInspector() {
           const instant = new Date(ts * 1000).toISOString()
           const stamp = instant.replace('.000Z', 'Z')
           const timeUtc = stamp.slice(11, 16)
-          const localDate = new Date(ts * 1000 + 7 * 3600 * 1000)
-          const timeLocal = localDate.toISOString().slice(11, 16)
+          const local = toLocalWallClock(ts * 1000)
+          const timeLocal = local.dayRaw.slice(11, 16)
 
           const channelsToInspect = selectedChannel
             ? currentChannels.filter((c) => c.channel === selectedChannel)
@@ -237,18 +251,18 @@ export default function DiffInspector() {
       <div className="diff-subnav">
         <button
           type="button"
-          className={subTab === 'diff' ? 'active' : ''}
-          onClick={() => setSubTab('diff')}
-        >
-          Raw vs Curated Diff
-        </button>
-        <button
-          type="button"
           className={subTab === 'pipeline' ? 'active' : ''}
           onClick={() => setSubTab('pipeline')}
         >
           Pipeline Steps & Configuration Editor
           {totalEditsCount > 0 && <span className="diff-pill">{totalEditsCount}</span>}
+        </button>
+        <button
+          type="button"
+          className={subTab === 'diff' ? 'active' : ''}
+          onClick={() => setSubTab('diff')}
+        >
+          Raw vs Curated Diff
         </button>
       </div>
 
@@ -258,7 +272,7 @@ export default function DiffInspector() {
             <div className="control-row">
               <label className="control">
                 <span>Station</span>
-                <select value={stationId} onChange={(e) => setStationId(e.target.value)}>
+                <select value={stationId} onChange={(e) => handleStationChange(e.target.value)}>
                   {stations.map((s) => (
                     <option key={s.station_id} value={s.station_id}>
                       {s.display_name}
@@ -268,7 +282,7 @@ export default function DiffInspector() {
               </label>
 
               <label className="control">
-                <span>Date (UTC)</span>
+                <span>Date (Local Time)</span>
                 <input
                   type="date"
                   value={queryDate}
@@ -319,7 +333,7 @@ export default function DiffInspector() {
               <table className="diff-table">
                 <thead>
                   <tr>
-                    <th>Time (UTC / Local)</th>
+                    <th>Time (Local / UTC)</th>
                     <th>Channel</th>
                     <th>1. Raw Value (solardata_raw.db)</th>
                     <th>2. Normalization Scale</th>
@@ -335,7 +349,7 @@ export default function DiffInspector() {
                       className={r.hasTransform ? 'row-transformed' : ''}
                     >
                       <td className="mono">
-                        {r.timeUtc} <span className="muted">({r.timeLocal})</span>
+                        <strong>{r.timeLocal}</strong> <span className="muted small">({r.timeUtc} UTC)</span>
                       </td>
                       <td>
                         <strong>{r.label}</strong> <span className="muted small">{r.channel}</span>
@@ -458,8 +472,11 @@ export default function DiffInspector() {
                           </div>
 
                           <div className="rule-col-norm">
+                            <span className="step-badge scale" style={{ display: 'inline-block', marginBottom: '6px', fontSize: '0.72rem' }}>
+                              1. Normalization (Hardware Scale)
+                            </span>
                             <label className="inline-label">
-                              <span>Scale Factor:</span>
+                              <span>Scale Multiplier:</span>
                               <input
                                 type="number"
                                 step="any"
@@ -480,6 +497,9 @@ export default function DiffInspector() {
                           </div>
 
                           <div className="rule-col-cur">
+                            <span className="step-badge in-band" style={{ display: 'inline-block', marginBottom: '6px', fontSize: '0.72rem' }}>
+                              2. Curation (Plausibility Filter)
+                            </span>
                             <label className="inline-label">
                               <span>Plausibility Band:</span>
                               <div className="band-inputs">

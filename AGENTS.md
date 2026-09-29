@@ -196,7 +196,12 @@ Column A is US-locale free text (`July 14, 2020 at 10:12AM`). Lexicographic
 ordering is wrong — the sheets write `July 4` and `July 14` unpadded, so string
 order puts the fourteenth before the fourth — so every comparison, `GROUP BY`
 and donor-equivalent must go through `etl.readers.times.parse_local`. Use
-`ts_utc` for anything analytical and `ts_local` only for display.
+`ts_utc` for anything analytical and `ts_local` only for display. All stations in
+this archive are located in Ho Chi Minh City, Vietnam (`Asia/Ho_Chi_Minh`, UTC+07:00,
+no DST). Raw loggers recorded local wall clock time. Visualizations, chart axes,
+daily envelopes, and 24-hour diurnal overlays project timestamps to the station's
+local wall clock (`+ 7h`) so that sunrise sits at ~06:00 and solar noon sits at ~12:00,
+while underlying storage, index keys, and SQL queries remain in canonical `ts_utc`.
 
 `parse_local` reads the fields out of its own regex rather than calling
 `strptime`, because `%B` and `%p` resolve out of the C library's `LC_TIME`

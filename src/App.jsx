@@ -8,7 +8,7 @@ import StationExplorer from './components/StationExplorer.jsx'
 const TABS = [
   ['explore', 'Explore', 'Station values over time'],
   ['quality', 'Data quality', 'What the build did, and what it is unsure about'],
-  ['inspector', 'Pipeline Inspector', 'Raw vs curated telemetry diff and channel pipeline step editor'],
+  ['configuration', 'Configuration', 'Pipeline tuning, normalization scales, curation rules, and raw telemetry diff viewer'],
 ]
 
 function getRouteState() {
@@ -16,7 +16,8 @@ function getRouteState() {
   const raw = window.location.hash.replace(/^#/, '')
   const [route] = raw.split('?')
   if (route === 'about') return { tab: 'explore', showAbout: true }
-  if (route === 'quality' || route === 'inspector') return { tab: route, showAbout: false }
+  if (route === 'quality' || route === 'configuration') return { tab: route, showAbout: false }
+  if (route === 'inspector' || route === 'setup') return { tab: 'configuration', showAbout: false }
   return { tab: 'explore', showAbout: false }
 }
 
