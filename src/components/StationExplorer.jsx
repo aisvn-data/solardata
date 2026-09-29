@@ -13,9 +13,11 @@ import {
   statLabel,
   summarise,
 } from '../data.js'
+import DiurnalChart from './DiurnalChart.jsx'
 import StatTiles from './StatTiles.jsx'
 import TimeControls from './TimeControls.jsx'
 import TimeSeriesChart from './TimeSeriesChart.jsx'
+import YearHeatmap from './YearHeatmap.jsx'
 
 /**
  * Station explorer: pick a station and a period, see the values.
@@ -432,6 +434,8 @@ export default function StationExplorer() {
   const [loading, setLoading] = useState(true)
   const [rawDbReady, setRawDbReady] = useState(isRawDbReady())
   const [rawDbError, setRawDbError] = useState(null)
+  const [dailyRows, setDailyRows] = useState([])
+  const [hourlyRows, setHourlyRows] = useState([])
 
   useEffect(() => {
     initRawDatabase()
@@ -443,6 +447,19 @@ export default function StationExplorer() {
     const unsubscribe = onRawDbReady(() => setRawDbReady(true))
     return unsubscribe
   }, [])
+
+  useEffect(() => {
+    if (!stationId || !year) return
+    loadRollup(stationId, 'daily', year)
+      .then((data) => setDailyRows(data?.rows ?? []))
+      .catch((e) => console.warn('Failed to load daily rollup for heatmap:', e))
+
+    if (resolution !== 'raw') {
+      loadRollup(stationId, 'hourly', year)
+        .then((data) => setHourlyRows(data?.rows ?? []))
+        .catch(() => setHourlyRows([]))
+    }
+  }, [stationId, year, resolution])
   // The one-shot guard on DEFAULT_VIEW's range. A ref rather than state because
   // it is bookkeeping for an effect, not something anything renders.
   const defaultRangeDone = useRef(false)
@@ -763,6 +780,12 @@ export default function StationExplorer() {
       : resolution === 'raw'
         ? 'each point is an individual sensor reading at native cadence'
         : 'each point is the mean of that day’s readings'
+
+  const diurnalRows = useMemo(() => {
+    if (resolution === 'raw') return plotted
+    return filterByRange(resolution === 'hourly' ? rows : hourlyRows, fromDay, toDay)
+  }, [resolution, plotted, rows, hourlyRows, fromDay, toDay])
+
   // Bench stations are listed, in their own group, and labelled. They were hidden
   // from the site entirely until 0.7.2 because they are not solar production --
   // which was true of what they are and not a reason to withhold 38,930 readings
@@ -926,6 +949,25 @@ export default function StationExplorer() {
                 <code>{station.table}</code> and the Parquet export.
               </p>
             )}
+
+            <YearHeatmap
+              station={station}
+              year={year}
+              dailyRows={dailyRows}
+              fromDay={fromDay}
+              toDay={toDay}
+              onSelectDay={(dayStr) => {
+                setFromDay(dayStr)
+                setToDay(dayStr)
+              }}
+            />
+
+            <DiurnalChart
+              rows={diurnalRows}
+              channels={channels}
+              station={station}
+              resolution={resolution}
+            />
 
             {channels.length > 0 && (
               <ChannelTable

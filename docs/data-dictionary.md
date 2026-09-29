@@ -30,11 +30,18 @@ split, and no out-of-range count that has to be recomputed after the fact.
 | `ts_local` | Naive local wall clock, `2020-07-14T10:12:00`. Display only. |
 | `tz` (in `stations`) | IANA zone assumed for the station, `Asia/Ho_Chi_Minh` |
 
-Raw column A is US-locale text with no offset, so `ts_utc` is derived. The offset
-is UTC+07:00 with no DST, which is correct for Vietnam and an assumption about
-every reading in the archive. `etl/readers/times.py` parses it with a fixed
-month table rather than `strptime`, because `%B` and `%p` need a locale that is
-not loaded on Windows and every cell then fails to parse.
+Raw column A is US-locale text with no offset (`July 14, 2020 at 10:12AM`),
+recorded by hardware in Nha Be and Phu My Hung, Vietnam (`Asia/Ho_Chi_Minh`, UTC+07:00, no DST).
+When physical events occur—such as solar sunrise at ~06:00 AM, midday solar peak at ~12:00 PM,
+and sunset at ~18:00 PM—the raw spreadsheet records the local clock.
+
+The ingest pipeline converts this to canonical UTC (`ts_utc`, `2020-07-14T03:12:00Z` or integer Unix epoch timestamp)
+for database indexing and primary keys. The frontend presentation components convert UTC back to the
+station's local wall clock (`+ 7h`) for charting, daily rollups, and 24-hour diurnal overlays, ensuring diurnal
+solar peaks line up with midday (12:00) rather than appearing shifted into UTC.
+
+`etl/readers/times.py` parses it with a fixed month table rather than `strptime`, because `%B` and `%p`
+need a locale that is not loaded on Windows and every cell then fails to parse.
 
 **Never compare these as strings.** The sheets write `July 4` and `July 14`
 unpadded, so string order puts the fourteenth before the fourth. Every
