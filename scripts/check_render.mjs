@@ -37,6 +37,8 @@ import TimeSeriesChart from '../src/components/TimeSeriesChart.jsx'
 import StatTiles from '../src/components/StatTiles.jsx'
 import QualityInspector from '../src/components/QualityInspector.jsx'
 import DiffInspector from '../src/components/DiffInspector.jsx'
+import YearHeatmap from '../src/components/YearHeatmap.jsx'
+import DiurnalChart from '../src/components/DiurnalChart.jsx'
 import {
   DEFAULT_VIEW,
   buildExploreHash,
@@ -795,4 +797,68 @@ await check('hash routing round-trips exploration parameters', () => {
   assert.equal(parsed.toDay, '2023-08-31')
 })
 
+await check('YearHeatmap renders calendar SVG grid with data days', () => {
+  const station = {
+    station_id: 'phumy2',
+    name: 'Phu My 2',
+    first_ts_utc: '2023-01-01T00:00:00Z',
+    last_ts_utc: '2023-12-31T23:59:59Z',
+  }
+  const dailyRows = [
+    { dateDay: '2023-01-05', nSamples: 50, nOutOfRange: 0, breaches: [] },
+    { dateDay: '2023-01-06', nSamples: 48, nOutOfRange: 2, breaches: ['solar_v'] },
+    { dateDay: '2023-01-07', nSamples: 52, nOutOfRange: 5, breaches: ['solar_v', 'battery_v'] },
+  ]
+  const html = renderToStaticMarkup(
+    React.createElement(YearHeatmap, {
+      station,
+      year: '2023',
+      dailyRows,
+      fromDay: '2023-01-01',
+      toDay: '2023-01-10',
+      onSelectDay: noop,
+    }),
+  )
+  assert.ok(html.includes('<svg'), 'YearHeatmap did not render SVG')
+  assert.ok(html.includes('class="year-heatmap-container"'), 'container class missing')
+  assert.ok(html.includes('rect'), 'heatmap days not rendered as rects')
+})
+
+await check('DiurnalChart renders 24-hour dual-axis profile overlay', () => {
+  const channels = [
+    { channel: 'solar_v', key: 'solar_v', label: 'Solar Voltage', unit: 'V', colour: '#f59e0b' },
+    { channel: 'power_w', key: 'power_w', label: 'Power', unit: 'W', colour: '#3b82f6' },
+  ]
+  const rows = [
+    {
+      date: 1672531200000,
+      day: '2023-01-01 06:00:00',
+      dateDay: '2023-01-01',
+      values: { solar_v: 18.5, power_w: 45.0 },
+      byStat: { solar_v: { mean: 18.5 }, power_w: { mean: 45.0 } },
+      stats: { solar_v: 'mean', power_w: 'mean' },
+    },
+    {
+      date: 1672552800000,
+      day: '2023-01-01 12:00:00',
+      dateDay: '2023-01-01',
+      values: { solar_v: 24.2, power_w: 120.0 },
+      byStat: { solar_v: { mean: 24.2 }, power_w: { mean: 120.0 } },
+      stats: { solar_v: 'mean', power_w: 'mean' },
+    },
+  ]
+  const html = renderToStaticMarkup(
+    React.createElement(DiurnalChart, {
+      rows,
+      channels,
+      station: { station_id: 'phumy2' },
+      resolution: 'hourly',
+    }),
+  )
+  assert.ok(html.includes('<svg'), 'DiurnalChart did not render SVG')
+  assert.ok(html.includes('diurnal-chart-container'), 'diurnal chart container missing')
+  assert.ok(html.includes('12:00 (Noon)'), 'noon X axis label missing')
+})
+
 console.log(`\n${passed} render checks passed`)
+

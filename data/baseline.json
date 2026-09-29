@@ -17,10 +17,10 @@
     "undeclared_layouts": 0
   },
   "recorded": {
-    "tool_version": "0.11.1",
+    "tool_version": "0.12.0",
     "run_started_at": "2026-09-29T05:35:04Z",
     "ingest_notes": "731981 readings from 8 files across 8 stations in 8 sources",
-    "reason": "release 0.11.1: fix raw resolution call stack overflow and add browser history navigation",
+    "reason": "release 0.12.0: fix local wall clock time shift, add annual quality heatmap, 24h diurnal overlay, and configuration tab",
     "stations": [
       "aisvn",
       "aisvn2",

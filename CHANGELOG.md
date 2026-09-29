@@ -5,6 +5,33 @@ the raw archive. The format follows [Keep a Changelog](https://keepachangelog.co
 versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-29
+
+### Fixed
+
+- **Local wall clock time alignment (7-hour shift resolved)**:
+  - Raw spreadsheets recorded local Vietnam wall clock time (`Asia/Ho_Chi_Minh`, UTC+7). When ingested, timestamps are normalized to UTC for database indexing and analytical queries.
+  - The frontend previously rendered the UTC timestamp directly (`2020-06-15T05:00:00Z` -> `05:00`), causing solar noon to appear at 05:00 AM and sunrise at 23:00 PM.
+  - Added `toLocalWallClock()` in `src/data.js` to project UTC timestamps to the station's local wall clock for display. Solar noon now centers at 12:00 PM, sunrise at 06:00 AM, and sunset at 18:00 PM across all chart axes, tooltips, and rollups.
+- **Rules of Hooks React error #310**:
+  - Moved `diurnalRows` memoization to the top level of `StationExplorer.jsx` before conditional early loading/error returns, ensuring React hook call counts remain identical across every render cycle.
+
+### Added
+
+- **Annual Data Quality Heatmap (`YearHeatmap`)**:
+  - 52-week calendar grid embedded beneath the main time-series chart in Station Explorer, visualizing full-year collection and plausibility compliance.
+  - Color-coded: Gray (outside station window), Black (no samples logged), Green (clean / in range), Orange (1 channel out of range), Red (>1 channel out of range).
+  - Interactive hover tooltips and single-click date focusing.
+- **24-Hour Diurnal Overlay Graph (`DiurnalChart`)**:
+  - Superimposes 24-hour diurnal curves (00:00 to 24:00 local time) for all days in the active date range.
+  - Independent Left (Y1) and Right (Y2) Y-axis autoscaling and channel selectors, enabling direct comparison of disparate units (e.g. 0-15 V voltage vs 0-50 W solar power).
+  - Overlapping semi-transparent traces forming an intensity envelope, with an optional bold mean profile overlay.
+- **Configuration Tab & Enhanced Editor**:
+  - Renamed third navigation tab to "Configuration" (supporting routes `#configuration`, `#inspector`, and `#setup`).
+  - Set "Pipeline Steps & Configuration Editor" as the primary default view on the left, with "Raw vs Curated Diff" on the right.
+  - Automatic station date initialization using `station.first_ts_utc`.
+  - Clear visual separation of "1. Normalization (Hardware Scale)" from "2. Curation (Plausibility Filter)".
+
 ## [0.11.1] - 2026-09-29
 
 ### Fixed
