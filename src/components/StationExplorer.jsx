@@ -725,6 +725,11 @@ export default function StationExplorer() {
     return months.includes(key) ? key : ''
   }, [fromDay, toDay, months])
 
+  const diurnalRows = useMemo(() => {
+    if (resolution === 'raw') return plotted
+    return filterByRange(resolution === 'hourly' ? rows : hourlyRows, fromDay, toDay)
+  }, [resolution, plotted, rows, hourlyRows, fromDay, toDay])
+
   function selectMonth(key) {
     if (key === '') {
       setFromDay('')
@@ -780,11 +785,6 @@ export default function StationExplorer() {
       : resolution === 'raw'
         ? 'each point is an individual sensor reading at native cadence'
         : 'each point is the mean of that day’s readings'
-
-  const diurnalRows = useMemo(() => {
-    if (resolution === 'raw') return plotted
-    return filterByRange(resolution === 'hourly' ? rows : hourlyRows, fromDay, toDay)
-  }, [resolution, plotted, rows, hourlyRows, fromDay, toDay])
 
   // Bench stations are listed, in their own group, and labelled. They were hidden
   // from the site entirely until 0.7.2 because they are not solar production --
