@@ -5,6 +5,19 @@ the raw archive. The format follows [Keep a Changelog](https://keepachangelog.co
 versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-29
+
+### Added
+
+- **Interactive Raw vs. Curated Diff Inspector**:
+  - A dedicated "Pipeline Inspector" tab in the application enabling direct comparative analysis between raw telemetry and curated output.
+  - Sub-tab 1 ("Raw vs Curated Diff") allows selecting station, date, and channel to query raw readings from in-browser SQLite Wasm (`solardata_raw.db`), showing verbatim values, applied normalization scale, hardware corrections, null-window masks, and plausibility band breach checks side-by-side with step badges.
+  - Sub-tab 2 ("Pipeline Steps & Configuration Editor") visualizes normalization scales, hardware corrections, null windows, and plausibility bands per station and channel, with inline editing and instant export of modified `normalization.json` and `curation.json` artifacts.
+- **In-Browser SQLite Wasm Engine for Native Resolution**:
+  - Direct client-side SQL execution over `solardata_raw.db` using `sql.js` (WebAssembly).
+  - Enables a "Raw" (1-2 min native resolution) view in Station Explorer alongside Daily and Hourly rollups.
+  - Layout expanded by 150px to ensure time controls, quick range presets, and resolution selectors fit seamlessly.
+
 ### Changed — the raw archive, again
 
 The collector has made a second round of repairs to the source XLSX. `data/raw/**`

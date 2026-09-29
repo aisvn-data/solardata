@@ -36,6 +36,7 @@ import TimeControls from '../src/components/TimeControls.jsx'
 import TimeSeriesChart from '../src/components/TimeSeriesChart.jsx'
 import StatTiles from '../src/components/StatTiles.jsx'
 import QualityInspector from '../src/components/QualityInspector.jsx'
+import DiffInspector from '../src/components/DiffInspector.jsx'
 import {
   DEFAULT_VIEW,
   defaultSelection,
@@ -166,6 +167,12 @@ await check('the data-quality inspector mounts and the data it reads is present'
       )
     }
   }
+})
+
+await check('the diff inspector mounts', () => {
+  const html = renderToStaticMarkup(React.createElement(DiffInspector, {}))
+  assert.ok(html.length > 0, 'the diff inspector rendered nothing')
+  assert.ok(html.includes('Raw vs Curated Diff'), 'diff inspector navigation missing')
 })
 
 await check('the view the site opens on exists, and opens on a chart', async () => {

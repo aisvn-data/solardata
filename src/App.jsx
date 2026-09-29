@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import DiffInspector from './components/DiffInspector.jsx'
 import QualityInspector from './components/QualityInspector.jsx'
 import StationExplorer from './components/StationExplorer.jsx'
 
 const TABS = [
   ['explore', 'Explore', 'Station values over time'],
   ['quality', 'Data quality', 'What the build did, and what it is unsure about'],
+  ['inspector', 'Pipeline Inspector', 'Raw vs curated telemetry diff and channel pipeline step editor'],
 ]
 
 function App() {
@@ -99,7 +101,13 @@ function App() {
                       <h2>{description}</h2>
                     </div>
                   </div>
-                  {key === 'explore' ? <StationExplorer /> : <QualityInspector />}
+                  {key === 'explore' ? (
+                    <StationExplorer />
+                  ) : key === 'quality' ? (
+                    <QualityInspector />
+                  ) : (
+                    <DiffInspector />
+                  )}
                 </section>
               ) : null,
             )}

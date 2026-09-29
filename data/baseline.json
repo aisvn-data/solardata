@@ -17,10 +17,10 @@
     "undeclared_layouts": 0
   },
   "recorded": {
-    "tool_version": "0.10.1",
-    "run_started_at": "2026-09-28T18:09:30Z",
+    "tool_version": "0.11.0",
+    "run_started_at": "2026-09-29T05:35:04Z",
     "ingest_notes": "731981 readings from 8 files across 8 stations in 8 sources",
-    "reason": "consolidate raw archive into 8 clean files per station on v0.10.1",
+    "reason": "release 0.11.0: in-browser SQLite raw telemetry and pipeline diff inspector",
     "stations": [
       "aisvn",
       "aisvn2",

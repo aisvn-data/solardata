@@ -1,4 +1,4 @@
-# Data quality report -- solardata 0.10.1
+# Data quality report -- solardata 0.11.0
 
 **731,981 readings** from 8 raw files across 8 stations. 25,579 hourly and 1,187 daily rollup buckets. 254,327 rejected cells, 0 recovered notes, 0 files excluded whole.
 
