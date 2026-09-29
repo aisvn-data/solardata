@@ -17,10 +17,10 @@
     "undeclared_layouts": 0
   },
   "recorded": {
-    "tool_version": "0.11.0",
+    "tool_version": "0.11.1",
     "run_started_at": "2026-09-29T05:35:04Z",
     "ingest_notes": "731981 readings from 8 files across 8 stations in 8 sources",
-    "reason": "release 0.11.0: in-browser SQLite raw telemetry and pipeline diff inspector",
+    "reason": "release 0.11.1: fix raw resolution call stack overflow and add browser history navigation",
     "stations": [
       "aisvn",
       "aisvn2",

@@ -211,6 +211,6 @@ The thing works, and it works in a way that is worse than it could be.
   resolution other than `daily`/`hourly` is ever added, the conditional in
   `build_exports.csv_header` is the place that has to change.
 
-- **`docs/format-design.md` still describes the 0.8 export.** The reasoning about
-  why Google Sheets chunks at 2,000 rows and why the side blocks exist is
-  unchanged; the column lists in it are not.
+- **`docs/format-design.md` updated for 0.11.** Rewritten to document the two-tier
+  SQLite architecture (`solardata_raw.db` and `solardata.db`), the in-browser SQLite
+  Wasm telemetry querying, the CSV rollups, and the removal of the Parquet stage.

@@ -720,12 +720,19 @@ export function summarise(rows, channel) {
       }
     } else {
       const value = get(row, channel)
-      if (value !== null) values.push(value)
+      if (value !== null && value !== undefined) {
+        values.push(value)
+        if (min === null || value < min) min = value
+        if (max === null || value > max) max = value
+      }
     }
   }
   if (min === null && values.length) {
-    min = Math.min(...values)
-    max = Math.max(...values)
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i]
+      if (min === null || v < min) min = v
+      if (max === null || v > max) max = v
+    }
   }
   if (values.length === 0) {
     return { count: 0, min: null, max: null, mean: null, total: null }

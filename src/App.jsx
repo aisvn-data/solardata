@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { version } from '../package.json'
 import DiffInspector from './components/DiffInspector.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 import QualityInspector from './components/QualityInspector.jsx'
 import StationExplorer from './components/StationExplorer.jsx'
 
@@ -10,9 +11,32 @@ const TABS = [
   ['inspector', 'Pipeline Inspector', 'Raw vs curated telemetry diff and channel pipeline step editor'],
 ]
 
+function getRouteState() {
+  if (typeof window === 'undefined') return { tab: 'explore', showAbout: false }
+  const raw = window.location.hash.replace(/^#/, '')
+  const [route] = raw.split('?')
+  if (route === 'about') return { tab: 'explore', showAbout: true }
+  if (route === 'quality' || route === 'inspector') return { tab: route, showAbout: false }
+  return { tab: 'explore', showAbout: false }
+}
+
 function App() {
-  const [tab, setTab] = useState('explore')
-  const [showAbout, setShowAbout] = useState(false)
+  const [route, setRoute] = useState(getRouteState)
+  const tab = route.tab
+  const showAbout = route.showAbout
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    function syncHash() {
+      setRoute(getRouteState())
+    }
+    window.addEventListener('hashchange', syncHash)
+    window.addEventListener('popstate', syncHash)
+    return () => {
+      window.removeEventListener('hashchange', syncHash)
+      window.removeEventListener('popstate', syncHash)
+    }
+  }, [])
 
   return (
     <div className="app-shell">
@@ -25,10 +49,11 @@ function App() {
             <a
               key={key}
               href={`#${key}`}
-              className={tab === key ? 'active' : ''}
-              onClick={(e) => {
-                e.preventDefault()
-                setTab(key)
+              className={!showAbout && tab === key ? 'active' : ''}
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.location.hash = `#${key}`
+                }
               }}
             >
               {label}
@@ -37,9 +62,10 @@ function App() {
           <a
             href="#about"
             className={showAbout ? 'active' : ''}
-            onClick={(e) => {
-              e.preventDefault()
-              setShowAbout((v) => !v)
+            onClick={() => {
+              if (typeof window !== 'undefined') {
+                window.location.hash = showAbout ? `#${tab}` : '#about'
+              }
             }}
           >
             About
@@ -48,6 +74,7 @@ function App() {
       </header>
 
       <main>
+        <ErrorBoundary>
         {showAbout ? (
           <section className="section">
             <div className="section-heading">
@@ -114,6 +141,7 @@ function App() {
             )}
           </>
         )}
+        </ErrorBoundary>
       </main>
 
       <footer>

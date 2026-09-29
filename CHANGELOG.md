@@ -5,7 +5,28 @@ the raw archive. The format follows [Keep a Changelog](https://keepachangelog.co
 versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
-## [0.11.0] - 2026-09-29
+## [0.11.1] - 2026-09-29
+
+### Fixed
+
+- **Call stack overflow on large raw telemetry datasets**:
+  - Replaced array argument spreading in `Math.min(...dates)` / `Math.min(...values)` and `summarise` with iterative min/max loops. In V8 (Chrome, Edge, Node.js), spreading arrays with over 65,000–170,000 items exceeded call stack limits and crashed the UI to a blank white screen when selecting "Raw" resolution for `phumy2` (2020, 2021, 2022, 2023), `aisvn2` (2020), and `aisvn` (2020).
+  - Optimized chart mouse hover targeting to use an \(O(\log N)\) binary search instead of an \(O(N)\) linear scan over 170,000 rows.
+  - Capped flagged table display to 200 items with count indicator, preventing DOM freeze when rendering tens of thousands of breach rows.
+
+### Added
+
+- **Browser History & URL Hash Navigation**:
+  - Synchronized station, year, resolution, and time range to the URL hash (`#explore?station=...&year=...&res=...`).
+  - Added support for browser Back and Forward navigation via the `popstate` / `hashchange` API, allowing the user to seamlessly step back to previous views without losing their state or needing to reload from scratch.
+  - Added an `<ErrorBoundary>` component with an in-place recovery card offering "← Go back to previous view" and "Reset to default" to catch any unexpected rendering errors gracefully.
+
+### Documentation
+
+- **Updated `docs/format-design.md` for 0.11**:
+  - Completely rewritten to reflect the modern two-tier SQLite architecture (`solardata_raw.db` for verbatim unscaled telemetry and `solardata.db` for curated data).
+  - Documented in-browser SQLite Wasm (`sql.js`) execution, CSV rollup exports, and the removal of the legacy Parquet stage.
+
 
 ### Added
 

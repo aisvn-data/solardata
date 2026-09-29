@@ -49,24 +49,33 @@ export default function TimeSeriesChart({
   const geometry = useMemo(() => {
     if (!rows.length || !series.length) return null
 
-    const dates = rows.map((row) => row.date)
-    const minDate = Math.min(...dates)
-    const maxDate = Math.max(...dates)
+    let minDate = Infinity
+    let maxDate = -Infinity
+    for (let i = 0; i < rows.length; i++) {
+      const d = rows[i].date
+      if (d < minDate) minDate = d
+      if (d > maxDate) maxDate = d
+    }
     // A single bucket has zero extent, which would divide by zero. Give it a
     // one-day window so the point sits in the middle instead.
     const span = maxDate - minDate || MS_PER_DAY
 
-    const values = []
-    for (const row of rows) {
-      for (const item of series) {
-        const value = get(row, item)
-        if (value !== null) values.push(value)
+    let lo = Infinity
+    let hi = -Infinity
+    let hasValues = false
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      for (let j = 0; j < series.length; j++) {
+        const value = get(row, series[j])
+        if (value !== null && value !== undefined) {
+          hasValues = true
+          if (value < lo) lo = value
+          if (value > hi) hi = value
+        }
       }
     }
-    if (values.length === 0) return null
+    if (!hasValues) return null
 
-    let lo = Math.min(...values)
-    let hi = Math.max(...values)
     if (lo === hi) {
       // A flat series (power is 0.0 for all of phumy2) still needs a band, or
       // every point lands exactly on the axis and the chart looks broken.
@@ -124,13 +133,26 @@ export default function TimeSeriesChart({
     const scale = width / box.width
     const vx = (event.clientX - box.left) * scale
 
+    // Fast binary search across ordered rows in O(log N)
+    let low = 0
+    let high = rows.length - 1
+    while (low <= high) {
+      const mid = (low + high) >> 1
+      if (x(rows[mid].date) < vx) {
+        low = mid + 1
+      } else {
+        high = mid - 1
+      }
+    }
     let best = rows[0]
     let bestDistance = Infinity
-    for (const row of rows) {
-      const distance = Math.abs(x(row.date) - vx)
-      if (distance < bestDistance) {
-        bestDistance = distance
-        best = row
+    for (const idx of [high - 1, high, low, low + 1]) {
+      if (idx >= 0 && idx < rows.length) {
+        const distance = Math.abs(x(rows[idx].date) - vx)
+        if (distance < bestDistance) {
+          bestDistance = distance
+          best = rows[idx]
+        }
       }
     }
     setPointer({ row: best, vx: x(best.date) })
@@ -349,11 +371,14 @@ function FlaggedTable({ rows, series }) {
     }
   }
   if (entries.length === 0) return null
+  const MAX_SHOWN = 200
+  const shownEntries = entries.slice(0, MAX_SHOWN)
   return (
     <details className="flagged-table">
       <summary>
         {entries.length} flagged value{entries.length === 1 ? '' : 's'} in this
         range &mdash; every one kept in the data
+        {entries.length > MAX_SHOWN ? ` (first ${MAX_SHOWN} shown below)` : ''}
       </summary>
       <table>
         <thead>
@@ -366,7 +391,7 @@ function FlaggedTable({ rows, series }) {
           </tr>
         </thead>
         <tbody>
-          {entries.map(({ row, breach }) => (
+          {shownEntries.map(({ row, breach }) => (
             <tr key={`${row.key}:${breach.metric}`}>
               <td>{row.day}</td>
               <td>
@@ -384,6 +409,11 @@ function FlaggedTable({ rows, series }) {
           ))}
         </tbody>
       </table>
+      {entries.length > MAX_SHOWN && (
+        <p className="muted small" style={{ margin: '8px 0 0 0' }}>
+          Showing {MAX_SHOWN} of {entries.length.toLocaleString()} flagged readings.
+        </p>
+      )}
     </details>
   )
 }
