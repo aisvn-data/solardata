@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { version } from '../package.json'
 import DiffInspector from './components/DiffInspector.jsx'
 import QualityInspector from './components/QualityInspector.jsx'
 import StationExplorer from './components/StationExplorer.jsx'
@@ -17,7 +18,7 @@ function App() {
     <div className="app-shell">
       <header className="site-header">
         <a className="brand" href="/">
-          ☀ Solar Data
+          ☀ Solar Data <span className="version-badge">v{version}</span>
         </a>
         <nav aria-label="Main navigation">
           {TABS.map(([key, label]) => (
@@ -116,7 +117,7 @@ function App() {
       </main>
 
       <footer>
-        Solar Data · an open data project ·{' '}
+        Solar Data v{version} · an open data project ·{' '}
         <a href="https://github.com/kreier/solardata">source</a>
       </footer>
     </div>

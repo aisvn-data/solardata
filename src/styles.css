@@ -25,7 +25,25 @@ a { color: inherit; text-decoration: none; }
   max-width: var(--page-width);
   padding: 28px 32px;
 }
-.brand { font-size: 1.1rem; font-weight: 800; letter-spacing: -.02em; }
+.brand {
+  align-items: center;
+  display: inline-flex;
+  font-size: 1.1rem;
+  font-weight: 800;
+  gap: 8px;
+  letter-spacing: -.02em;
+}
+.version-badge {
+  background: #f0f4f8;
+  border: 1px solid #d9e2ec;
+  border-radius: 4px;
+  color: #627d98;
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  padding: 2px 6px;
+  vertical-align: middle;
+}
 nav { display: flex; gap: 24px; font-size: .9rem; color: #627d98; }
 nav a:hover { color: #102a43; }
 
