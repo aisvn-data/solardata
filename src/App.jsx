@@ -51,9 +51,11 @@ function App() {
               key={key}
               href={`#${key}`}
               className={!showAbout && tab === key ? 'active' : ''}
-              onClick={() => {
+              onClick={(e) => {
+                e.preventDefault()
                 if (typeof window !== 'undefined') {
-                  window.location.hash = `#${key}`
+                  window.history.pushState(null, '', `#${key}`)
+                  setRoute(getRouteState())
                 }
               }}
             >
@@ -63,9 +65,12 @@ function App() {
           <a
             href="#about"
             className={showAbout ? 'active' : ''}
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault()
               if (typeof window !== 'undefined') {
-                window.location.hash = showAbout ? `#${tab}` : '#about'
+                const target = showAbout ? `#${tab}` : '#about'
+                window.history.pushState(null, '', target)
+                setRoute(getRouteState())
               }
             }}
           >
