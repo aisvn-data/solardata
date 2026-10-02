@@ -45,6 +45,7 @@ import {
   buildExploreHash,
   defaultSelection,
   monthBounds,
+  openingRange,
   openingView,
   parseExploreHash,
   rangeForLoad,
@@ -220,29 +221,22 @@ await check('the view the site opens on exists, and opens on a chart', async () 
     .map((c) => c.key)
 
   // Every named channel survived, so the opening chart really is the
-  // battery/solar/temperature trio rather than a fallback selection.
+  // battery/solar/wind trio rather than a fallback selection.
   assert.deepEqual(
     defaultSelection(available, opening.stationId, opening.year, DEFAULT_VIEW.resolution),
     DEFAULT_VIEW.channels,
     `the opening channels are not in the ${opening.stationId} ${opening.year} rollup`,
   )
 
-  // And the named month is a month with data in it, bounded the way the component
-  // bounds it: the first and last day of the month that carry samples.
-  // `monthBounds` is that rule, and `activeMonth` is what makes the month control
-  // read "November 2021" rather than "All" beside a From/To that says November, so
-  // both halves are asserted.
-  const bounds = monthBounds(rows, DEFAULT_VIEW.month)
-  assert.ok(bounds, `the opening month ${DEFAULT_VIEW.month} is empty`)
+  // And the opening range is 2021-11-21 to 2021-11-30, bounded inside November 2021
+  const bounds = openingRange(rows)
+  assert.ok(bounds, `the opening range is empty`)
   const from = bounds.from
   const to = bounds.to
+  assert.equal(from, '2021-11-21', 'the opening range does not start on 2021-11-21')
+  assert.equal(to, '2021-11-30', 'the opening range does not end on 2021-11-30')
   assert.equal(from.slice(0, 7), DEFAULT_VIEW.month, 'the opening range starts outside its month')
   assert.equal(to.slice(0, 7), DEFAULT_VIEW.month, 'the opening range ends outside its month')
-  assert.equal(
-    from,
-    rows.find((r) => r.nSamples > 0 && r.dateDay.slice(0, 7) === DEFAULT_VIEW.month).dateDay,
-    'the opening range does not start on the first day the station reported',
-  )
   const months = [...new Set(rows.filter((r) => r.nSamples > 0).map((r) => r.dateDay.slice(0, 7)))]
   assert.ok(
     months.includes(DEFAULT_VIEW.month),
@@ -861,37 +855,32 @@ await check('DiurnalChart renders 24-hour dual-axis profile overlay', () => {
   assert.ok(html.includes('12:00 (Noon)'), 'noon X axis label missing')
 })
 
-await check('StationSidebar toggles collapsed state to leave only a burger menu icon', () => {
+await check('StationSidebar operates as an overlay drawer that disappears when a station is selected', () => {
   const stations = readJson('stations.json')
-  const expandedHtml = renderToStaticMarkup(
+  const openHtml = renderToStaticMarkup(
     React.createElement(StationSidebar, {
       stations,
       stationId: 'aisvn',
-      isSidebarCollapsed: false,
-      onToggleCollapse: noop,
+      isOpen: true,
+      onClose: noop,
       onPick: noop,
     }),
   )
-  assert.ok(expandedHtml.includes('station-sidebar expanded'), 'expanded class missing')
-  assert.ok(expandedHtml.includes('aria-expanded="true"'), 'expanded aria-expanded missing')
-  assert.ok(expandedHtml.includes('station-list'), 'expanded station list missing')
-  assert.ok(expandedHtml.includes('AISVN #1'), 'station button missing in expanded state')
+  assert.ok(openHtml.includes('station-overlay-wrapper'), 'overlay wrapper missing')
+  assert.ok(openHtml.includes('station-overlay-drawer'), 'overlay drawer missing')
+  assert.ok(openHtml.includes('station-list'), 'overlay station list missing')
+  assert.ok(openHtml.includes('AISVN #1'), 'station button missing in open overlay')
 
-  const collapsedHtml = renderToStaticMarkup(
+  const closedHtml = renderToStaticMarkup(
     React.createElement(StationSidebar, {
       stations,
       stationId: 'aisvn',
-      isSidebarCollapsed: true,
-      onToggleCollapse: noop,
+      isOpen: false,
+      onClose: noop,
       onPick: noop,
     }),
   )
-  assert.ok(collapsedHtml.includes('station-sidebar collapsed'), 'collapsed class missing')
-  assert.ok(collapsedHtml.includes('aria-expanded="false"'), 'collapsed aria-expanded missing')
-  assert.ok(collapsedHtml.includes('station-toggle-btn'), 'burger toggle button missing')
-  assert.ok(collapsedHtml.includes('burger-icon'), 'burger icon SVG missing')
-  assert.ok(!collapsedHtml.includes('station-list'), 'station list must not render when collapsed')
-  assert.ok(!collapsedHtml.includes('AISVN #1'), 'station names must not render when collapsed to burger icon')
+  assert.equal(closedHtml, '', 'closed overlay must render nothing so full width is available')
 })
 
 console.log(`\n${passed} render checks passed`)

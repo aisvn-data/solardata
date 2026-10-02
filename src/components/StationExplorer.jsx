@@ -217,64 +217,51 @@ export function StationButton({ station, active, onPick }) {
 }
 
 /**
- * Collapsible station selector sidebar with responsive burger menu toggle.
+ * Collapsible station selector overlay drawer with backdrop.
+ * Disappears when a station is selected so the complete width is available.
  */
 export function StationSidebar({
   stations,
   stationId,
-  isSidebarCollapsed,
-  onToggleCollapse,
+  isOpen = true,
+  onClose,
   onPick,
   asideRef,
 }) {
+  if (!isOpen) return null
+
   const production = stations.filter((s) => s.is_production)
   const other = stations.filter((s) => !s.is_production)
 
   return (
-    <aside
-      ref={asideRef}
-      className={`station-sidebar ${isSidebarCollapsed ? 'collapsed' : 'expanded'}`}
-      aria-label="Station selector"
-    >
-      <div className="station-sidebar-header">
-        <button
-          type="button"
-          className="station-toggle-btn"
-          onClick={onToggleCollapse}
-          aria-label={isSidebarCollapsed ? 'Expand station list' : 'Collapse station list'}
-          aria-expanded={!isSidebarCollapsed}
-          title={isSidebarCollapsed ? 'Expand station list' : 'Collapse station list'}
-        >
-          <svg
-            className="burger-icon"
-            viewBox="0 0 24 24"
-            width="20"
-            height="20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            {isSidebarCollapsed ? (
-              <>
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </>
-            ) : (
-              <>
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </>
-            )}
-          </svg>
-          {!isSidebarCollapsed && <span className="station-sidebar-title">Stations</span>}
-        </button>
-      </div>
+    <div className="station-overlay-wrapper">
+      <div
+        className="station-overlay-backdrop"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <aside
+        ref={asideRef}
+        className="station-overlay-drawer"
+        aria-label="Station selector"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="station-overlay-header">
+          <h3>Select Station</h3>
+          {onClose && (
+            <button
+              type="button"
+              className="station-overlay-close-btn"
+              onClick={onClose}
+              aria-label="Close station selector"
+              title="Close station selector"
+            >
+              ✕
+            </button>
+          )}
+        </div>
 
-      {!isSidebarCollapsed && (
         <nav className="station-list" aria-label="Stations">
           {production.map((s) => (
             <StationButton
@@ -298,45 +285,31 @@ export function StationSidebar({
             </>
           )}
         </nav>
-      )}
-    </aside>
+      </aside>
+    </div>
   )
 }
 
 /**
- * The view the site opens on: AISVN #1, November 2021, at hourly resolution.
- *
- * A default, not a restriction — every control below is still the reader's, and
- * nothing here decides what is interesting. It exists because the alternative
- * was the site opening on whatever the largest station happens to be for the
- * whole year, which asks a first-time reader to find a period worth looking at
- * inside 1,466 daily buckets on their own.
- *
- * The month, not a pair of dates, because the month is what the data has: the
- * range is the month's own first and last day *with samples*, computed by
- * `selectMonth`, so the month control reads "November 2021" on arrival instead
- * of disagreeing with the From and To inputs beside it. A hardcoded pair of dates
- * would go stale the moment a file was re-ingested.
- *
- * Hourly, because this is the one place the solar curve is legible: at `Day` the
- * same month is a flat mean, and the point of the station is the shape between
- * dawn and dusk. Battery, solar and temperature together, because between them
- * they are the whole of what `aisvn` measures: a bank charging from 10.6 V, a
- * panel going to ~20 V, and the ambient the panel is in. The station's `wind_v`
- * input is wired and logging and is *not* one of these, because what it logs is
- * not a measurement — see `HiddenChannels`.
- *
- * Applied **once**, on the first rollup that loads, and only when that rollup is
- * this view. Re-asserting it on every change would take the range back out of the
- * reader's hands: a station that does not cover these days would open on an empty
- * chart, and the "All" preset would be a control that undid itself.
+ * The view the site opens on: AISVN #1, 21.11.2021 to 30.11.2021, at hourly
+ * resolution with battery, solar and wind selected.
  */
 export const DEFAULT_VIEW = {
   station: 'aisvn',
   year: '2021',
   month: '2021-11',
+  from: '2021-11-21',
+  to: '2021-11-30',
   resolution: 'hourly',
-  channels: ['battery_v', 'solar_v', 'temp_c'],
+  channels: ['battery_v', 'solar_v', 'wind_v'],
+}
+
+/** The date bounds the site opens on. */
+export function openingRange(rows, defaultView = DEFAULT_VIEW) {
+  if (defaultView.from && defaultView.to) {
+    return { from: defaultView.from, to: defaultView.to }
+  }
+  return monthBounds(rows, defaultView.month)
 }
 
 /** True while the loaded view is the one DEFAULT_VIEW describes. */
@@ -523,11 +496,7 @@ export default function StationExplorer() {
   const [rawDbError, setRawDbError] = useState(null)
   const [dailyRows, setDailyRows] = useState([])
   const [hourlyRows, setHourlyRows] = useState([])
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return window.innerWidth <= 768
-  })
-  const sidebarRef = useRef(null)
+  const [isOverlayOpen, setIsOverlayOpen] = useState(false)
 
   useEffect(() => {
     initRawDatabase()
@@ -663,23 +632,15 @@ export default function StationExplorer() {
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
-  // On narrow screens, tapping outside an expanded station selector collapses it.
+  // Close station overlay when Escape is pressed.
   useEffect(() => {
-    if (isSidebarCollapsed) return undefined
-    function handleClickOutside(event) {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target)) {
-        if (typeof window !== 'undefined' && window.innerWidth <= 768) {
-          setIsSidebarCollapsed(true)
-        }
-      }
+    if (!isOverlayOpen) return undefined
+    function onKeyDown(e) {
+      if (e.key === 'Escape') setIsOverlayOpen(false)
     }
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('touchstart', handleClickOutside)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('touchstart', handleClickOutside)
-    }
-  }, [isSidebarCollapsed])
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isOverlayOpen])
 
   // Load the CSV whenever station, year or resolution changes. The From/To it
   // opens with is `rangeForLoad`'s decision, which is keyed on the *period* --
@@ -698,7 +659,7 @@ export default function StationExplorer() {
         setRollup(data)
         setRollupFor(`${stationId}/${year}/${resolution}`)
         const opening = isDefaultView(stationId, year, resolution)
-          ? monthBounds(data.rows, DEFAULT_VIEW.month)
+          ? openingRange(data.rows)
           : null
         const next = rangeForLoad({
           stationId,
@@ -906,27 +867,54 @@ export default function StationExplorer() {
   const other = stations.filter((s) => !s.is_production)
 
   return (
-    <div className={`explorer ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-      <StationSidebar
-        asideRef={sidebarRef}
-        stations={stations}
-        stationId={stationId}
-        isSidebarCollapsed={isSidebarCollapsed}
-        onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-        onPick={(s) => {
-          setStationId(s.station_id)
-          setYear(yearForPick(s))
-          if (typeof window !== 'undefined' && window.innerWidth <= 768) {
-            setIsSidebarCollapsed(true)
-          }
-        }}
-      />
+    <div className="explorer">
+      {station && (
+        <StationSidebar
+          stations={stations}
+          stationId={stationId}
+          isOpen={isOverlayOpen}
+          onClose={() => setIsOverlayOpen(false)}
+          onPick={(s) => {
+            setStationId(s.station_id)
+            setYear(yearForPick(s))
+            setIsOverlayOpen(false)
+          }}
+        />
+      )}
 
       <div className="explorer-main">
         {station && (
           <>
             <div className="station-heading">
-              <h2>{station.display_name}</h2>
+              <div className="station-title-row">
+                <button
+                  type="button"
+                  className="station-menu-btn"
+                  onClick={() => setIsOverlayOpen(true)}
+                  aria-label="Select station"
+                  aria-expanded={isOverlayOpen}
+                  title="Select station"
+                >
+                  <svg
+                    className="burger-icon"
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <line x1="3" y1="18" x2="21" y2="18" />
+                  </svg>
+                  <span>Stations</span>
+                </button>
+                <h2>{station.display_name}</h2>
+              </div>
               <div className="station-meta-row">
                 <p className="muted">
                   {station.location} · {station.tz} · applet <code>{station.applet}</code> ·{' '}

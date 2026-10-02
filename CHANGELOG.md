@@ -5,6 +5,24 @@ the raw archive. The format follows [Keep a Changelog](https://keepachangelog.co
 versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-02
+
+### Added
+
+- **Station Selector Overlay Drawer (`StationSidebar`)**:
+  - Replaced permanent side-column station selector with an overlay drawer and a burger menu toggle button (`[☰ Stations]`) situated directly in the station header.
+  - Automatically dismisses when a station is selected, making 100% of the horizontal screen width available for charts and controls.
+  - Accessible dialog supporting backdrop dismissal, close button (✕), and Escape key navigation.
+
+### Changed
+
+- **Start Conditions**:
+  - Updated default opening view to November 21–30, 2021 on station AISVN with battery voltage (`battery_v`), solar voltage (`solar_v`), and wind power (`wind_v`) pre-selected.
+- **Layout & Spacing Improvements**:
+  - Prevented navigation tabs (Explore, Data quality, Configuration, About) from triggering a vertical scroll jump when clicked, switching to in-place route synchronization via History API.
+  - Reduced excess top padding and vertical whitespace above sections and headings across all tabs.
+  - Reduced side margins and gutters on mobile screens (< 768px) to 12px for maximum chart readability on phones.
+
 ## [0.12.0] - 2026-09-29
 
 ### Fixed
