@@ -86,15 +86,123 @@ footer { border-top: 1px solid #d9e2ec; color: #829ab1; font-size: .85rem; paddi
   .stat-tiles { grid-template-columns: repeat(2, 1fr); }
 }
 
+@media (max-width: 768px) {
+  .explorer {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .explorer.sidebar-collapsed {
+    gap: 12px;
+  }
+  .station-sidebar {
+    position: relative;
+    width: 100%;
+  }
+  .station-sidebar.collapsed {
+    width: 100%;
+  }
+  .station-sidebar.collapsed .station-sidebar-header {
+    margin-bottom: 0;
+  }
+  .station-sidebar.collapsed .station-toggle-btn {
+    height: 38px;
+    width: 38px;
+    border-radius: 8px;
+  }
+  .station-sidebar.expanded .station-sidebar-header {
+    margin-bottom: 6px;
+  }
+  .station-sidebar.expanded .station-toggle-btn {
+    align-self: flex-start;
+    width: auto;
+  }
+  .station-sidebar.expanded .station-list {
+    background: #fff;
+    border: 1px solid #d9e2ec;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(16, 42, 67, 0.08);
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 12px;
+  }
+}
+
 /* ------------------------------------------------------------------ explorer */
 
 nav a.active { color: #102a43; font-weight: 700; }
 
 .explorer {
   display: grid;
-  gap: 28px;
+  gap: 24px;
   grid-template-columns: 250px 1fr;
   margin-top: 8px;
+  transition: grid-template-columns .15s ease;
+}
+
+.explorer.sidebar-collapsed {
+  grid-template-columns: 44px 1fr;
+  gap: 16px;
+}
+
+.station-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.station-sidebar.collapsed {
+  width: 44px;
+}
+
+.station-sidebar-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.station-toggle-btn {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  color: #102a43;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: .85rem;
+  font-weight: 700;
+  gap: 8px;
+  padding: 8px 12px;
+  transition: border-color .12s, background-color .12s, box-shadow .12s;
+  width: 100%;
+}
+
+.station-sidebar.collapsed .station-toggle-btn {
+  height: 40px;
+  justify-content: center;
+  padding: 8px;
+  width: 40px;
+}
+
+.station-toggle-btn:hover {
+  background: #f0f4f8;
+  border-color: #bcccdc;
+}
+
+.station-toggle-btn:focus-visible {
+  outline: 2px solid #d97706;
+  outline-offset: 2px;
+}
+
+.burger-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.station-sidebar-title {
+  letter-spacing: -.01em;
 }
 
 .station-list { display: flex; flex-direction: column; gap: 8px; }

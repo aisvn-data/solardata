@@ -41,6 +41,7 @@ import YearHeatmap from '../src/components/YearHeatmap.jsx'
 import DiurnalChart from '../src/components/DiurnalChart.jsx'
 import {
   DEFAULT_VIEW,
+  StationSidebar,
   buildExploreHash,
   defaultSelection,
   monthBounds,
@@ -858,6 +859,39 @@ await check('DiurnalChart renders 24-hour dual-axis profile overlay', () => {
   assert.ok(html.includes('<svg'), 'DiurnalChart did not render SVG')
   assert.ok(html.includes('diurnal-chart-container'), 'diurnal chart container missing')
   assert.ok(html.includes('12:00 (Noon)'), 'noon X axis label missing')
+})
+
+await check('StationSidebar toggles collapsed state to leave only a burger menu icon', () => {
+  const stations = readJson('stations.json')
+  const expandedHtml = renderToStaticMarkup(
+    React.createElement(StationSidebar, {
+      stations,
+      stationId: 'aisvn',
+      isSidebarCollapsed: false,
+      onToggleCollapse: noop,
+      onPick: noop,
+    }),
+  )
+  assert.ok(expandedHtml.includes('station-sidebar expanded'), 'expanded class missing')
+  assert.ok(expandedHtml.includes('aria-expanded="true"'), 'expanded aria-expanded missing')
+  assert.ok(expandedHtml.includes('station-list'), 'expanded station list missing')
+  assert.ok(expandedHtml.includes('AISVN #1'), 'station button missing in expanded state')
+
+  const collapsedHtml = renderToStaticMarkup(
+    React.createElement(StationSidebar, {
+      stations,
+      stationId: 'aisvn',
+      isSidebarCollapsed: true,
+      onToggleCollapse: noop,
+      onPick: noop,
+    }),
+  )
+  assert.ok(collapsedHtml.includes('station-sidebar collapsed'), 'collapsed class missing')
+  assert.ok(collapsedHtml.includes('aria-expanded="false"'), 'collapsed aria-expanded missing')
+  assert.ok(collapsedHtml.includes('station-toggle-btn'), 'burger toggle button missing')
+  assert.ok(collapsedHtml.includes('burger-icon'), 'burger icon SVG missing')
+  assert.ok(!collapsedHtml.includes('station-list'), 'station list must not render when collapsed')
+  assert.ok(!collapsedHtml.includes('AISVN #1'), 'station names must not render when collapsed to burger icon')
 })
 
 console.log(`\n${passed} render checks passed`)

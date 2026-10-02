@@ -203,7 +203,7 @@ function HiddenChannels({ station }) {
  * span it covers. Four facts, and the reader needs all four before choosing --
  * "Phu My Hung #2" and "Phu My Hung #1" are otherwise indistinguishable.
  */
-function StationButton({ station, active, onPick }) {
+export function StationButton({ station, active, onPick }) {
   return (
     <button type="button" className={active ? 'active' : ''} onClick={onPick}>
       <strong>{station.display_name}</strong>
@@ -213,6 +213,93 @@ function StationButton({ station, active, onPick }) {
         {station.first_ts_utc?.slice(0, 10)} → {station.last_ts_utc?.slice(0, 10)}
       </span>
     </button>
+  )
+}
+
+/**
+ * Collapsible station selector sidebar with responsive burger menu toggle.
+ */
+export function StationSidebar({
+  stations,
+  stationId,
+  isSidebarCollapsed,
+  onToggleCollapse,
+  onPick,
+  asideRef,
+}) {
+  const production = stations.filter((s) => s.is_production)
+  const other = stations.filter((s) => !s.is_production)
+
+  return (
+    <aside
+      ref={asideRef}
+      className={`station-sidebar ${isSidebarCollapsed ? 'collapsed' : 'expanded'}`}
+      aria-label="Station selector"
+    >
+      <div className="station-sidebar-header">
+        <button
+          type="button"
+          className="station-toggle-btn"
+          onClick={onToggleCollapse}
+          aria-label={isSidebarCollapsed ? 'Expand station list' : 'Collapse station list'}
+          aria-expanded={!isSidebarCollapsed}
+          title={isSidebarCollapsed ? 'Expand station list' : 'Collapse station list'}
+        >
+          <svg
+            className="burger-icon"
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {isSidebarCollapsed ? (
+              <>
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </>
+            ) : (
+              <>
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </>
+            )}
+          </svg>
+          {!isSidebarCollapsed && <span className="station-sidebar-title">Stations</span>}
+        </button>
+      </div>
+
+      {!isSidebarCollapsed && (
+        <nav className="station-list" aria-label="Stations">
+          {production.map((s) => (
+            <StationButton
+              key={s.station_id}
+              station={s}
+              active={s.station_id === stationId}
+              onPick={() => onPick(s)}
+            />
+          ))}
+          {other.length > 0 && (
+            <>
+              <h3 className="station-group">Not solar production</h3>
+              {other.map((s) => (
+                <StationButton
+                  key={s.station_id}
+                  station={s}
+                  active={s.station_id === stationId}
+                  onPick={() => onPick(s)}
+                />
+              ))}
+            </>
+          )}
+        </nav>
+      )}
+    </aside>
   )
 }
 
@@ -436,6 +523,11 @@ export default function StationExplorer() {
   const [rawDbError, setRawDbError] = useState(null)
   const [dailyRows, setDailyRows] = useState([])
   const [hourlyRows, setHourlyRows] = useState([])
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.innerWidth <= 768
+  })
+  const sidebarRef = useRef(null)
 
   useEffect(() => {
     initRawDatabase()
@@ -570,6 +662,24 @@ export default function StationExplorer() {
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
+
+  // On narrow screens, tapping outside an expanded station selector collapses it.
+  useEffect(() => {
+    if (isSidebarCollapsed) return undefined
+    function handleClickOutside(event) {
+      if (sidebarRef.current && !sidebarRef.current.contains(event.target)) {
+        if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+          setIsSidebarCollapsed(true)
+        }
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('touchstart', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('touchstart', handleClickOutside)
+    }
+  }, [isSidebarCollapsed])
 
   // Load the CSV whenever station, year or resolution changes. The From/To it
   // opens with is `rangeForLoad`'s decision, which is keyed on the *period* --
@@ -796,36 +906,21 @@ export default function StationExplorer() {
   const other = stations.filter((s) => !s.is_production)
 
   return (
-    <div className="explorer">
-      <nav className="station-list" aria-label="Stations">
-        {production.map((s) => (
-          <StationButton
-            key={s.station_id}
-            station={s}
-            active={s.station_id === stationId}
-            onPick={() => {
-              setStationId(s.station_id)
-              setYear(yearForPick(s))
-            }}
-          />
-        ))}
-        {other.length > 0 && (
-          <>
-            <h3 className="station-group">Not solar production</h3>
-            {other.map((s) => (
-              <StationButton
-                key={s.station_id}
-                station={s}
-                active={s.station_id === stationId}
-                onPick={() => {
-                  setStationId(s.station_id)
-                  setYear(yearForPick(s))
-                }}
-              />
-            ))}
-          </>
-        )}
-      </nav>
+    <div className={`explorer ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      <StationSidebar
+        asideRef={sidebarRef}
+        stations={stations}
+        stationId={stationId}
+        isSidebarCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+        onPick={(s) => {
+          setStationId(s.station_id)
+          setYear(yearForPick(s))
+          if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+            setIsSidebarCollapsed(true)
+          }
+        }}
+      />
 
       <div className="explorer-main">
         {station && (
