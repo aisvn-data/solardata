@@ -94,6 +94,7 @@ const data = loadDataModule()
 const stations = JSON.parse(readFileSync(join(DATA, 'stations.json'), 'utf8'))
 const metrics = JSON.parse(readFileSync(join(DATA, 'metrics.json'), 'utf8'))
 const quality = JSON.parse(readFileSync(join(DATA, 'quality.json'), 'utf8'))
+const baseline = JSON.parse(readFileSync(join(ROOT, 'data', 'baseline.json'), 'utf8'))
 
 const byId = new Map(stations.map((s) => [s.station_id, s]))
 
@@ -377,7 +378,7 @@ check('phumy2.power_w is not charted, and phumy2 has no power_w column', () => {
   equal(power.published, false, 'and it is not a measurement, so it is not charted')
   equal(
     power.observed.n_values,
-    416088,
+    phumy2.n_readings,
     'the values are still stored, because the input is real',
   )
   for (const file of csvFiles('phumy2', 'hourly')) {
@@ -710,7 +711,7 @@ check('the out-of-range count is accounted for, and is not mostly unit mismatch'
     .filter((r) => !PLATEAUS.has(`${r.station_id}.${r.channel}`))
     .reduce((a, r) => a + r.n_out_of_range, 0)
 
-  equal(total, 731981, 'the archive is the size the baseline says')
+  equal(total, baseline.counts.readings, 'the archive is the size the baseline says')
   equal(out, 42095, 'the total out-of-range count')
   equal(remainder, 12528, 'the out-of-range count outside the two declared plateaus')
   assert(

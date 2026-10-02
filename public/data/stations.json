@@ -1450,8 +1450,8 @@
     "is_production": true,
     "group": "solar production",
     "first_ts_utc": "2020-06-15T02:29:00Z",
-    "last_ts_utc": "2026-09-27T07:10:00Z",
-    "n_readings": 416088,
+    "last_ts_utc": "2026-10-02T14:00:00Z",
+    "n_readings": 419525,
     "table": "s_phumy2",
     "published": true,
     "granularities": [
@@ -1484,15 +1484,15 @@
         "decimals": 1,
         "observed": {
           "channel": "solar2_v",
-          "n_values": 195954,
+          "n_values": 199391,
           "min": 0.0,
           "max": 5.899,
-          "mean": 0.678728017800096,
+          "mean": 0.6870672547908381,
           "p01": 0.0,
           "p50": 0.0,
-          "p99": 5.061,
+          "p99": 5.059,
           "n_out_of_range": 0,
-          "n_zero": 121830
+          "n_zero": 123910
         }
       },
       {
@@ -1520,10 +1520,10 @@
         "decimals": 1,
         "observed": {
           "channel": "current2_a",
-          "n_values": 416088,
+          "n_values": 419525,
           "min": 0.155,
           "max": 1.9968,
-          "mean": 0.23052813491376825,
+          "mean": 0.2305141662594601,
           "p01": 0.2,
           "p50": 0.231,
           "p99": 0.283,
@@ -1552,15 +1552,15 @@
         "decimals": 1,
         "observed": {
           "channel": "power_w",
-          "n_values": 416088,
+          "n_values": 419525,
           "min": 0.0,
           "max": 19877.0,
-          "mean": 0.19120474515006441,
+          "mean": 0.18963828138966687,
           "p01": 0.0,
           "p50": 0.0,
           "p99": 0.0,
           "n_out_of_range": 0,
-          "n_zero": 416083
+          "n_zero": 419520
         }
       },
       {
@@ -1588,13 +1588,13 @@
         "decimals": 1,
         "observed": {
           "channel": "temp_c",
-          "n_values": 416083,
+          "n_values": 419520,
           "min": 15.5,
           "max": 80.6,
-          "mean": 29.490948921248886,
+          "mean": 29.525811165141114,
           "p01": 20.8,
           "p50": 29.1,
-          "p99": 47.2,
+          "p99": 47.3,
           "n_out_of_range": 466,
           "n_zero": 0
         }
@@ -1624,13 +1624,13 @@
         "decimals": 3,
         "observed": {
           "channel": "lipo2_v",
-          "n_values": 416083,
+          "n_values": 419520,
           "min": 1.98,
           "max": 4.196,
-          "mean": 3.878761312045914,
-          "p01": 3.219,
-          "p50": 3.922,
-          "p99": 4.146,
+          "mean": 3.879569345919146,
+          "p01": 3.22,
+          "p50": 3.923,
+          "p99": 4.144,
           "n_out_of_range": 5,
           "n_zero": 0
         }
@@ -1659,13 +1659,13 @@
         "decimals": 0,
         "observed": {
           "channel": "boot_count",
-          "n_values": 416061,
+          "n_values": 419498,
           "min": 1.0,
           "max": 71854.0,
-          "mean": 15735.927628400643,
-          "p01": 58.0,
-          "p50": 11430.0,
-          "p99": 67607.0,
+          "mean": 15630.38320802483,
+          "p01": 59.0,
+          "p50": 11318.0,
+          "p99": 67573.0,
           "n_out_of_range": 0,
           "n_zero": 0
         }
@@ -1681,15 +1681,15 @@
         "note": "Excluded from the site and the CSVs, and the reason is that it is not a measurement rather than that it is implausible. 0.8 published it banded at +/-2,000 W, where five readings were flagged and 415,112 zeros were presented as a power curve. The values are in the database, with no band, because a band would assert a quantity the pin does not carry. Open question 3.",
         "observed": {
           "channel": "power_w",
-          "n_values": 416088,
+          "n_values": 419525,
           "min": 0.0,
           "max": 19877.0,
-          "mean": 0.19120474515006441,
+          "mean": 0.18963828138966687,
           "p01": 0.0,
           "p50": 0.0,
           "p99": 0.0,
           "n_out_of_range": 0,
-          "n_zero": 416083
+          "n_zero": 419520
         }
       }
     ],
