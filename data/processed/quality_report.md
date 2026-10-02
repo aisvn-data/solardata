@@ -1,6 +1,6 @@
-# Data quality report -- solardata 0.11.1
+# Data quality report -- solardata 0.13.0
 
-**731,981 readings** from 8 raw files across 8 stations. 25,579 hourly and 1,187 daily rollup buckets. 254,327 rejected cells, 0 recovered notes, 0 files excluded whole.
+**735,418 readings** from 8 raw files across 8 stations. 25,705 hourly and 1,192 daily rollup buckets. 254,327 rejected cells, 0 recovered notes, 0 files excluded whole.
 
 Every station is one table in `solardata.db`, holding only the channels that station collects. Bands belong to a (station, channel) pair, not to a column name, and are tested in the unit the value is stored in.
 
@@ -12,7 +12,7 @@ Every station is one table in `solardata.db`, holding only the channels that sta
 | AISVN Solar (archived applet) | `s_aisvn_solar` | 13,788 | 2020-05-21 to 2020-06-12 | 8 | 4 |
 | AISVN #2 | `s_aisvn2` | 164,098 | 2020-06-18 to 2021-11-01 | 7 | 7 |
 | Maker Webhooks (archived applet) | `s_maker_webhooks` | 8,535 | 2020-05-30 to 2020-06-12 | 10 | 10 |
-| Phu My Hung #2 | `s_phumy2` | 416,088 | 2020-06-15 to 2026-09-27 | 6 | 5 |
+| Phu My Hung #2 | `s_phumy2` | 419,525 | 2020-06-15 to 2026-10-02 | 6 | 5 |
 | Solar bench (2020-05-16 sheet) | `s_solar_2020_05` | 12,920 | 2020-05-16 to 2020-06-15 | 4 | 3 |
 | Test bench | `s_test` | 33,377 | 2020-07-05 to 2020-08-21 | 3 | 3 |
 | Phu My Hung voltage calibration | `s_voltage_phumy` | 5,553 | 2020-07-04 to 2020-07-12 | 4 | 4 |
@@ -189,18 +189,18 @@ Superseded by aisvn. June 2020 only. Two sheet widths, 10 and 11 columns, and th
 
 7-channel logger and by far the longest record: 416,088 readings from June 2020 to September 2026. Split across three archive folders because Google Sheets split the sheet at 2000 rows; they are one instrument.
 
-416,088 readings in `s_phumy2`, 2020-06-15T02:29:00Z to 2026-09-27T07:10:00Z, timezone Asia/Ho_Chi_Minh, applet `IFTTT_phumy2`.
+419,525 readings in `s_phumy2`, 2020-06-15T02:29:00Z to 2026-10-02T14:00:00Z, timezone Asia/Ho_Chi_Minh, applet `IFTTT_phumy2`.
 
 ### What it collects
 
 | Channel | Unit | Band | n | min | p01 | median | mean | p99 | max | zeros | out of range | shown |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|
-| `solar2_v` | V | 0 to 30 | 195,954 | 0 | 0 | 0 | 0.6787 | 5.061 | 5.899 | 121,830 | 0 | yes |
-| `current2_a` | A | -5 to 5 | 416,088 | 0.155 | 0.2 | 0.231 | 0.2305 | 0.283 | 1.997 | 0 | 0 | yes |
-| `power_w` | W | -- | 416,088 | 0 | 0 | 0 | 0.1912 | 0 | 19,877.00 | 416,083 | 0 | **no** |
-| `temp_c` | degC | 0 to 60 | 416,083 | 15.5 | 20.8 | 29.1 | 29.49 | 47.2 | 80.6 | 0 | 466 | yes |
-| `lipo2_v` | V | 2.5 to 4.35 | 416,083 | 1.98 | 3.219 | 3.922 | 3.879 | 4.146 | 4.196 | 0 | 5 | yes |
-| `boot_count` | count | -- | 416,061 | 1 | 58 | 11,430.00 | 15,735.93 | 67,607.00 | 71,854.00 | 0 | 0 | yes |
+| `solar2_v` | V | 0 to 30 | 199,391 | 0 | 0 | 0 | 0.6871 | 5.059 | 5.899 | 123,910 | 0 | yes |
+| `current2_a` | A | -5 to 5 | 419,525 | 0.155 | 0.2 | 0.231 | 0.2305 | 0.283 | 1.997 | 0 | 0 | yes |
+| `power_w` | W | -- | 419,525 | 0 | 0 | 0 | 0.1896 | 0 | 19,877.00 | 419,520 | 0 | **no** |
+| `temp_c` | degC | 0 to 60 | 419,520 | 15.5 | 20.8 | 29.1 | 29.53 | 47.3 | 80.6 | 0 | 466 | yes |
+| `lipo2_v` | V | 2.5 to 4.35 | 419,520 | 1.98 | 3.22 | 3.923 | 3.88 | 4.144 | 4.196 | 0 | 5 | yes |
+| `boot_count` | count | -- | 419,498 | 1 | 59 | 11,318.00 | 15,630.38 | 67,573.00 | 71,854.00 | 0 | 0 | yes |
 
 ### Recorded but not shown
 
@@ -319,10 +319,10 @@ How much of each channel's own record its own band rejects. A band that fires on
 | `maker-webhooks` | `wind_v` | W | 0 to 50 | 4,935 | 22 | 0.446% | 0-50 W, the collector's estimate for this generator |
 | `maker-webhooks` | `solar_v` | V | 0 to 30 | 6,649 | 17 | 0.256% | Fires on 17 of 6,649 readings: a -984 mV reading and readings up to 34.0 V |
 | `aisvn` | `temp_c` | degC | 0 to 40 | 62,156 | 156 | 0.251% | 0-40 degC, the collector's ceiling for a probe in shadow at this site |
-| `phumy2` | `temp_c` | degC | 0 to 60 | 416,083 | 466 | 0.112% | Fires on the readings above 60 degC, reaching 80.6 |
+| `phumy2` | `temp_c` | degC | 0 to 60 | 419,520 | 466 | 0.111% | Fires on the readings above 60 degC, reaching 80.6 |
 | `aisvn-solar` | `battery_v` | V | 0 to 5.1 | 13,788 | 7 | 0.051% | 0-5.1 V, the documented 0-5,100 mV ceiling |
 | `maker-webhooks` | `lipo_v` | V | 0 to 4.35 | 8,535 | 4 | 0.047% | Upper bound at the 1S cell ceiling of 4.35 V, lower bound at 0 rather than 2.5 V |
-| `phumy2` | `lipo2_v` | V | 2.5 to 4.35 | 416,083 | 5 | 0.001% | Fires on 5 of 416,083 readings, all of them below 2.5 V |
+| `phumy2` | `lipo2_v` | V | 2.5 to 4.35 | 419,520 | 5 | 0.001% | Fires on 5 of 416,083 readings, all of them below 2.5 V |
 | `aisvn` | `wind_v` | W | 0 to 50 | 77,622 | 0 | 0.000% | 0-50 W, the collector's estimate for this generator |
 | `aisvn2` | `solar3_v` | V | 0 to 30 | 164,097 | 0 | 0.000% | Recorded 0-23,860 mV, 16.7 V at the 99th percentile |
 | `aisvn2` | `lipo2_v` | V | 0 to 8.7 | 164,097 | 0 | 0.000% | Banded 0-8.7 V, the full range of a 2S pack, rather than the 2.5-4.35 V of a 1S cell |
@@ -331,8 +331,8 @@ How much of each channel's own record its own band rejects. A band that fires on
 | `aisvn-solar` | `lipo_v` | V | 0 to 5 | 13,788 | 0 | 0.000% | 0-5 V, the collector's figure, which replaces the 2.5-4.35 V of a 1S cell |
 | `maker-webhooks` | `solar2_v` | V | 0 to 15 | 2,583 | 0 | 0.000% | 0-15 V, the collector's figure |
 | `maker-webhooks` | `load_v` | V | 0 to 30 | 5,686 | 0 | 0.000% | Recorded 0.067-12.242 V |
-| `phumy2` | `solar2_v` | V | 0 to 30 | 195,954 | 0 | 0.000% | Nothing is flagged, and nothing should be: 0.8 nulled 220,069 readings over 2022-10 to 2024-01 on the grounds that the input was disconnected, and then banded… |
-| `phumy2` | `current2_a` | A | -5 to 5 | 416,088 | 0 | 0.000% | This is the single largest correction in 0.9 |
+| `phumy2` | `solar2_v` | V | 0 to 30 | 199,391 | 0 | 0.000% | Nothing is flagged, and nothing should be: 0.8 nulled 220,069 readings over 2022-10 to 2024-01 on the grounds that the input was disconnected, and then banded… |
+| `phumy2` | `current2_a` | A | -5 to 5 | 419,525 | 0 | 0.000% | This is the single largest correction in 0.9 |
 | `test` | `temp_c` | degC | 0 to 60 | 33,377 | 0 | 0.000% | Recorded 21.49-31.31 degC, median 27.70 |
 
 ## Rejected cells by reason
@@ -368,7 +368,7 @@ is published once, above and in `config.py`.
 | `aisvn2` | 164,098 | 120 s | 120 s |
 | `aisvn-solar` | 13,788 | 120 s | 120 s |
 | `maker-webhooks` | 8,535 | 60 s | 60 s |
-| `phumy2` | 416,088 | 120 s | 120 s |
+| `phumy2` | 419,525 | 120 s | 120 s |
 | `solar-2020-05` | 12,920 | 120 s | 120 s |
 | `test` | 33,377 | 120 s | 120 s |
 | `voltage-phumy` | 5,553 | 120 s | 120 s |

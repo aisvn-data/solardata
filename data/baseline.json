@@ -1,7 +1,7 @@
 {
   "description": "The expected output of a full build over data/raw. Enforced by `python -m etl verify` and by the data workflow. Re-record with `--update-baseline --reason ...`, never by hand.",
   "counts": {
-    "readings": 731981,
+    "readings": 735418,
     "files": 8,
     "stations": 8,
     "duplicate_ts": 0,
@@ -12,15 +12,15 @@
     "excluded_files": 0,
     "out_of_range": 42095,
     "channel_stats": 52,
-    "hourly_buckets": 25579,
-    "daily_buckets": 1187,
+    "hourly_buckets": 25705,
+    "daily_buckets": 1192,
     "undeclared_layouts": 0
   },
   "recorded": {
     "tool_version": "0.13.0",
-    "run_started_at": "2026-09-29T05:35:04Z",
-    "ingest_notes": "731981 readings from 8 files across 8 stations in 8 sources",
-    "reason": "release 0.13.0: add station selector overlay drawer, reduce whitespace, improve mobile padding, and update default opening view",
+    "run_started_at": "2026-10-02T15:03:25Z",
+    "ingest_notes": "735418 readings from 8 files across 8 stations in 8 sources",
+    "reason": "add 3,437 readings to phumy2 raw telemetry",
     "stations": [
       "aisvn",
       "aisvn2",
