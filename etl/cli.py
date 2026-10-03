@@ -30,11 +30,11 @@ from .config import Settings
 
 __all__ = ["main"]
 
-STAGES = ("ingest", "aggregate", "export", "report", "audit", "verify")
-#: What `all` runs, and the order that matters. `aggregate` needs the ingest
-#: (it reads the station tables) and `verify` needs everything, because the
-#: baseline records the rollup bucket counts.
-ALL_STAGES = ("ingest", "aggregate", "export", "report", "audit")
+STAGES = ("normalize", "ingest", "curate", "aggregate", "export", "report", "audit", "verify")
+#: What `all` runs, and the order that matters. `normalize` ensures the raw database
+#: is up to date, `aggregate` needs the ingest (it reads the station tables),
+#: and `verify` needs everything, because the baseline records the rollup bucket counts.
+ALL_STAGES = ("normalize", "ingest", "aggregate", "export", "report", "audit")
 
 
 def _settings(args: argparse.Namespace) -> Settings:
@@ -232,11 +232,12 @@ def cmd_fresh(args: argparse.Namespace) -> int:
     what this adds is a guaranteed-empty starting state and a verify at the end.
     """
     settings = _settings(args)
-    for suffix in ("", "-wal", "-shm"):
-        target = Path(settings.db_path).with_name(Path(settings.db_path).name + suffix)
-        if target.exists():
-            target.unlink()
-            _say(args, f"removed {target.name}")
+    for prefix in (settings.db_path, settings.raw_db_path):
+        for suffix in ("", "-wal", "-shm"):
+            target = Path(prefix).with_name(Path(prefix).name + suffix)
+            if target.exists():
+                target.unlink()
+                _say(args, f"removed {target.name}")
     if not Path(settings.db_path).exists():
         _say(args, "starting from no database")
     return cmd_all(args)
